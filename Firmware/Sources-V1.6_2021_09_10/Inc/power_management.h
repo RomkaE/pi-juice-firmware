@@ -19,9 +19,7 @@ extern uint8_t rtcWakeupEventFlag;
 extern uint8_t ioWakeupEvent;
 
 void PowerManagementInit(void);
-#if !defined(RTOS_FREERTOS)
 void PowerManagementTask(void);
-#endif
 void RunPinInstallationStatusSetConfigCmd(uint8_t data[], uint8_t len);
 void RunPinInstallationStatusGetConfigCmd(uint8_t data[], uint16_t *len);
 void PowerMngmtSchedulePowerOff(uint8_t dalayCode);

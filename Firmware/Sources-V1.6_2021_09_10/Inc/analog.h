@@ -41,9 +41,7 @@ extern ADC_AnalogWDGConfTypeDef analogWDGConfig;
 //extern uint32_t analogBufferTicks;
 
 void AnalogInit(void);
-#if !defined(RTOS_FREERTOS)
 void AnalogTask(void);
-#endif
 int16_t Get5vIoVoltage();
 void AnalogStop(void);
 void AnalogStart(void);

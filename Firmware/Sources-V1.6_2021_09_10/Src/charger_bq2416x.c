@@ -8,19 +8,6 @@
 #include "power_source.h"
 #include "analog.h"
 
-#if defined(RTOS_FREERTOS)
-#include "cmsis_os.h"
-
-static void ChargerTask(void *argument);
-
-static osThreadId_t chargerTaskHandle;
-
-static const osThreadAttr_t chargerTask_attributes = {
-	.name = "chargerTask",
-	.priority = (osPriority_t) osPriorityNormal,
-	.stack_size = 512
-};
-#endif
 
 #define CHG_READ_PERIOD_MS 	90  // ms
 #define WD_RESET_TRSH_MS 	(30000 / 3)
@@ -428,86 +415,8 @@ void ChargerInit() {
 
 	powerSourcePresent = CHARGER_IS_INPUT_PRESENT();
 
-#if defined(RTOS_FREERTOS)
-	chargerTaskHandle = osThreadNew(ChargerTask, (void*)NULL, &chargerTask_attributes);
-#endif
 }
 
-#if defined(RTOS_FREERTOS)
-static int8_t currRegAdr;
-
-static void ChargerTask(void *argument) {
-	for(;;)
-	{
-		chargerNeedPoll = 0;
-		if (ChargerUpdateUSBInLockout() != 0) {
-			chargerNeedPoll = 1;
-			continue;//return;
-		}
-
-		if (chargerInterruptFlag) {
-			// update status on interrupt
-			ChargerRegRead(0);
-			chargerInterruptFlag = 0;
-			chargerNeedPoll = 1;
-		}
-
-		if (ChargerUpdateControlStatus() != 0) {
-			chargerNeedPoll = 1;
-			continue;//return;
-		}
-
-		if (ChargerUpdateRegulationVoltage() != 0) {
-			chargerNeedPoll = 1;
-			continue;//return;
-		}
-
-		if (ChargerUpdateTempRegulationControlStatus() != 0) {
-			chargerNeedPoll = 1;
-			continue;//return;
-		}
-
-		if (ChargerUpdateChgCurrentAndTermCurrent() != 0) {
-			chargerNeedPoll = 1;
-			continue;//return;
-		}
-
-		if (ChargerUpdateVinDPM() != 0) {
-			chargerNeedPoll = 1;
-			continue;//return;
-		}
-
-		if (MS_TIME_COUNT(wdTimeCounter) > WD_RESET_TRSH_MS) {
-			// reset timer
-			// NOTE: reset bit must be 0 in write register image to prevent resets for other write access
-			regsw[0] = chargerInputsPrecedence << 3;
-			uint8_t resetVal = regsw[0] | 0x80;
-			if ( HAL_I2C_Mem_Write(&hi2c2, 0xD6, 0, 1, &resetVal, 1, 1) == HAL_OK )  {
-				MS_TIME_COUNTER_INIT(wdTimeCounter);
-			}
-			//while (HAL_I2C_GetState(&hi2c2) != HAL_I2C_STATE_READY);
-		}
-
-		// Periodically read register states from charger
-		if (MS_TIME_COUNT(readTimeCounter) >= CHG_READ_PERIOD_MS) {
-
-			if (ChargerRegRead(currRegAdr) == HAL_OK) {
-				currRegAdr ++;
-				currRegAdr &= 0x07; // 8 registers to read in circle
-			}
-
-			//faultStatus = regs[0] & 0x07;
-			chargerStatus = (regs[0] >> 4) & 0x07;
-
-			MS_TIME_COUNTER_INIT(readTimeCounter);
-
-		}
-
-		if (!chargerNeedPoll)
-			osDelay(20);
-	}
-}
-#else
 
 __weak void InputSourcePresenceChangeCb(uint8_t event) {
 	UNUSED(event);
@@ -632,7 +541,6 @@ void ChargerTask(void) {
 	}
 
 }
-#endif
 
 void ChargerTriggerNTCMonitor(NTC_MonitorTemperature_T temp) {
 	switch (temp) {

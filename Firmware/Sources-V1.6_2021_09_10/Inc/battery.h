@@ -78,9 +78,7 @@ extern BatteryProfile_T const *currentBatProfile;
 extern BatteryStatus_T batteryStatus;
 
 void BatteryInit(void);
-#if !defined(RTOS_FREERTOS)
 void BatteryTask(void);
-#endif
 int8_t BatterySetProfileReq(uint8_t id);
 const BatteryProfile_T *BatteryGetProfile(void);
 int8_t BatteryReadCurrentProfile(uint8_t *data, uint16_t *len);

@@ -18,19 +18,6 @@
 #include "load_current_sense.h"
 #include "analog.h"
 
-#if defined(RTOS_FREERTOS)
-#include "cmsis_os.h"
-
-static void PowerManagementTask(void *argument);
-
-static osThreadId_t powManTaskHandle;
-
-static const osThreadAttr_t powManTask_attributes = {
-	.name = "powManTask",
-	.priority = (osPriority_t) osPriorityNormal,
-	.stack_size = 128
-};
-#endif
 
 RunPinInstallationStatus_T runPinInstallationStatus = RUN_PIN_NOT_INSTALLED;
 
@@ -107,9 +94,6 @@ void PowerManagementInit(void) {
 
 	MS_TIME_COUNTER_INIT(powerMngmtTaskMsCounter);
 
-#if defined(RTOS_FREERTOS)
-	powManTaskHandle = osThreadNew(PowerManagementTask, (void*)NULL, &powManTask_attributes);
-#endif
 }
 #if defined LOGGING
 __STATIC_INLINE void LOG_PM_WAKEUP_EVENT(uint8_t triggers) {
@@ -245,53 +229,6 @@ void PowerMngmtHostPollEvent(void) {
 	watchdogTimer = watchdogExpirePeriod;
 }
 
-#if defined(RTOS_FREERTOS)
-static void PowerManagementTask(void *argument) {
-
-  for (;;) {
-	if (MS_TIME_COUNT(powerMngmtTaskMsCounter) >= 900/*(state == STATE_LOWPOWER?2000:500)*/) {
-		MS_TIME_COUNTER_INIT(powerMngmtTaskMsCounter);
-
-		if ( ( (batteryRsoc >= wakeupOnCharge && CHARGER_IS_INPUT_PRESENT() && CHARGER_IS_BATTERY_PRESENT()) || rtcWakeupEventFlag || ioWakeupEvent)
-				&& !delayedPowerOffCounter
-				&& MS_TIME_COUNT(lastHostCommandTimer) > 15000
-				&& MS_TIME_COUNT(lastWakeupTimer) > 30000 ) {
-			if ( WakeUpHost() == 0 ) {
-				wakeupOnCharge = 0xFFFF;
-				rtcWakeupEventFlag = 0;
-				delayedPowerOffCounter = 0;
-				ioWakeupEvent = 0;
-			}
-		}
-
-		if (watchdogExpirePeriod && MS_TIME_COUNT(lastHostCommandTimer) > watchdogTimer) {
-			if ( WakeUpHost() == 0 ) {
-				wakeupOnCharge = 0xFFFF;
-				watchdogExpiredFlag = 1;
-				rtcWakeupEventFlag = 0;
-				ioWakeupEvent = 0;
-				delayedPowerOffCounter = 0;
-			}
-			watchdogTimer += watchdogExpirePeriod;
-		}
-	}
-
-	if ( delayedTurnOnFlag && MS_TIME_COUNT(delayedTurnOnTimer) >= 100 ) {
-		Turn5vBoost(1);
-		delayedTurnOnFlag = 0;
-	}
-
-	if ( delayedPowerOffCounter && delayedPowerOffCounter <= HAL_GetTick() ) {
-		if (POW_5V_BOOST_EN_STATUS() && (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT)) {
-			Turn5vBoost(0);
-		}
-		delayedPowerOffCounter = 0;
-	}
-
-	osDelay(20);
-  }
-}
-#else
 void PowerManagementTask(void) {
 
 	if (MS_TIME_COUNT(powerMngmtTaskMsCounter) >= 500) {
@@ -356,7 +293,6 @@ void PowerManagementTask(void) {
 		wakeupOnCharge = (wakeupOnChargeConfig&0x7F) <= 100 ? (wakeupOnChargeConfig&0x7F) * 10 : 0xFFFF;
 	}
 }
-#endif
 
 void InputSourcePresenceChangeCb(uint8_t event) {
 

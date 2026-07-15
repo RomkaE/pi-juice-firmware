@@ -22,19 +22,6 @@
 
 //#define ANALOG_GET_VDG_AVG()	(4790 - (((analogIn[3] + analogIn[(uint16_t)ADC_SCAN_CHANNELS*256+3] + analogIn[(uint16_t)ADC_SCAN_CHANNELS*512+3] + analogIn[(uint16_t)ADC_SCAN_CHANNELS*768+3]) * aVdd) >> 13))
 
-#if defined(RTOS_FREERTOS)
-#include "cmsis_os.h"
-
-static void AnalogTask(void *argument);
-
-static osThreadId_t analogTaskHandle;
-
-static const osThreadAttr_t analogTask_attributes = {
-	.name = "analogTask",
-	.priority = (osPriority_t) osPriorityNormal,
-	.stack_size = 128
-};
-#endif
 
 uint16_t aVdd;
 
@@ -319,26 +306,8 @@ void AnalogInit(void) {
 	}
 
    MS_TIME_COUNTER_INIT(tempCalcCounter);
-#if defined(RTOS_FREERTOS)
-   analogTaskHandle = osThreadNew(AnalogTask, (void*)NULL, &analogTask_attributes);
-#endif
 }
 
-#if defined(RTOS_FREERTOS)
-static void AnalogTask(void *argument) {
-
-	for(;;)
-	{
-		osDelay(2000);
-		int32_t vtemp = (((uint32_t)analogIn[ADC_TEMP_SENS_CHN]) * aVdd * 10) >> 12;
-		volatile int32_t v30 = (((uint32_t)*TEMP30_CAL_ADDR ) * 33000) >> 12;
-		mcuTemperature = (v30 - vtemp) / 43 + 30; //avg_slope = 4.3
-		//mcuTemperature = ((((int32_t)*TEMP30_CAL_ADDR - analogIn[7]) * 767) >> 12) + 30;
-
-		aVdd = ANALOG_ADC_GET_AVDD(GetSample(ADC_VREF_BUFF_CHN));
-	}
-}
-#else
 void AnalogTask(void) {
 
 	if (MS_TIME_COUNT(tempCalcCounter) > 2000) {
@@ -350,7 +319,6 @@ void AnalogTask(void) {
 	}
 	aVdd = ANALOG_ADC_GET_AVDD(GetSample(ADC_VREF_BUFF_CHN));
 }
-#endif
 
 void AnalogStop(void) {
 	if (HAL_IS_BIT_SET(hadc.Instance->CR, ADC_CR_ADSTART)) {

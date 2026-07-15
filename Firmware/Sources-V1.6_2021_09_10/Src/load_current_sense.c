@@ -13,19 +13,6 @@
 #include "power_source.h"
 #include "execution.h"
 
-#if defined(RTOS_FREERTOS)
-#include "cmsis_os.h"
-
-static void LoadCurrentSenseTask(void *argument);
-
-static osThreadId_t currSenseTaskHandle;
-
-static const osThreadAttr_t currSenseTask_attributes = {
-	.name = "currSenseTask",
-	.priority = (osPriority_t) osPriorityNormal,
-	.stack_size = 128
-};
-#endif
 
 #define ID_T_POLY_COEFF_VDG_START 	240
 #define ID_T_POLY_COEFF_VDG_END 	800
@@ -149,23 +136,6 @@ void GetCurrStat(uint8_t stat[]) {
 	}
 }
 
-#if defined(RTOS_FREERTOS)
-void LoadCurrentSenseTask(void *argument) {
-	for(;;)
-	{
-		osDelay(98);
-		if (AnalogSamplesReady()) {
-			volatile int32_t newCurr = GetResSenseCurrent();
-			if (newCurr < 3000 && newCurr > -3000) {
-				uint8_t i = (currBufferInd++)&0x0F;
-				pow5vIoResLoadCurrent -= currBuffer[i] >> 4;
-				currBuffer[i] = newCurr;
-				pow5vIoResLoadCurrent += currBuffer[i] >> 4;
-			}
-		}
-	}
-}
-#else
 void LoadCurrentSenseTask(void) {
 	if (AnalogSamplesReady()) {
 		if (hardwareRev == HARD_REV_UNKNOWN) {
@@ -230,7 +200,6 @@ void LoadCurrentSenseTask(void) {
 		pow5vIoResLoadCurrent = ( (int32_t)(((float)s/cnt)-8) * 2 * aVdd * 25) >> 8;
 	}*/
 }
-#endif
 
 static int8_t ReadILoadCalibCoeffs(void) {
 	kta = 0; // invalid value
@@ -273,9 +242,6 @@ void LoadCurrentSenseInit(void) {
 		while(i<16) {currBuffer[i] = 0; i++;}
 	}
 
-#if defined(RTOS_FREERTOS)
-	currSenseTaskHandle = osThreadNew(LoadCurrentSenseTask, (void*)NULL, &currSenseTask_attributes);
-#endif
 }
 
 int8_t CalibrateLoadCurrent(void) {

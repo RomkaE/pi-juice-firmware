@@ -46,10 +46,8 @@ extern uint8_t forcedPowerOffFlag;
 extern uint8_t forcedVSysOutputOffFlag;
 
 void PowerSourceInit(void);
-#if !defined(RTOS_FREERTOS)
 void PowerSourceTask(void);
 void PowerSource5vIoDetectionTask(void);
-#endif
 void PowerSourceExitLowPower(void);
 void PowerSourceEnterLowPower(void);
 void PowerSourceSetBatProfile(const BatteryProfile_T* batProfile);

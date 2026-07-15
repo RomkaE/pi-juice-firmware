@@ -43,9 +43,7 @@ extern int8_t ntcFaultFlag;
 extern RsocMeasurementConfig_T rsocMeasurementConfig;
 
 void FuelGaugeInit(void);
-#if !defined(RTOS_FREERTOS)
 void FuelGaugeTask(void);
-#endif
 void FuelGaugeSetBatProfile(const BatteryProfile_T *batProfile);
 int8_t FuelGaugeSetConfig(uint8_t *data, uint16_t len);
 void FuelGaugeGetConfig(uint8_t data[], uint16_t *len);

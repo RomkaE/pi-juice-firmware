@@ -19,19 +19,6 @@
 #define PACK_CAPACITY_U16(c) 	((c==0xFFFFFFFF) ? 0xFFFF : (c >> ((c>=0x8000)*7)) | (c>=0x8000)*0x8000)
 #define UNPACK_CAPACITY_U16(v) 	((v==0xFFFF) ? 0xFFFFFFFF : (uint32_t)(v&0x7FFF) << (((v&0x8000) >> 15)*7))
 
-#if defined(RTOS_FREERTOS)
-#include "cmsis_os.h"
-
-static void BatteryTask(void *argument);
-
-static osThreadId_t batteryTaskHandle;
-
-static const osThreadAttr_t batteryTask_attributes = {
-	.name = "batteryTask",
-	.priority = (osPriority_t) osPriorityNormal,
-	.stack_size = 256
-};
-#endif
 
 extern PowerState_T state;
 
@@ -351,9 +338,6 @@ void BatteryInit(void) {
 		BatInitProfile(var&0xFF);
 	}
 
-#if defined(RTOS_FREERTOS)
-	batteryTaskHandle = osThreadNew(BatteryTask, (void*)NULL, &batteryTask_attributes);
-#endif
 }
 
 int8_t BatReadExtendedEEprofileData(void) {
@@ -473,129 +457,6 @@ void BatWriteExtendedEEprofileData(BatteryProfile_T *batProfile) {
 	NvWriteVariableU8(BAT_R90H_NV_ADDR, (batProfile->r90)>>8);
 }
 
-#if defined(RTOS_FREERTOS)
-static void BatteryTask(void *argument) {
-  uint8_t chargingBlink[] = {0xFF, 0, 0, 0, 90, 0, 0, 0, 90};
-  BatteryStatus_T prevBatteryStatus = BAT_STATUS_NORMAL;
-  uint16_t prevBatteryRsoc = 0xFFFF;
-
-  for(;;)
-  {
-	if (setProfileReq >= 0) {
-		uint8_t id = setProfileReq;
-		setProfileReq = -1;
-		EE_WriteVariable(BAT_PROFILE_NV_ADDR, id | ((uint16_t)(~id)<<8));
-		uint16_t var;
-		EE_ReadVariable(BAT_PROFILE_NV_ADDR, &var);
-		if ( ((var^0xFF)&0xFF) == (var>>8) ) {
-			// if fcs correct
-			BatInitProfile(var&0xFF);
-		} else {
-			currentBatProfile = NULL;
-			batProfileStatus = BATTERY_INVALID_PROFILE_ID;
-		}
-
-		ChargerSetBatProfileReq(currentBatProfile);
-		PowerSourceSetBatProfile(currentBatProfile);
-		FuelGaugeSetBatProfile(currentBatProfile);
-	}
-
-	if (writeCustomProfileReq==1) {
-		writeCustomProfileReq = 0;
-		BatWriteEEprofileData(&customBatProfileReq);
-		if (BatReadEEprofileData() == 0) {
-			batProfileStatus = BATTERY_CUSTOM_PROFILE_ID;
-			currentBatProfile = &customBatProfile;
-		} else {
-			batProfileStatus = BATTERY_INVALID_CUSTOM_PROFILE_STATUS;
-			currentBatProfile = NULL;
-		}
-
-		uint16_t var;
-		EE_ReadVariable(BAT_PROFILE_NV_ADDR, &var);
-		if ( ((var&0xFF) != BATTERY_CUSTOM_PROFILE_ID) || (((var^0xFF)&0xFF) != (var>>8)) ) {
-			BatReadExtendedEEprofileData();
-			uint16_t var;
-			EE_WriteVariable(BAT_PROFILE_NV_ADDR, BATTERY_CUSTOM_PROFILE_ID | ((uint16_t)~BATTERY_CUSTOM_PROFILE_ID<<8));
-			EE_ReadVariable(BAT_PROFILE_NV_ADDR, &var);
-			if (((var^0xFF)&0xFF) == (var>>8) && (var&0xFF) == BATTERY_CUSTOM_PROFILE_ID) {  // upper byte should be complement if data are valid
-				if (currentBatProfile != NULL)
-					batProfileStatus = BATTERY_CUSTOM_PROFILE_ID;
-				else
-					batProfileStatus = BATTERY_INVALID_CUSTOM_PROFILE_STATUS;
-			} else {
-				currentBatProfile = NULL;
-				batProfileStatus = BATTERY_INVALID_PROFILE_ID;
-			}
-		}
-
-		ChargerSetBatProfileReq(currentBatProfile);
-		PowerSourceSetBatProfile(currentBatProfile);
-		FuelGaugeSetBatProfile(currentBatProfile);
-	} else if (writeCustomProfileReq==2) {
-		writeCustomProfileReq = 0;
-		BatWriteExtendedEEprofileData(&customBatProfileReq);
-		BatReadExtendedEEprofileData();
-		if (batProfileStatus == BATTERY_CUSTOM_PROFILE_ID) {
-			FuelGaugeSetBatProfile(currentBatProfile);
-		}
-	}
-
-	if (!CHARGER_IS_BATTERY_PRESENT() || batteryVoltage < 2500) {
-		batteryStatus = BAT_STATUS_NOT_PRESENT;
-	} else if (chargerStatus == CHG_CHARGING_FROM_IN) {
-		batteryStatus = BAT_STATUS_CHARGING_FROM_IN;
-	} else if (chargerStatus == CHG_CHARGING_FROM_USB) {
-		batteryStatus = BAT_STATUS_CHARGING_FROM_5V_IO;
-	} else {
-		batteryStatus = BAT_STATUS_NORMAL;
-	}
-
-	uint8_t r=0,g=0,b=0;
-	if (prevBatteryRsoc != batteryRsoc || prevBatteryStatus != batteryStatus)  {
-		if (batteryRsoc > 500) {
-			r = 0;
-			g = LedGetParamG(LED_CHARGE_STATUS);//60;
-		} else if (batteryRsoc > 150) {
-			r = LedGetParamR(LED_CHARGE_STATUS);//50;
-			g = LedGetParamG(LED_CHARGE_STATUS);//60;
-		} else {
-			r = LedGetParamR(LED_CHARGE_STATUS);//50;
-			g = 0;
-		}
-		b = LedGetParamB(LED_CHARGE_STATUS);
-	}
-
-	if (batteryStatus == BAT_STATUS_CHARGING_FROM_IN || batteryStatus == BAT_STATUS_CHARGING_FROM_5V_IO) {
-		if (prevBatteryStatus != batteryStatus) {
-			chargingBlink[1] = r;
-			chargingBlink[2] = g;
-			chargingBlink[5] = r;
-			chargingBlink[6] = g;
-			chargingBlink[7] = b;
-			chargingBlink[0] = 0xFF;
-			LedCmdSetBlink(LED_CHARGE_STATUS, chargingBlink, 0xFF);
-		}
-	} else if (chargerStatus == CHG_CHARGE_DONE) {
-		if (prevBatteryStatus != batteryStatus) {
-			LedFunctionSetRGB(LED_CHARGE_STATUS, r, g, b);
-		}
-	} else {
-		if (prevBatteryRsoc != batteryRsoc || prevBatteryStatus != batteryStatus)  {
-			if (state == STATE_LOWPOWER)
-				LedFunctionSetRGB(LED_CHARGE_STATUS, r>>2, g>>2, 0);
-			else
-				LedFunctionSetRGB(LED_CHARGE_STATUS, r, g, 0);
-		}
-	}
-
-	prevBatteryStatus = batteryStatus;
-	prevBatteryRsoc = batteryRsoc;
-
-	osDelay(20);
-  }
-}
-#else
 static uint32_t chargeLedTaskMsCounter;
 
 void BatteryTask(void) {
@@ -701,7 +562,6 @@ void BatteryTask(void) {
 			LedFunctionSetRGB(LED_CHARGE_STATUS, r, g, b);
 	}
 }
-#endif
 
 int8_t BatterySetProfileReq(uint8_t id) {
 	if (batProfileStatus != id) {

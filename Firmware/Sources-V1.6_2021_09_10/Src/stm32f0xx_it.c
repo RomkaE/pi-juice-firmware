@@ -82,22 +82,6 @@ void HardFault_Handler(void)
 
   /* USER CODE END HardFault_IRQn 1 */
 }
-#if defined(RTOS_FREERTOS)
-/**
-  * @brief This function handles TIM6 global interrupt.
-  */
-void TIM6_IRQHandler(void)
-{
-  /* USER CODE BEGIN TIM6_IRQn 0 */
-
-  /* USER CODE END TIM6_IRQn 0 */
-  HAL_IncTick();
-  HAL_TIM_IRQHandler(&htim6);
-  /* USER CODE BEGIN TIM6_IRQn 1 */
-
-  /* USER CODE END TIM6_IRQn 1 */
-}
-#else
 /**
 * @brief This function handles System service call via SWI instruction.
 */
@@ -140,7 +124,6 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 1 */
 }
 
-#endif
 /******************************************************************************/
 /* STM32F0xx Peripheral Interrupt Handlers                                    */
 /* Add here the Interrupt Handlers for the used peripherals.                  */

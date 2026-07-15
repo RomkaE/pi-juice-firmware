@@ -17,19 +17,6 @@
 
 #define FUEL_GAUGE_METHOD_DV	0
 
-#if defined(RTOS_FREERTOS)
-#include "cmsis_os.h"
-
-static void FuelGaugeTask(void *argument);
-
-static osThreadId_t fgTaskHandle;
-
-static const osThreadAttr_t fgTask_attributes = {
-	.name = "fuelGaugeTask",
-	.priority = (osPriority_t) osPriorityNormal,
-	.stack_size = 256
-};
-#endif
 
 extern I2C_HandleTypeDef hi2c2;
 extern uint8_t resetStatus;
@@ -262,9 +249,6 @@ void FuelGaugeInit(void) {
 	}
 
 	MS_TIME_COUNTER_INIT(fuelGaugeTaskTimer);
-#if defined(RTOS_FREERTOS)
-	fgTaskHandle = osThreadNew(FuelGaugeTask, (void*)NULL, &fgTask_attributes);
-#endif
 }
 
 void SocEvaluateDirectDynVoltage(uint16_t batVolt, int32_t dt) {
@@ -316,171 +300,6 @@ void SocEvaluateFuelGaugeIc(void) {
 	}
 }
 
-#if defined(RTOS_FREERTOS)
-static void FuelGaugeTask(void *argument) {
-	volatile int8_t succ;
-
-	for(;;)
-	{
-		osDelay(125);
-		int32_t dt = MS_TIME_COUNT(fuelGaugeTaskTimer);
-		//if ( dt > 125 ) {
-		MS_TIME_COUNTER_INIT(fuelGaugeTaskTimer);
-		uint16_t batVolt = GetAverageBatteryVoltage(ADC_VBAT_SENS_CHN);
-
-		if (CHARGER_IS_BATTERY_PRESENT() && batVolt > 2550) {
-			if (!prevBatPresent) {
-				prevBatPresent = 1;
-				if (rsocMeasurementConfig == RSOC_MEASUREMENT_DIRECT_DV) soc = GetSocFromOCV(batVolt);
-				continue;//return;
-			}
-			updateCnt++;
-
-			if (rsocMeasurementConfig == RSOC_MEASUREMENT_AUTO_DETECT && fuelGaugeI2cErrorCounter < 5 && fuelGaugeI2cErrorCounter > -5) {
-				if ( fuelGaugeI2cErrorCounter >= 0 ) {
-					// in case fuel gauge ic is present use it
-					if (updateCnt&0x04) SocEvaluateFuelGaugeIc();
-				} else {
-					// try to reinitialize
-					if (FuelGaugeIcInit() != 0) {
-						fuelGaugeI2cErrorCounter = fuelGaugeI2cErrorCounter > -127 ? fuelGaugeI2cErrorCounter - 1 : -127;
-					} else {
-						fuelGaugeI2cErrorCounter = 0;
-					}
-				}
-			} else {
-				batteryVoltage = batVolt;
-				int32_t ind = soc>>23;
-				int32_t dif= (int32_t)ocvSocTbl[ind]-batteryVoltage;
-				uint16_t rsoc = ((int32_t)rSocTbl[ind] * rSocTempCompesateTbl[(uint8_t)batteryTemp]) >> 8;
-				batteryCurrent = (dif*(((uint32_t)c0*rsoc)>>6))>>10;
-				int32_t dSoC = (((int32_t)dif*dt*(((int32_t)596*rsoc)>>8)))>>8;//dif*596*dt/res;
-				soc -= dSoC;
-				soc = soc<=2139095040?soc:2139095040;
-				soc = (soc>=0)?soc:0;
-				batteryRsoc = (soc>>7)*125>>21;
-			}
-
-			if (updateCnt&0x08)  {
-				if ( tempSensorConfig == BAT_TEMP_SENSE_CONFIG_AUTO_DETECT || tempSensorConfig == BAT_TEMP_SENSE_CONFIG_NTC ) {
-					if ( fuelGaugeI2cErrorCounter < 5 && fuelGaugeI2cErrorCounter >= 0 ) {
-						// if left tries
-						if (fuelGaugeTempMode == FUEL_GAUGE_TEMP_MODE_THERMISTOR) {
-							// try to read battery temperature from fuel gauge ic
-							succ = FuelGaugeReadWord(0x08, &fuelGaugeTemp);
-							if (succ == 0) {
-								fuelGaugeI2cErrorCounter = 0;
-								// check if NTC measurement is valid, compatible NTC sensor should give temp reading above -20C
-								if (fuelGaugeTemp <= 0x09E4 || currentBatProfile==NULL || currentBatProfile->ntcB == 0xFFFF || currentBatProfile->ntcResistance != 1000) {
-									// in case of invalid measurement, use on board measurement and update fuel gauge
-									batteryTemp = mcuTemperature;
-									ntcFaultFlag = 1;
-									// Set I2C mode
-									if (FuelGaugeWriteWord(0x16, 0x0000) == 0) fuelGaugeTempMode = FUEL_GAUGE_TEMP_MODE_I2C;
-								} else {
-									int16_t ntcTemp = ((int16_t)fuelGaugeTemp - 2732) / 10;
-									if ( ntcTemp>=23 && ntcTemp<=27 && (mcuTemperature<15 || mcuTemperature>45) ) {
-										// there can be fixed resistor instead of NTC, use mcu measurement instead
-										batteryTemp = mcuTemperature;
-										if (FuelGaugeWriteWord(0x16, 0x0000) == 0) fuelGaugeTempMode = FUEL_GAUGE_TEMP_MODE_I2C;
-									} else {
-										batteryTemp = ntcTemp;
-									}
-									ntcFaultFlag = 0;
-								}
-							} else if (succ > 0) {
-								// failed reading mean no fuel gauge ic on board
-								fuelGaugeI2cErrorCounter = fuelGaugeI2cErrorCounter < 127 ? fuelGaugeI2cErrorCounter + 1 : 127;
-							}
-						} else {
-							fuelGaugeTemp = mcuTemperature * 10 + 2732;
-							fuelGaugeTemp = fuelGaugeTemp > 0x0D04 ? 0x0D04 : fuelGaugeTemp;
-							fuelGaugeTemp = fuelGaugeTemp < 0x09E4 ? 0x09E4 : fuelGaugeTemp;
-							succ = FuelGaugeWriteWord(0x08, fuelGaugeTemp);
-							if (succ == 0) {
-								fuelGaugeI2cErrorCounter = 0;
-								// alternate to thermistor mode
-								if (FuelGaugeWriteWord(0x16, 0x0001) == 0) fuelGaugeTempMode = FUEL_GAUGE_TEMP_MODE_THERMISTOR;
-							} else if (succ > 0) {
-								fuelGaugeI2cErrorCounter = fuelGaugeI2cErrorCounter < 127 ? fuelGaugeI2cErrorCounter + 1 : 127;
-							}
-							batteryTemp = mcuTemperature;
-						}
-					} else if ( fuelGaugeI2cErrorCounter > -5 && fuelGaugeI2cErrorCounter < 0 ) {
-						// ic is not properly initialized, retry
-						if (FuelGaugeIcInit() != 0) {
-							fuelGaugeI2cErrorCounter = fuelGaugeI2cErrorCounter > -127 ? fuelGaugeI2cErrorCounter - 1 : -127;
-						} else {
-							fuelGaugeI2cErrorCounter = 0;
-						}
-					} else {
-						// fuel gauge ic is not responsive or absent
-						if ( currentBatProfile != NULL ) {
-							// use direct NTC measurement
-							volatile uint16_t ntcAdcSample = ADC_GET_BUFFER_SAMPLE(ADC_NTC_CHN);
-							if (ntcAdcSample<3000 && ntcAdcSample>5) { // sensor is connected
-								//volatile int32_t r = ntcAdcSample * (int32_t)240000 / (4096 - ntcAdcSample);
-								int32_t dr25 = ntcAdcSample * (int32_t)240000 / ((int16_t)4096 - ntcAdcSample)*10 / currentBatProfile->ntcResistance;
-								uint16_t beta = currentBatProfile->ntcB;
-								int32_t it = dr25<261 ? (dr25-4)>>1 : ((dr25+2300)*13)>>8;
-								it = it < 0 ? 0 : it;
-								it = it > 255 ? 255 : it;
-								int16_t ntcTemp =  (int32_t)65593*beta / (logTbl[it]* (int32_t)8 + (int32_t)220*beta) - 273; //1.0 / (log((double)r/r25)/beta + (double)1.0/298.15) - 273.15;
-								if ( (ntcTemp>=23 && ntcTemp<=27 && (mcuTemperature<15 || mcuTemperature>45)) || ntcTemp <-29 || ntcTemp > 90 ) {
-									// there can be fixed resistor instead of NTC, use mcu measurement instead
-									batteryTemp = mcuTemperature;
-								} else {
-									batteryTemp = ntcTemp;
-								}
-								ntcFaultFlag = 0;
-							} else {
-								batteryTemp = mcuTemperature;
-								ntcFaultFlag = 1;
-							}
-						} else {
-							batteryTemp = mcuTemperature;
-						}
-					}
-				} else  {
-					if ( tempSensorConfig == BAT_TEMP_SENSE_CONFIG_ON_BOARD ) {
-						batteryTemp = mcuTemperature;
-					} else {
-						batteryTemp = 25;
-					}
-					if ( fuelGaugeI2cErrorCounter == 0 ) {
-						fuelGaugeTemp = mcuTemperature * 10 + 2732;
-						fuelGaugeTemp = fuelGaugeTemp > 0x0D04 ? 0x0D04 : fuelGaugeTemp;
-						fuelGaugeTemp = fuelGaugeTemp < 0x09E4 ? 0x09E4 : fuelGaugeTemp;
-						if (fuelGaugeTempMode == FUEL_GAUGE_TEMP_MODE_THERMISTOR) {
-							// Set I2C mode
-							if (FuelGaugeWriteWord(0x16, 0x0000) == 0) {
-								fuelGaugeTempMode = FUEL_GAUGE_TEMP_MODE_I2C;
-								fuelGaugeI2cErrorCounter = 0;
-							} else if (succ > 0) {
-								fuelGaugeI2cErrorCounter = fuelGaugeI2cErrorCounter < 127 ? fuelGaugeI2cErrorCounter + 1 : 127;
-							}
-						}
-						if (fuelGaugeTempMode == FUEL_GAUGE_TEMP_MODE_I2C) {
-							// write temperature data to fuel gauge
-							if ( FuelGaugeWriteWord(0x08, fuelGaugeTemp) == 0) {
-								fuelGaugeI2cErrorCounter = 0;
-							} else if (succ > 0) {
-								fuelGaugeI2cErrorCounter = fuelGaugeI2cErrorCounter < 127 ? fuelGaugeI2cErrorCounter + 1 : 127;
-							}
-						}
-					}
-				}
-			}
-		} else {
-			prevBatPresent = 0;
-			fuelGaugeI2cErrorCounter = -1; // indicate that fuel gauge needs initialization after battery insertion
-			batteryRsoc = 0;
-			batteryVoltage = batVolt;
-			batteryTemp = mcuTemperature;
-		}
-	}
-}
-#else
 void FuelGaugeTask(void) {
 	volatile int8_t succ;
 	static uint8_t updateCnt;
@@ -653,7 +472,6 @@ void FuelGaugeTask(void) {
 		}
 	}
 }
-#endif
 
 void FuelGaugeSetBatProfile(const BatteryProfile_T *batProfile) {
 

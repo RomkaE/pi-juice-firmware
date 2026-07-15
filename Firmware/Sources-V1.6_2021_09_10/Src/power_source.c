@@ -22,25 +22,6 @@
 #define POW_SOURCE_PRESENT()			(powerInStatus==POW_SOURCE_NORMAL || powerInStatus==POW_SOURCE_WEAK || power5vIoStatus==POW_SOURCE_NORMAL || power5vIoStatus==POW_SOURCE_WEAK)
 #define POW_SOURCE_5VREG_IS_POWER_BAD() ((hardwareRev == HARD_REV_2_3_AND_ABOVE) && (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_RESET))
 
-#if defined(RTOS_FREERTOS)
-#include "cmsis_os.h"
-
-static void PowerSourceTask(void *argument);
-static void PowerSource5vIoDetectionTask(void *argument);
-
-static osThreadId_t powSourceTaskHandle, detectGpioPowTaskHandle;
-
-static const osThreadAttr_t powSourceTask_attributes = {
-	.name = "powSourceTask",
-	.priority = (osPriority_t) osPriorityNormal,
-	.stack_size = 128
-};
-static const osThreadAttr_t detectGpioPowTask_attributes = {
-	.name = "detectGpioPowTask",
-	.priority = (osPriority_t) osPriorityHigh,
-	.stack_size = 256
-};
-#endif
 
 uint8_t forcedPowerOffFlag __attribute__((section("no_init")));
 uint8_t forcedVSysOutputOffFlag __attribute__((section("no_init")));
@@ -292,10 +273,6 @@ void PowerSourceInit(void) {
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-#if defined(RTOS_FREERTOS)
-	powSourceTaskHandle = osThreadNew(PowerSourceTask, (void*)NULL, &powSourceTask_attributes);
-	detectGpioPowTaskHandle = osThreadNew(PowerSource5vIoDetectionTask, (void*)NULL, &detectGpioPowTask_attributes);
-#endif
 }
 
 /*__STATIC_INLINE*/ void CheckMinimumPower(int16_t volt5) {
@@ -332,117 +309,6 @@ void PowerSourceInit(void) {
 	 adcDmaPos = 0xFFFFFFFF;
 }
 
-#if defined(RTOS_FREERTOS)
-static void PowerSource5vIoDetectionTask(void *argument) {
-  for(;;)
-  {
-	CheckMinimumPower();
-
-	if ( POW_5V_BOOST_EN_STATUS() ) {
-
-		if (POW_5V_DET_LDO_EN_STATUS()) {
-			volatile uint16_t samp = GetSample(POW_DET_SENS_CHN);
-			if ( samp < POW_5V_IO_DET_ADC_THRESHOLD) {
-				if (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
-					MS_TIME_COUNTER_INIT(pow5vPresentCounter);
-					ChargerUsbInCurrentLimitStepDown();
-				}
-				pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_NOT_PRESENT;
-				if (pow5VChgLoadMaximumReached > 1) pow5VChgLoadMaximumReached --;
-				ChargerSetUSBLockout(CHG_USB_IN_LOCK);
-				POW_5V_DET_LDO_ENABLE(0);
-			}
-		} else if (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
-			pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_UNKNOWN;
-			if (pow5VChgLoadMaximumReached > 1) pow5VChgLoadMaximumReached --;
-			ChargerSetUSBLockout(CHG_USB_IN_LOCK);
-			ChargerUsbInCurrentLimitStepDown();
-			MS_TIME_COUNTER_INIT(pow5vPresentCounter);
-		}
-
-		if ( pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT && MS_TIME_COUNT(pow5vDetTimeCount) > 95 ) {
-			MS_TIME_COUNTER_INIT(pow5vDetTimeCount);
-
-			if (!POW_5V_DET_LDO_EN_STATUS()) {
-				POW_5V_DET_LDO_ENABLE(1);
-				//Delay(100);
-			}
-
-			// find out if PMOS goes to cutoff or active state
-			volatile uint8_t i = 200, fetCutoffCount = 0, fetActiveCount = 0;
-			//volatile uint16_t activeSamples[6];
-			volatile uint32_t sam = 0;
-			while ( i-- && fetActiveCount < 3) {
-				DelayUs(120);//HAL_Delay(2);//
-			    sam = GetSample(POW_DET_SENS_CHN);//analogIn[ind];
-			    if (sam >= POW_5V_IO_DET_ADC_THRESHOLD) fetCutoffCount ++;
-			    else fetCutoffCount = 0;
-			    if (sam < POW_5V_IO_DET_ADC_THRESHOLD)	{
-			    	fetActiveCount ++;
-			    }
-			    else fetActiveCount = 0;
-			    CheckMinimumPower();
-			    //activeSamples[i] = sam;
-			}
-			if ( fetCutoffCount >= 200 ) {//if ( sam >= POW_5V_IO_DET_ADC_THRESHOLD ) {
-				// turn on usb in if pmos is cutoff
-				pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_PRESENT;
-				ChargerSetUSBLockout(CHG_USB_IN_UNLOCK);
-				//pow5vIoLoadCurrent = 0;
-				MS_TIME_COUNTER_INIT(pow5vPresentCounter);
-			} else {
-				if (fetActiveCount >= 3) {
-					MeasurePMOSLoadCurrent();//pow5vIoLoadCurrent = GetLoadCurrent();
-					pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_NOT_PRESENT;
-				}
-				POW_5V_DET_LDO_ENABLE(0);
-			}
-		} /*else {
-			pow5vIoLoadCurrent = 0;
-		}*/
-	} else {
-		volatile int16_t volt5 = Get5vIoVoltage();
-		if (volt5 < 4800) {
-			if (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
-				MS_TIME_COUNTER_INIT(pow5vPresentCounter);
-				ChargerUsbInCurrentLimitStepDown();
-			}
-			pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_NOT_PRESENT;
-			ChargerSetUSBLockout(CHG_USB_IN_LOCK);
-			if (pow5VChgLoadMaximumReached > 1) pow5VChgLoadMaximumReached --;
-		} else if (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT && MS_TIME_COUNT(pow5vDetTimeCount) > 500) {
-			Turn5vBoost(1);
-			POW_5V_DET_LDO_ENABLE(1);
-			pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_PRESENT;
-			ChargerSetUSBLockout(CHG_USB_IN_UNLOCK); // turn on charger in
-			MS_TIME_COUNTER_INIT(pow5vPresentCounter);
-			wakeupOnCharge = 0xFFFF;
-		}
-	}
-
-	if ( MS_TIME_COUNT(pow5vPresentCounter) > 800 ) {
-		MS_TIME_COUNTER_INIT(pow5vPresentCounter);
-		if (pow5vInDetStatus == POW_5V_IN_DETECTION_STATUS_PRESENT ) {
-			if (pow5VChgLoadMaximumReached > 1) {
-				ChargerUsbInCurrentLimitStepUp();
-				pow5VChgLoadMaximumReached = 2;
-			} else if (pow5VChgLoadMaximumReached == 0) {
-				pow5VChgLoadMaximumReached = 3;
-			}
-		} else if (pow5vInDetStatus == POW_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
-			// this means input is disconnected, and flag can be cleared
-			pow5VChgLoadMaximumReached = 0;
-			ChargerUsbInCurrentLimitSetMin();
-		}
-	}
-	if (pow5vInDetStatus == POW_5V_IN_DETECTION_STATUS_PRESENT) { // if !POW_SOURCE_NEED_POLL()
-		osDelay(1);
-	} else {
-		osDelay(20);
-	}
-  }
-}
-#else
 void PowerSource5vIoDetectionTask(void) {
 	if ( MS_TIME_COUNT(pow5vOnTimeout) < POW_5V_TURN_ON_TIMEOUT ) {
 		volatile int16_t batVolt;
@@ -560,43 +426,7 @@ void PowerSource5vIoDetectionTask(void) {
 		}
 	}
 }
-#endif
 
-#if defined(RTOS_FREERTOS)
-static void PowerSourceTask(void *argument) {
-	for(;;)
-	{
-		uint8_t powstat = CHARGER_INSTAT();
-		if (powstat == 0x03) {
-			powerInStatus = POW_SOURCE_NOT_PRESENT;
-		} else if (powstat == 0x01 || powstat == 0x02) {
-			powerInStatus = POW_SOURCE_BAD;
-		} else if (CHARGER_IS_DPM_MODE_ACTIVE()) {
-			powerInStatus = POW_SOURCE_WEAK;
-		} else {
-			powerInStatus = POW_SOURCE_NORMAL;
-		}
-
-		if (usbInLockoutStatus == CHG_USB_IN_UNLOCK) {
-			powstat = CHARGER_USBSTAT();
-			if (/*!CHARGER_IS_USBIN_LOCKED() ||*/ powstat == 0x03) {
-				power5vIoStatus = POW_SOURCE_NOT_PRESENT;
-			} else if ( powstat == 0x01 || powstat == 0x02) {
-				power5vIoStatus = POW_SOURCE_BAD;
-			} else if (/*CHARGER_IS_DPM_MODE_ACTIVE() &&*/ pow5VChgLoadMaximumReached == 1 ) {
-				power5vIoStatus = POW_SOURCE_WEAK;
-			} else {
-				power5vIoStatus = POW_SOURCE_NORMAL;
-			}
-		} else if (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT) {
-			power5vIoStatus = POW_SOURCE_NOT_PRESENT;
-		} else {
-			power5vIoStatus = POW_SOURCE_NORMAL;
-		}
-		osDelay(20);
-	}
-}
-#else
 void PowerSourceTask(void) {
 
 	uint8_t powstat = CHARGER_INSTAT();
@@ -627,7 +457,6 @@ void PowerSourceTask(void) {
 		power5vIoStatus = POW_SOURCE_NORMAL;
 	}
 }
-#endif
 
 void PowerSourceSetBatProfile(const BatteryProfile_T* batProfile) {
 	//vbatAdcTresh = currentBatProfile != NULL ? ((uint32_t)(currentBatProfile->cutoffVoltage*20+VBAT_TURNOFF_ADC_THRESHOLD) * 2981) /*20 * 4096 * 1000 / 1374*/ / 3300 : (((uint32_t)150*20+VBAT_TURNOFF_ADC_THRESHOLD) * 2981) / 3300;

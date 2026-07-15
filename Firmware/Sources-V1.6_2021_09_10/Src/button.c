@@ -10,19 +10,6 @@
 #include "time_count.h"
 #include "nv.h"
 
-#if defined(RTOS_FREERTOS)
-#include "cmsis_os.h"
-
-static void ButtonTask(void *argument);
-
-static osThreadId_t buttonTaskHandle;
-
-static const osThreadAttr_t buttonTask_attributes = {
-	.name = "buttonTask",
-	.priority = (osPriority_t) osPriorityNormal,
-	.stack_size = 256
-};
-#endif
 
 typedef struct
 {
@@ -259,9 +246,6 @@ void ButtonInit(void) {
 	if ( ButtonReadConfigurationNv(2) == 0 ) {
 		ButtonSetConfigData(2);
 	}
-#if defined(RTOS_FREERTOS)
-	buttonTaskHandle = osThreadNew(ButtonTask, (void*)NULL, &buttonTask_attributes);
-#endif
 }
 
 int8_t IsButtonActive(void) {
@@ -270,43 +254,6 @@ int8_t IsButtonActive(void) {
 			|| buttons[0].state || buttons[1].state || buttons[2].state;
 }
 
-#if defined(RTOS_FREERTOS)
-static void ButtonTask(void *argument) {
-  for(;;)
-  {
-	uint8_t oldDualLongPressStatus = buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent;
-
-	ProcessButton(0, HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13)); // sw1
-
-	ProcessButton(1, HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_12)); // sw2
-
-	ProcessButton(2, HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2)); // sw3
-
-	if ((buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent) > oldDualLongPressStatus) ButtonDualLongPressEventCb();
-
-	if (writebuttonConfigData >= 0) {
-		uint8_t nvOffset = writebuttonConfigData * (BUTTON_PRESS_FUNC_SW2 - BUTTON_PRESS_FUNC_SW1) + BUTTON_PRESS_FUNC_SW1;
-		EE_WriteVariable(nvOffset, buttonConfigData.pressFunc | ((uint16_t)(~buttonConfigData.pressFunc)<<8));
-		EE_WriteVariable(nvOffset + 2, buttonConfigData.releaseFunc | ((uint16_t)(~buttonConfigData.releaseFunc)<<8));
-		EE_WriteVariable(nvOffset + 4, buttonConfigData.singlePressFunc | ((uint16_t)(~buttonConfigData.singlePressFunc)<<8));
-		EE_WriteVariable(nvOffset + 5, buttonConfigData.singlePressTime | ((uint16_t)(~buttonConfigData.singlePressTime)<<8));
-		EE_WriteVariable(nvOffset + 6, buttonConfigData.doublePressFunc | ((uint16_t)(~buttonConfigData.doublePressFunc)<<8));
-		EE_WriteVariable(nvOffset + 7, buttonConfigData.doublePressTime | ((uint16_t)(~buttonConfigData.doublePressTime)<<8));
-		EE_WriteVariable(nvOffset + 8, buttonConfigData.longPressFunc1 | ((uint16_t)(~buttonConfigData.longPressFunc1)<<8));
-		EE_WriteVariable(nvOffset + 9, buttonConfigData.longPressTime1 | ((uint16_t)(~buttonConfigData.longPressTime1)<<8));
-		EE_WriteVariable(nvOffset + 10, buttonConfigData.longPressFunc2 | ((uint16_t)(~buttonConfigData.longPressFunc2)<<8));
-		EE_WriteVariable(nvOffset + 11, buttonConfigData.longPressTime2 | ((uint16_t)(~buttonConfigData.longPressTime2)<<8));
-
-		if ( ButtonReadConfigurationNv(writebuttonConfigData) == 0 ) {
-			ButtonSetConfigData(writebuttonConfigData);
-		}
-		writebuttonConfigData = -1;
-	}
-
-	osDelay(20);
-  }
-}
-#else
 void ButtonTask(void) {
 
 	uint8_t oldDualLongPressStatus = buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent;
@@ -338,7 +285,6 @@ void ButtonTask(void) {
 		writebuttonConfigData = -1;
 	}
 }
-#endif
 
 ButtonEvent_T GetButtonEvent(uint8_t b) {
 	ButtonEvent_T event = buttons[b].event;

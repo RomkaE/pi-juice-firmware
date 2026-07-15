@@ -18,9 +18,7 @@ extern uint8_t hardwareRev;
 //extern int16_t pow5vIoLoadCurrent;
 
 void LoadCurrentSenseInit(void);
-#if !defined(RTOS_FREERTOS)
 void LoadCurrentSenseTask(void);
-#endif
 void MeasurePMOSLoadCurrent(void);
 int32_t GetLoadCurrent(void);
 int8_t CalibrateLoadCurrent(void);
