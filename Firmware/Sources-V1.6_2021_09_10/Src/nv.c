@@ -10,10 +10,6 @@ static int16_t nvSaveParmeterReq = -1;
 static uint16_t nvSaveParmeterValue = 0xFFFF;
 uint16_t nvInitFlag = 0xFFFF;
 
-uint16_t VirtAddVarTab[NV_VAR_NUM] = {
-	NV_VAR_LIST
-};
-
 void NvInit(void){
 	/* Unlock the Flash Program Erase controller */
 	FLASH_Unlock();

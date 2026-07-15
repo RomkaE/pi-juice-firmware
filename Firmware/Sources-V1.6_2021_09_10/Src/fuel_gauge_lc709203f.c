@@ -290,6 +290,7 @@ void SocEvaluateFuelGaugeIc(void) {
 		dischargeCount = HAL_GetTick();
 		dischargeCountTemp = HAL_GetTick();
 	} else if ( (HAL_GetTick() - dischargeCountTemp) > 50000) {
+		// TODO - dead code?
 		int16_t newCurr;
 		if (dischargeRate != 0)
 			newCurr = (((int32_t)(dischargeRate>0?1:-1)) * (int32_t)1843200 / (int32_t)(HAL_GetTick() - dischargeCount) * (currentBatProfile!=NULL ? currentBatProfile->capacity : 10000)) >> 10;

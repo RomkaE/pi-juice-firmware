@@ -36,17 +36,19 @@
 
 /* Exported constants --------------------------------------------------------*/
 /* Define the size of the sectors to be used */
-#define PAGE_SIZE             ((uint32_t)0x0400)  /* Page size = 1KByte */
+// STM32F030xC uses 2 KB flash pages (RM0360 Rev. 5, Table 5):
+#define PAGE_SIZE             ((uint32_t)0x0800)  /* Page size = 2KByte */
 
 /* EEPROM start address in Flash */
-#define EEPROM_START_ADDRESS  ((uint32_t)0x0803BC00) /* EEPROM emulation start address: */
+// Use last 2 flash pages:
+#define EEPROM_START_ADDRESS  ((uint32_t)0x08040000 - 2 * PAGE_SIZE) /* EEPROM emulation start address: */
 
 /* Pages 0 and 1 base and end addresses */
-#define PAGE0_BASE_ADDRESS    ((uint32_t)(EEPROM_START_ADDRESS + 0x0000))
-#define PAGE0_END_ADDRESS     ((uint32_t)(EEPROM_START_ADDRESS + (PAGE_SIZE - 1)))
+#define PAGE0_BASE_ADDRESS    ((uint32_t)(EEPROM_START_ADDRESS))
+#define PAGE0_END_ADDRESS     ((uint32_t)(EEPROM_START_ADDRESS + PAGE_SIZE - 1))
 
-#define PAGE1_BASE_ADDRESS    ((uint32_t)(EEPROM_START_ADDRESS + 0x0400))
-#define PAGE1_END_ADDRESS     ((uint32_t)(EEPROM_START_ADDRESS + (2 * PAGE_SIZE - 1)))
+#define PAGE1_BASE_ADDRESS    ((uint32_t)(EEPROM_START_ADDRESS + PAGE_SIZE))
+#define PAGE1_END_ADDRESS     ((uint32_t)(EEPROM_START_ADDRESS + 2 * PAGE_SIZE - 1))
 
 /* Used Flash pages for EEPROM emulation */
 #define PAGE0                 ((uint16_t)0x0000)
