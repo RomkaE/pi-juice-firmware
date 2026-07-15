@@ -163,7 +163,7 @@ int8_t ResetHost(void) {
 			MS_TIME_COUNTER_INIT(lastWakeupTimer);
 			return 0;
 		} else {
-			int ret = Turn5vBoost(1);
+			Turn5vBoost(1);
 			MS_TIME_COUNTER_INIT(lastWakeupTimer);
 			return 0;
 		}

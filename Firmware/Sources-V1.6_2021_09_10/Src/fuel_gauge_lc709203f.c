@@ -53,8 +53,6 @@ static uint8_t prevBatPresent = 0;
 
 int8_t fuelGaugeI2cErrorCounter = 0;
 
-static uint8_t updateCnt;
-
 BatteryTempSenseConfig_T tempSensorConfig = BAT_TEMP_SENSE_CONFIG_AUTO_DETECT;
 RsocMeasurementConfig_T rsocMeasurementConfig = RSOC_MEASUREMENT_AUTO_DETECT;
 
@@ -309,8 +307,10 @@ void SocEvaluateFuelGaugeIc(void) {
 		dischargeCountTemp = HAL_GetTick();
 	} else if ( (HAL_GetTick() - dischargeCountTemp) > 50000) {
 		int16_t newCurr;
-		if (dischargeRate!=0) newCurr = (((int32_t)(dischargeRate>0?1:-1)) * (int32_t)1843200 / (int32_t)(HAL_GetTick() - dischargeCount) * (currentBatProfile!=NULL ? currentBatProfile->capacity : 10000)) >> 10;
-		else newCurr = 0;
+		if (dischargeRate != 0)
+			newCurr = (((int32_t)(dischargeRate>0?1:-1)) * (int32_t)1843200 / (int32_t)(HAL_GetTick() - dischargeCount) * (currentBatProfile!=NULL ? currentBatProfile->capacity : 10000)) >> 10;
+		else
+			newCurr = 0;
 
 		dischargeCountTemp = HAL_GetTick();
 	}

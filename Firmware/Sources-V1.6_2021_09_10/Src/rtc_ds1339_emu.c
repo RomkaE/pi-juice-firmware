@@ -270,7 +270,7 @@ uint8_t RtcGetPointer() {
 	return rtc_buffer_ptr;
 }
 
-uint8_t RtcSetPointer(uint8_t val) {
+void RtcSetPointer(uint8_t val) {
 	if (val <= 0x0F)
 		rtc_buffer_ptr = val;
 }

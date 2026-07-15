@@ -102,7 +102,7 @@ void CmdServerReadWriteIoValue1(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteIoValue2(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteLogging(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 
-MasterCommand_T masterCommands[REGISTERS_NUM] =
+static const MasterCommand_T masterCommands[REGISTERS_NUM] =
 {
 /*0*/	NULL,
 /*1*/	NULL,
@@ -409,13 +409,6 @@ uint8_t CalcFcs(uint8_t *msg, int size)
 	return result;
 }
 
-void CommandServerInit(void) {
-
-	// init memory map
-	uint8_t size = REGISTERS_NUM;
-	while((size--) > 0) reg[size] = 0;
-}
-
 int8_t CmdServerProcessRequest(uint8_t dir, uint8_t pData[], uint16_t *dataLen) {
 	if (pData[0] <= REGISTER_MAX ) {
 		if (masterCommands[pData[0]] != NULL)
@@ -457,14 +450,8 @@ void CmdServerDefaultReadWrite(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 }
 
 static uint8_t IsEventFault(void) {
-	uint8_t ev = 0;
-	ev = ev || powerOffBtnEventFlag;
-	ev = ev || forcedPowerOffFlag;
-	ev = ev || forcedVSysOutputOffFlag;
-	ev = ev || watchdogExpiredFlag;
-	ev = ev || ((currentBatProfile == NULL) ? 0x20 : 0);
-	ev = ev || CHRGER_TS_FAULT_STATUS();
-	return ev;
+  return powerOffBtnEventFlag || forcedPowerOffFlag || forcedVSysOutputOffFlag ||
+	     watchdogExpiredFlag || (currentBatProfile == NULL) || CHRGER_TS_FAULT_STATUS();
 }
 
 void CmdServerReadStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {

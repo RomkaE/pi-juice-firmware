@@ -53,7 +53,6 @@
 #define OWN1_I2C_ADDRESS		0x14
 #define OWN2_I2C_ADDRESS		0x68
 #define SMBUS_TIMEOUT_DEFAULT                 ((uint32_t)0x80618061)
-#define I2C_MAX_RECEIVE_SIZE	((int16_t)255)
 
 #define NEED_EVENT_POLL()		((chargerNeedPoll \
 								|| extiFlag \
@@ -1019,9 +1018,9 @@ static void MX_I2C2_Init(void)
 static void MX_RTC_Init(void)
 {
 
-  RTC_TimeTypeDef sTime;
-  RTC_DateTypeDef sDate;
-  RTC_AlarmTypeDef sAlarm;
+//  RTC_TimeTypeDef sTime;
+//  RTC_DateTypeDef sDate;
+//  RTC_AlarmTypeDef sAlarm;
 
     /**Initialize RTC Only
     */
@@ -1137,7 +1136,7 @@ static void MX_TIM15_Init(void)
 
   TIM_MasterConfigTypeDef sMasterConfig;
   TIM_OC_InitTypeDef sConfigOC;
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig;
+//  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig;
 
   htim15.Instance = TIM15;
   htim15.Init.Prescaler = 2;
@@ -1195,7 +1194,7 @@ static void MX_TIM17_Init(void)
 {
 
   TIM_OC_InitTypeDef sConfigOC;
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig;
+//  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig;
 
   htim17.Instance = TIM17;
   htim17.Init.Prescaler = 0;
@@ -1393,6 +1392,7 @@ static void MX_GPIO_Init(void)
   */
 void Error_Handler(void)
 {
+	// TODO - fix me
   /* USER CODE BEGIN Error_Handler */
   /* User can add his own implementation to report the HAL error return state */
   while(1)

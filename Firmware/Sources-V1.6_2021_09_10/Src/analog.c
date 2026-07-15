@@ -46,7 +46,7 @@ static uint32_t tempCalcCounter;
 
 volatile uint32_t vRefAdc;
 
-uint32_t analogIn[ADC_BUFFER_LENGTH];// __attribute__((section("no_init")));
+uint16_t analogIn[ADC_BUFFER_LENGTH];
 
 uint16_t GetSampleVoltage(uint8_t channel) {
     int32_t pos =  __HAL_DMA_GET_COUNTER(hadc.DMA_Handle);
@@ -161,6 +161,14 @@ int16_t Get5vIoVoltage() {
 	return (aVdd > 3200 && aVdd < 3400) ? (adcAvg * aVdd) >> 11 : (adcAvg * 3300) >> 11;//adcAvg * aVdd / 4096 * 2;
 }
 
+uint16_t GetSample(uint8_t channel) {
+    int32_t pos =  __HAL_DMA_GET_COUNTER(hadc.DMA_Handle);
+    int32_t ind = (((ADC_BUFFER_LENGTH - pos - 1) * (32768/ADC_SCAN_CHANNELS)) >> 15) * ADC_SCAN_CHANNELS + channel;
+	if (ind > (ADC_BUFFER_LENGTH - pos - 1)) ind -= ADC_SCAN_CHANNELS; // check if calculated channel sample is fresh
+	if (ind < 0) ind += ADC_BUFFER_LENGTH;
+	return analogIn[ind];
+}
+
 int32_t GetSampleAverage(uint8_t channel) {
 	/*return (((int32_t)analogIn[channel1] - analogIn[channel2] + analogIn[channel1 + (ADC_BUFFER_LENGTH/4)] - analogIn[channel2 + (ADC_BUFFER_LENGTH/4)] + analogIn[channel1 + (ADC_BUFFER_LENGTH/2)] - analogIn[channel2 + (ADC_BUFFER_LENGTH/2)] + analogIn[channel1 + (ADC_BUFFER_LENGTH*3/4)] - analogIn[channel2 + (ADC_BUFFER_LENGTH*3/4)]
 			       + analogIn[channel1 + (ADC_BUFFER_LENGTH/8)] - analogIn[channel2 + (ADC_BUFFER_LENGTH/8)] + analogIn[channel1 + (ADC_BUFFER_LENGTH*3/8)] - analogIn[channel2 + (ADC_BUFFER_LENGTH*3/8)] + analogIn[channel1 + (ADC_BUFFER_LENGTH*5/8)] - analogIn[channel2 + (ADC_BUFFER_LENGTH*5/8)] + analogIn[channel1 + (ADC_BUFFER_LENGTH*7/8)] - analogIn[channel2 + (ADC_BUFFER_LENGTH*7/8)] )*2 + 1) >> 4;
@@ -193,7 +201,7 @@ int32_t GetSampleAverageDiff(uint8_t channel1, uint8_t channel2) {
 }
 
 uint8_t AnalogSamplesReady() {
-	return analogIn[0] != 0xFFFFFFFF && analogIn[ADC_BUFFER_LENGTH-1] != 0xFFFFFFFF;
+	return analogIn[0] != ADC_SAMPLE_SENTINEL && analogIn[ADC_BUFFER_LENGTH-1] != ADC_SAMPLE_SENTINEL;
 }
 
 void AnalogInit(void) {
@@ -301,11 +309,11 @@ void AnalogInit(void) {
   }
 
   // make bufer data invalid
-  analogIn[0] = 0xFFFFFFFF;
-  analogIn[ADC_BUFFER_LENGTH-1] = 0xFFFFFFFF;
+  analogIn[0] = ADC_SAMPLE_SENTINEL;
+  analogIn[ADC_BUFFER_LENGTH-1] = ADC_SAMPLE_SENTINEL;
 
 	// Start conversion in DMA mode
-	if (HAL_ADC_Start_DMA(&hadc, analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
+	if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
 	{
 		Error_Handler();
 	}
@@ -346,8 +354,8 @@ void AnalogTask(void) {
 
 void AnalogStop(void) {
 	if (HAL_IS_BIT_SET(hadc.Instance->CR, ADC_CR_ADSTART)) {
-		//analogIn[0] = 0xFFFFFFFF;
-		//analogIn[ADC_BUFFER_LENGTH-1] = 0xFFFFFFFF;
+		//analogIn[0] = ADC_SAMPLE_SENTINEL;
+		//analogIn[ADC_BUFFER_LENGTH-1] = ADC_SAMPLE_SENTINEL;
 		HAL_ADC_Stop_DMA(&hadc);
 
 		analogWDGConfig.ITMode = DISABLE;
@@ -405,9 +413,9 @@ void AnalogStart(void) {
 		}
 
 		// make bufer data invalid
-		analogIn[0] = 0xFFFFFFFF;
-		analogIn[ADC_BUFFER_LENGTH-1] = 0xFFFFFFFF;
-		if (HAL_ADC_Start_DMA(&hadc, analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
+		analogIn[0] = ADC_SAMPLE_SENTINEL;
+		analogIn[ADC_BUFFER_LENGTH-1] = ADC_SAMPLE_SENTINEL;
+		if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
 		{
 			Error_Handler();
 		}
@@ -467,9 +475,9 @@ void AnalogPowerIsGood(void) {
 	}
 
 	// make bufer data invalid
-	analogIn[0] = 0xFFFFFFFF;
-	analogIn[ADC_BUFFER_LENGTH-1] = 0xFFFFFFFF;
-	if (HAL_ADC_Start_DMA(&hadc, analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
+	analogIn[0] = ADC_SAMPLE_SENTINEL;
+	analogIn[ADC_BUFFER_LENGTH-1] = ADC_SAMPLE_SENTINEL;
+	if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
 	{
 		Error_Handler();
 	}
@@ -501,11 +509,11 @@ void AnalogPowerIsGood(void) {
 		}
 
 		// make buffer data invalid
-		analogIn[0] = 0xFFFFFFFF;
-		analogIn[ADC_BUFFER_LENGTH-1] = 0xFFFFFFFF;
+		analogIn[0] = ADC_SAMPLE_SENTINEL;
+		analogIn[ADC_BUFFER_LENGTH-1] = ADC_SAMPLE_SENTINEL;
 
 		if (stopped) {
-			if (HAL_ADC_Start_DMA(&hadc, analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
+			if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
 			{
 				Error_Handler();
 			}
@@ -535,11 +543,11 @@ void AnalogPowerIsGood(void) {
 		}
 
 		// make buffer data invalid
-		analogIn[0] = 0xFFFFFFFF;
-		analogIn[ADC_BUFFER_LENGTH-1] = 0xFFFFFFFF;
+		analogIn[0] = ADC_SAMPLE_SENTINEL;
+		analogIn[ADC_BUFFER_LENGTH-1] = ADC_SAMPLE_SENTINEL;
 
 		if (stopped) {
-			if (HAL_ADC_Start_DMA(&hadc, analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
+			if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
 			{
 				Error_Handler();
 			}
@@ -563,7 +571,7 @@ HAL_StatusTypeDef AnalogAdcWDGConfig(uint8_t channel, uint16_t voltThresh_mV) {
 		Error_Handler();
 	}
 	if (convStat)
-		if (HAL_ADC_Start_DMA(&hadc, analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
+		if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
 		{
 			Error_Handler();
 		}
@@ -581,7 +589,7 @@ void AnalogAdcWDGEnable(uint8_t enable) {
 		Error_Handler();
 	}
 	if (convStat)
-		if (HAL_ADC_Start_DMA(&hadc, analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
+		if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
 		{
 			Error_Handler();
 		}

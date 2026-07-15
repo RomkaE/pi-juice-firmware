@@ -305,7 +305,6 @@ void PowerSourceInit(void) {
 			//5V DCDC is in fault overcurrent state, turn it off to prevent draining battery
 			LOG_5VREG_FORCED_OFF(adcDmaPos);
 			Turn5vBoost(0);
-			volatile int16_t tstv = volt5;
 			return;
 		}
 
@@ -445,8 +444,6 @@ static void PowerSource5vIoDetectionTask(void *argument) {
 }
 #else
 void PowerSource5vIoDetectionTask(void) {
-
-	volatile uint32_t timePassed =  MS_TIME_COUNT(pow5vOnTimeout);
 	if ( MS_TIME_COUNT(pow5vOnTimeout) < POW_5V_TURN_ON_TIMEOUT ) {
 		volatile int16_t batVolt;
 		if ( (!POW_SOURCE_PRESENT()) && MS_TIME_COUNT(pow5vOnTimeout) > 0) {

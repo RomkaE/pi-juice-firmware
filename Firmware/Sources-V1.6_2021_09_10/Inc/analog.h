@@ -23,12 +23,17 @@
 #define ADC_CONT_MODE_LOW_VOLTAGE 	1 // In this mode one channel in scan group is internal reference
 #define ADC_GET_BUFFER_SAMPLE(i)	(analogIn[(i)])
 
+// Written into the first/last cell before starting DMA; AnalogSamplesReady() reports
+// ready once DMA has overwritten both. Must be outside the 12-bit ADC range and must
+// match the width of analogIn[] elements.
+#define ADC_SAMPLE_SENTINEL		((uint16_t)0xFFFF)
+
 //#define ANALOG_IS_SAMPLES_VALID()	 (HAL_IS_BIT_SET(hadc.Instance->CR, ADC_CR_ADSTART) && (analogBufferTicks > (HAL_GetTick()+100) ))
 
 extern int32_t mcuTemperature;
 
 extern ADC_HandleTypeDef hadc;
-extern uint32_t analogIn[ADC_BUFFER_LENGTH];
+extern uint16_t analogIn[ADC_BUFFER_LENGTH];
 
 extern uint16_t aVdd;
 extern ADC_AnalogWDGConfTypeDef analogWDGConfig;
@@ -52,14 +57,7 @@ uint16_t GetAverageBatteryVoltage(uint8_t channel);
 void GetAdcSignals02(uint32_t pos, uint8_t* buf);
 void GetAdcSignals12(uint32_t pos, uint8_t* buf);
 
-__STATIC_INLINE uint16_t GetSample(uint8_t channel) {
-    int32_t pos =  __HAL_DMA_GET_COUNTER(hadc.DMA_Handle);
-    int32_t ind = (((ADC_BUFFER_LENGTH - pos - 1) * (32768/ADC_SCAN_CHANNELS)) >> 15) * ADC_SCAN_CHANNELS + channel;
-	if (ind > (ADC_BUFFER_LENGTH - pos - 1)) ind -= ADC_SCAN_CHANNELS; // check if calculated channel sample is fresh
-	if (ind < 0) ind += ADC_BUFFER_LENGTH;
-	return analogIn[ind];
-}
-
+uint16_t GetSample(uint8_t channel);
 int32_t GetSampleAverage(uint8_t channel);
 int32_t GetSampleAverageDiff(uint8_t channel1, uint8_t channel2);
 

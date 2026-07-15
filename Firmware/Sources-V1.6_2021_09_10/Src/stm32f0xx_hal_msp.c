@@ -111,8 +111,8 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
   DmaHandle.Init.Direction           = DMA_PERIPH_TO_MEMORY;
   DmaHandle.Init.PeriphInc           = DMA_PINC_DISABLE;
   DmaHandle.Init.MemInc              = DMA_MINC_ENABLE;
-  DmaHandle.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
-  DmaHandle.Init.MemDataAlignment    = DMA_MDATAALIGN_WORD;
+  DmaHandle.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+  DmaHandle.Init.MemDataAlignment    = DMA_MDATAALIGN_HALFWORD;
   DmaHandle.Init.Mode                = DMA_CIRCULAR;
   DmaHandle.Init.Priority            = DMA_PRIORITY_MEDIUM;
 
@@ -256,8 +256,8 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c)
   GPIO_InitTypeDef GPIO_InitStruct;
   if(hi2c->Instance==I2C1)
   {
-	  static DMA_HandleTypeDef hdma_tx;
-	  static DMA_HandleTypeDef hdma_rx;
+//	  static DMA_HandleTypeDef hdma_tx;
+//	  static DMA_HandleTypeDef hdma_rx;
 	  RCC_PeriphCLKInitTypeDef  RCC_PeriphCLKInitStruct;
 
 	  /*##-1- Configure the I2C clock source. The clock is derived from the SYSCLK #*/

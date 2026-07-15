@@ -636,7 +636,7 @@ void BatteryTask(void) {
 		if ( ((var&0xFF) != BATTERY_CUSTOM_PROFILE_ID) || (((var^0xFF)&0xFF) != (var>>8)) ) {
 			BatReadExtendedEEprofileData();
 			uint16_t var;
-			EE_WriteVariable(BAT_PROFILE_NV_ADDR, BATTERY_CUSTOM_PROFILE_ID | ((uint16_t)~BATTERY_CUSTOM_PROFILE_ID<<8));
+			EE_WriteVariable(BAT_PROFILE_NV_ADDR, BATTERY_CUSTOM_PROFILE_ID | ~((uint16_t)BATTERY_CUSTOM_PROFILE_ID<<8));
 			EE_ReadVariable(BAT_PROFILE_NV_ADDR, &var);
 			if (((var^0xFF)&0xFF) == (var>>8) && (var&0xFF) == BATTERY_CUSTOM_PROFILE_ID) {  // upper byte should be complement if data are valid
 				if (currentBatProfile != NULL)
