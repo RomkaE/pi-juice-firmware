@@ -107,8 +107,7 @@ extern uint8_t alarmEventFlag;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-void Error_Handler(void);
+static void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC_Init(void);
 static void MX_I2C1_Init(void);
@@ -119,7 +118,6 @@ static void MX_TIM15_Init(void);
 static void MX_TIM17_Init(void);
 //static void MX_SMBUS_Init(void);
 static void MX_IWDG_Init(void);
-//static void MX_WWDG_Init(void);
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 
@@ -652,7 +650,6 @@ int main(void)
 		executionState = EXECUTION_STATE_POWER_ON;
 	}
 	MX_ADC_Init();
-	//MX_WWDG_Init();
 	MX_I2C1_Init();//MX_SMBUS_Init();//  // NOTE: need 48KHz clock to work on 400KHz
 	MX_I2C2_Init();
 	MX_RTC_Init();
@@ -660,6 +657,9 @@ int main(void)
 	MX_TIM15_Init();
 	MX_TIM17_Init();
 	MX_TIM1_Init();
+
+	// TODO - fix
+	extern void MX_TIM14_Init(void);
 	MX_TIM14_Init();
 
 	HAL_InitTick(TICK_INT_PRIORITY);

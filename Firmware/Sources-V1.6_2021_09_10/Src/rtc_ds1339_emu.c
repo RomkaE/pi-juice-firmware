@@ -10,6 +10,7 @@
 #include "power_management.h"
 #include "power_source.h"
 #include "logging.h"
+#include "main.h"
 
 #define RTC_REGISTERS_NUM	(0x3F+1) // free RAM reserved for compatibility with ds1307
 

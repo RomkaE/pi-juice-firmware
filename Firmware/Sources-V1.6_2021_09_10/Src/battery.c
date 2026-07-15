@@ -13,6 +13,7 @@
 #include "fuel_gauge_lc709203f.h"
 #include "time_count.h"
 #include "led.h"
+#include "power_source.h"
 
 #define BATTERY_PROFILES_COUNT() ((sizeof(batteryProfiles)/sizeof(BatteryProfile_T)))
 #define PACK_CAPACITY_U16(c) 	((c==0xFFFFFFFF) ? 0xFFFF : (c >> ((c>=0x8000)*7)) | (c>=0x8000)*0x8000)

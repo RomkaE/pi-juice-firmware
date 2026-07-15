@@ -23,6 +23,8 @@
 #include "execution.h"
 #include "logging.h"
 
+#include "main.h"
+
 #define REGISTERS_NUM	((uint16_t)256)
 
 #define SYS_MEM_ADDRESS		0x1FFFD800 // for STM32F030x8 0x1FFFEC00
@@ -39,9 +41,7 @@ extern TIM_HandleTypeDef htim17;
 extern uint16_t wakeupOnCharge;
 extern uint8_t powerOffBtnEventFlag;
 
-extern void Error_Handler(void);
-
-const uint8_t firmwareVer = 0x16;
+const uint8_t firmwareVer = 0x17;
 const uint8_t firmwareVariant = 0x00;
 
 typedef  void (*pFunction)(void);

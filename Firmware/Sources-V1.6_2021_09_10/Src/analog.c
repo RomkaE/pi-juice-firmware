@@ -12,6 +12,8 @@
 #include "power_source.h"
 #include "config_switch_resistor.h"
 
+#include "main.h"
+
 /* mcuTemperature sensor calibration value address */
 #define TEMP30_CAL_ADDR ((uint16_t*) ((uint32_t) 0x1FFFF7B8))
 #define VREFINT_CAL_ADDR ((uint16_t*) ((uint32_t) 0x1FFFF7BA))

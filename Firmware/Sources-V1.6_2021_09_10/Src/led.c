@@ -9,6 +9,7 @@
 #include "stm32f0xx_hal.h"
 #include "nv.h"
 #include "time_count.h"
+#include "main.h"
 
 #if defined(RTOS_FREERTOS)
 #include "cmsis_os.h"
@@ -104,7 +105,6 @@ static const uint16_t pwm_table[] = {
      4543,    3908,    3267,    2623,    1974,    1320,    662,    0
  };
 
-static uint8_t mutMem[64]  __attribute__((aligned(4)));
 void LedInit(void) {
 
 	/*HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET); //LED1B

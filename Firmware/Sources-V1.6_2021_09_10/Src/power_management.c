@@ -15,6 +15,9 @@
 //#include "led.h"
 #include "logging.h"
 
+#include "load_current_sense.h"
+#include "analog.h"
+
 #if defined(RTOS_FREERTOS)
 #include "cmsis_os.h"
 

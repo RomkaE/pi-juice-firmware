@@ -31,4 +31,7 @@ void PowerMngmtGetWatchdogConfigurationCmd(uint8_t data[], uint16_t *len);
 void PowerMngmtHostPollEvent(void);
 //int8_t WakeUpHost(void);
 
+void PowerMngmtSetWakeupOnChargeCmd(uint8_t data[], uint16_t len);
+void PowerMngmtGetWakeupOnChargeCmd(uint8_t data[], uint16_t *len);
+
 #endif /* POWER_MANAGEMENT_H_ */

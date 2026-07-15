@@ -33,11 +33,10 @@
   */
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f0xx_hal.h"
+#include "main.h"
 
 static DMA_HandleTypeDef hdma_tx2;
 static DMA_HandleTypeDef hdma_rx2;
-
-extern void Error_Handler(void);
 
 /* USER CODE BEGIN 0 */
 

@@ -8,6 +8,7 @@
 #include "stm32f0xx_hal.h"
 #include "analog.h"
 #include "nv.h"
+#include "main.h"
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim14;
@@ -83,6 +84,8 @@ void MX_TIM1_Init(void)
     Error_Handler();
   }
 
+  // TODO - fix
+  extern void HAL_TIM_MspPostInit(TIM_HandleTypeDef* htim);
   HAL_TIM_MspPostInit(&htim1);
 
   // Start channel 1
@@ -124,6 +127,8 @@ void MX_TIM14_Init(void)
     Error_Handler();
   }
 
+  // TODO - fix
+  extern void HAL_TIM_MspPostInit(TIM_HandleTypeDef* htim);
   HAL_TIM_MspPostInit(&htim14);
 
   // Start channel 1
