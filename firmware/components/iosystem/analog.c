@@ -5,7 +5,7 @@
  *      Author: milan
  */
 
-#include <to_refactor/analog.h>
+#include "analog.h"
 #include <to_refactor/config_switch_resistor.h>
 #include <to_refactor/time_count.h>
 #include "stm32f0xx_hal.h"
@@ -189,14 +189,15 @@ uint8_t AnalogSamplesReady() {
 	return analogIn[0] != ADC_SAMPLE_SENTINEL && analogIn[ADC_BUFFER_LENGTH-1] != ADC_SAMPLE_SENTINEL;
 }
 
-void AnalogInit(void) {
-	//Configure for the selected ADC regular channel to be converted.
-  sConfig.Channel = ADC_CHANNEL_5; // CHG_CUR
+void AnalogInit(void)
+{
+  //Configure for the selected ADC regular channel to be converted.
+  sConfig.Channel = ADC_CHANNEL_5;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;//ADC_SAMPLETIME_28CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-	Error_Handler();
+    Error_Handler();
   }
 
   volatile uint32_t resistorConfigAdc;
@@ -210,14 +211,14 @@ void AnalogInit(void) {
   sConfig.Rank = ADC_RANK_NONE;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-	Error_Handler();
+    Error_Handler();
   }
   sConfig.Channel = ADC_CHANNEL_17; // Vref
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;//ADC_SAMPLETIME_28CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5; //ADC_SAMPLETIME_28CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-	Error_Handler();
+    Error_Handler();
   }
 
   HAL_ADC_Start(&hadc);
@@ -225,85 +226,86 @@ void AnalogInit(void) {
   vRefAdc = HAL_ADC_GetValue(&hadc);
   HAL_ADC_Stop(&hadc);
   /*sConfig.Channel = ADC_CHANNEL_17; //
-  sConfig.Rank = ADC_RANK_NONE;
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-  {
-	Error_Handler();
-  }*/
+   sConfig.Rank = ADC_RANK_NONE;
+   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+   {
+   Error_Handler();
+   }*/
 
   aVdd = ANALOG_ADC_GET_AVDD(vRefAdc);
 
-	/**Configure for the selected ADC regular channel to be converted.
-	*/
-	sConfig.Channel = ADC_CHANNEL_0; // CS1
-	sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-	sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;//ADC_SAMPLETIME_28CYCLES_5;
-	if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-	{
-		Error_Handler();
-	}
+  /**Configure for the selected ADC regular channel to be converted.
+   */
+  sConfig.Channel = ADC_CHANNEL_0; // CS1
+  sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
+  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5; //ADC_SAMPLETIME_28CYCLES_5;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-	/**Configure for the selected ADC regular channel to be converted.
-	*/
+  /**Configure for the selected ADC regular channel to be converted.
+   */
   sConfig.Channel = ADC_CHANNEL_1; // CS2
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-	Error_Handler();
+    Error_Handler();
   }
 
-	/**Configure for the selected ADC regular channel to be converted.
-	*/
+  /**Configure for the selected ADC regular channel to be converted.
+   */
   sConfig.Channel = ADC_CHANNEL_2;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-	Error_Handler();
+    Error_Handler();
   }
 
-	/**Configure for the selected ADC regular channel to be converted.
-	*/
+  /**Configure for the selected ADC regular channel to be converted.
+   */
   sConfig.Channel = ADC_CHANNEL_3; // NTC
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-	Error_Handler();
+    Error_Handler();
   }
 
-	/**Configure for the selected ADC regular channel to be converted.
-	*/
+  /**Configure for the selected ADC regular channel to be converted.
+   */
   sConfig.Channel = ADC_CHANNEL_4; // POW_DET_SEN
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-	Error_Handler();
+    Error_Handler();
   }
 
   /*sConfig.Channel = ADC_CHANNEL_6;
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-  {
-	Error_Handler();
-  }*/
+   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+   {
+   Error_Handler();
+   }*/
 
   sConfig.Channel = ADC_CHANNEL_7; // IO1
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-	Error_Handler();
+    Error_Handler();
   }
 
   sConfig.Channel = ADC_CHANNEL_16; // temperature
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-	Error_Handler();
+    Error_Handler();
   }
 
   // make bufer data invalid
   analogIn[0] = ADC_SAMPLE_SENTINEL;
-  analogIn[ADC_BUFFER_LENGTH-1] = ADC_SAMPLE_SENTINEL;
+  analogIn[ADC_BUFFER_LENGTH - 1] = ADC_SAMPLE_SENTINEL;
 
-	// Start conversion in DMA mode
-	if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
-	{
-		Error_Handler();
-	}
+  // Start conversion in DMA mode
+  if (HAL_ADC_Start_DMA(&hadc, (uint32_t*) analogIn, ADC_BUFFER_LENGTH)
+      != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-   MS_TIME_COUNTER_INIT(tempCalcCounter);
+  MS_TIME_COUNTER_INIT(tempCalcCounter);
 }
 
 void AnalogTask(void) {
@@ -318,74 +320,39 @@ void AnalogTask(void) {
 	aVdd = ANALOG_ADC_GET_AVDD(GetSample(ADC_VREF_BUFF_CHN));
 }
 
-void AnalogStop(void) {
-	if (HAL_IS_BIT_SET(hadc.Instance->CR, ADC_CR_ADSTART)) {
-		//analogIn[0] = ADC_SAMPLE_SENTINEL;
-		//analogIn[ADC_BUFFER_LENGTH-1] = ADC_SAMPLE_SENTINEL;
-		HAL_ADC_Stop_DMA(&hadc);
+void AnalogStop(void)
+{
+  if (HAL_IS_BIT_SET(hadc.Instance->CR, ADC_CR_ADSTART))
+  {
+    HAL_ADC_Stop_DMA(&hadc);
 
-		analogWDGConfig.ITMode = DISABLE;
+    analogWDGConfig.ITMode = DISABLE;
 
-		if (HAL_ADC_AnalogWDGConfig(&hadc, &analogWDGConfig) != HAL_OK)
-		{
-			Error_Handler();
-		}
-	}
+    if (HAL_ADC_AnalogWDGConfig(&hadc, &analogWDGConfig) != HAL_OK)
+    {
+      Error_Handler();
+    }
+  }
 }
 
 void AnalogStart(void) {
-	// Start conversion in DMA mode
-	if (!HAL_IS_BIT_SET(hadc.Instance->CR, ADC_CR_ADSTART)) {
+  if (!HAL_IS_BIT_SET(hadc.Instance->CR, ADC_CR_ADSTART))
+  {
+    analogWDGConfig.ITMode = ENABLE;
+    if (HAL_ADC_AnalogWDGConfig(&hadc, &analogWDGConfig) != HAL_OK)
+    {
+      Error_Handler();
+    }
 
-		/*sConfig.Channel = ADC_CHANNEL_16; //
-		sConfig.Rank = ADC_RANK_NONE;
-		if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-		{
-			Error_Handler();
-		}*/
-
-		/* sConfig.Channel = ADC_CHANNEL_17; // Vref
-		sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-		sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;//ADC_SAMPLETIME_28CYCLES_5;
-		if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-		{
-			Error_Handler();
-		}
-
-		HAL_ADC_Start(&hadc);
-		HAL_ADC_PollForConversion(&hadc, 1);
-		vRefAdc = HAL_ADC_GetValue(&hadc);
-		HAL_ADC_Stop(&hadc);
-		sConfig.Channel = ADC_CHANNEL_17; // remove adc ref voltage channel
-		sConfig.Rank = ADC_RANK_NONE;
-		if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-		{
-			Error_Handler();
-		}*/
-
-		/*sConfig.Channel = ADC_CHANNEL_16; // return to temperature channel
-		sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-		if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-		{
-			Error_Handler();
-		}*/
-
-		//aVdd = ANALOG_ADC_GET_AVDD(vRefAdc);
-
-		analogWDGConfig.ITMode = ENABLE;
-		if (HAL_ADC_AnalogWDGConfig(&hadc, &analogWDGConfig) != HAL_OK)
-		{
-		  Error_Handler();
-		}
-
-		// make bufer data invalid
-		analogIn[0] = ADC_SAMPLE_SENTINEL;
-		analogIn[ADC_BUFFER_LENGTH-1] = ADC_SAMPLE_SENTINEL;
-		if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)analogIn, ADC_BUFFER_LENGTH) != HAL_OK)
-		{
-			Error_Handler();
-		}
-	}
+    // make bufer data invalid
+    analogIn[0] = ADC_SAMPLE_SENTINEL;
+    analogIn[ADC_BUFFER_LENGTH - 1] = ADC_SAMPLE_SENTINEL;
+    if (HAL_ADC_Start_DMA(&hadc, (uint32_t*) analogIn, ADC_BUFFER_LENGTH)
+        != HAL_OK)
+    {
+      Error_Handler();
+    }
+  }
 }
 
 void AnalogPowerIsGood(void) {

@@ -262,7 +262,7 @@ void ButtonTask(void) {
 
 	ProcessButton(1, HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_12)); // sw2
 
-	ProcessButton(2, HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2)); // sw3
+	ProcessButton(2, HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2));  // sw3
 
 	if ((buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent) > oldDualLongPressStatus) ButtonDualLongPressEventCb();
 

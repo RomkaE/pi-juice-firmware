@@ -20,10 +20,9 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "stm32f0xx_it.h"
 
 /* USER CODE BEGIN 0 */
-extern void SysTickCb();
+//extern void SysTickCb();
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -84,8 +83,6 @@ void HardFault_Handler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32f0xx.s).                    */
 /******************************************************************************/
-extern uint8_t i2cTrfBuffer[];
-extern uint8_t newSmbusTransferFlag;
 /* USER CODE BEGIN 1 */
 /**
   * @brief  This function handles I2C event and error interrupt request.  
@@ -95,18 +92,8 @@ extern uint8_t newSmbusTransferFlag;
   */
 void I2C1_IRQHandler(void)
 {
-  /*if ((hsmbus.Instance->ISR & 0x40) && newSmbusTransferFlag) {
-	HAL_SMBUS_Slave_Receive_IT(&hsmbus, (uint8_t *)i2cTrfBuffer, 255, SMBUS_FIRST_AND_LAST_FRAME_NO_PEC);
-	newSmbusTransferFlag = 0;
-  }*/
-  //HAL_SMBUS_EV_IRQHandler(&hsmbus);
-  //HAL_SMBUS_ER_IRQHandler(&hsmbus);
-  //I2C_EV_IRQHandler(&hi2c1);
   HAL_I2C_EV_IRQHandler(&hi2c1);
   HAL_I2C_ER_IRQHandler(&hi2c1);
-  //hi2c1.Instance->ICR = (uint32_t)0xFFFDF;//0x3FD0F;
-  //hi2c1.Instance->CR1 &= (uint32_t)0x7F;//0x3FD0F;
- // if (hi2c1.Instance->ISR & 0x02) hi2c1.Instance->TXDR = 1;
 }
 
 void I2C2_IRQHandler(void)
