@@ -391,11 +391,11 @@
 #if configGENERATE_RUN_TIME_STATS
 #define configCLEAR_RUN_TIME_STATS              1
 #define configRUN_TIME_COUNTER_TYPE             uint32_t
-//#include "bsp_rtmon.h"
+#include "bsp_rtmon.h"
 extern void bsp_rtmon_InitRunTimer(void);
-extern configRUN_TIME_COUNTER_TYPE bsp_rtmon_GetRunTimer(void);
-#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()    bsp_rtmon_InitRunTimer()
-#define portGET_RUN_TIME_COUNTER_VALUE()            bsp_rtmon_GetRunTimer()
+extern configRUN_TIME_COUNTER_TYPE                bsp_rtmon_GetRunTimer(void);
+#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()  bsp_rtmon_InitRunTimer()
+#define portGET_RUN_TIME_COUNTER_VALUE()          bsp_rtmon_GetRunTimer()
 
 #endif /* configGENERATE_RUN_TIME_STATS */
 

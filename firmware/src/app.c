@@ -49,6 +49,8 @@
 
 #include "charger_bq2416x.h"
 #include "led.h"
+
+// FreeRTOS:
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -106,7 +108,7 @@ extern uint8_t alarmEventFlag;
 
 static TaskHandle_t s_TaskHandleApp;
 static StaticTask_t TaskTCBApp;
-static StackType_t TaskStackApp[512 * 1];
+static StackType_t TaskStackApp[1024 * 1];
 
 /* Private function prototypes -----------------------------------------------*/
 static void MX_GPIO_Init(void);

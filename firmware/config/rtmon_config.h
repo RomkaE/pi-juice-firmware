@@ -4,9 +4,10 @@
 
 #define RTMON_ENABLED                       ( 1 )
 
-//#define RTMON_TUD_CDC_IF                    ( 1 )
-#define RTMON_RTT_BUFF_IDX                  ( 0 )   /* RTT up-channel (shared with log) */
-#define RTMON_RTT_TERMINAL                  ( 1 )   /* RTT virtual terminal -> separate Viewer tab */
+#define RTMON_RTT_BUFF_IDX                  ( 0 )   // RTT up-channel (shared with log)
+#define RTMON_RTT_TERMINAL                  ( 1 )   // RTT virtual terminal -> separate Viewer tab
+
+#define RTMON_TERM_PROFILE                  RTMON_TERM_SEGGER_RTT
 
 #define RTMON_CFG_USE_STATIC_ALOCATION      ( 1 )
 
