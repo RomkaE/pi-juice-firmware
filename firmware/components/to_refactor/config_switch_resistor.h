@@ -10,6 +10,7 @@
 
 #include "stdint.h"
 
+// TODO - remove
 extern int8_t switchConfigCode;
 extern int16_t resistorConfig1Code7;
 extern int8_t resistorConfig2Code4;

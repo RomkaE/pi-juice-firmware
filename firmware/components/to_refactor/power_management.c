@@ -8,14 +8,12 @@
 #include "iosystem/analog.h"
 #include <to_refactor/button.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
-#include <to_refactor/load_current_sense.h>
 #include <to_refactor/logging.h>
 #include <to_refactor/power_management.h>
 #include <to_refactor/power_source.h>
 #include <to_refactor/time_count.h>
 #include "nv.h"
 #include "charger_bq2416x.h"
-#include "load_current_sense.h"
 
 
 RunPinInstallationStatus_T runPinInstallationStatus = RUN_PIN_NOT_INSTALLED;
@@ -119,7 +117,7 @@ __STATIC_INLINE void LOG_PM_WAKEUP_EVENT(uint8_t triggers) {
 	uint16_t ioVolt = Get5vIoVoltage();
 	buf[9] = ioVolt;
 	buf[10] = ioVolt >> 8;
-	int16_t curr = GetLoadCurrent(); // compress average current to one byte
+	int16_t curr = 0; // load-current measurement removed
 	buf[11] = curr;
 	buf[12] = curr>>8;
 }

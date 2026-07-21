@@ -37,7 +37,6 @@
 #include <to_refactor/execution.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/io_control.h>
-#include <to_refactor/load_current_sense.h>
 #include <to_refactor/logging.h>
 #include <to_refactor/power_management.h>
 #include <to_refactor/power_source.h>
@@ -173,7 +172,7 @@ __STATIC_INLINE void LOG_PM_MCU_RESET_EVENT() {
 	uint16_t ioVolt = Get5vIoVoltage();
 	buf[9] = ioVolt;
 	buf[10] = ioVolt >> 8;
-	int16_t curr = GetLoadCurrent(); // compress average current to one byte
+	int16_t curr = 0; // load-current measurement removed
 	buf[11] = curr;
 	buf[12] = curr>>8;
 }
@@ -472,7 +471,6 @@ static void main_init(void)
 
 
 	AnalogInit();
-	LoadCurrentSenseInit();
 	BatteryInit();
 	if (executionState == EXECUTION_STATE_POWER_ON) {
 		HAL_Delay(100);  // after power-on, charger and fuel gauge requires initialization time
@@ -542,7 +540,6 @@ static void  main_poll(void)
       LedTask();
       //if (MS_TIME_COUNT(mainPollMsCounter) > 98) {
       ButtonTask();
-      LoadCurrentSenseTask();
       PowerManagementTask();
       //}
       if ((hi2c2.ErrorCode & \
@@ -564,8 +561,9 @@ static void  main_poll(void)
       {
         state = STATE_RUN;
       }
-      else if (((GetLoadCurrent() <= 50)
-          || (Get5vIoVoltage() < 4600 && !POW_VSYS_OUTPUT_EN_STATUS()))
+      // Load-current gating removed with the current-sensing feature; the 5V-rail-low test
+      // below is the remaining low-power entry condition.
+      else if ((Get5vIoVoltage() < 4600 && !POW_VSYS_OUTPUT_EN_STATUS())
           && MS_TIME_COUNT(lastHostCommandTimer) > 5000
           && MS_TIME_COUNT(lowPowerDealyTimer) >= 22
           && MS_TIME_COUNT(lastWakeupTimer) > 20000

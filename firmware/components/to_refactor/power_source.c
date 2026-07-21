@@ -8,7 +8,6 @@
 #include "iosystem/analog.h"
 #include <to_refactor/execution.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
-#include <to_refactor/load_current_sense.h>
 #include <to_refactor/logging.h>
 #include <to_refactor/power_source.h>
 #include <to_refactor/time_count.h>
@@ -20,7 +19,7 @@
 #define VBAT_TURNOFF_ADC_THRESHOLD		0 // mV unit
 #define POW_5V_DET_LDO_EN_STATUS()		(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_11) == GPIO_PIN_SET)
 #define POW_SOURCE_PRESENT()			(powerInStatus==POW_SOURCE_NORMAL || powerInStatus==POW_SOURCE_WEAK || power5vIoStatus==POW_SOURCE_NORMAL || power5vIoStatus==POW_SOURCE_WEAK)
-#define POW_SOURCE_5VREG_IS_POWER_BAD() ((hardwareRev == HARD_REV_2_3_AND_ABOVE) && (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_RESET))
+#define POW_SOURCE_5VREG_IS_POWER_BAD() ((GetHardwareRev() == HARD_REV_2_3_AND_ABOVE) && (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_RESET))
 
 
 uint8_t forcedPowerOffFlag __attribute__((section("no_init")));
@@ -29,10 +28,19 @@ uint8_t forcedVSysOutputOffFlag __attribute__((section("no_init")));
 extern uint8_t resetStatus;
 extern uint16_t wakeupOnCharge;
 
-volatile uint32_t adcDmaPos = 0xFFFFFFFF;
-
 uint8_t pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_UNKNOWN;
 static uint16_t vbatPowOffTresh;
+
+/*
+ * Same cutoff as vbatPowOffTresh, pre-converted to raw ADC counts for the code paths that
+ * compare an uncorrected GetSample() reading. Assumes a fixed 3.3 V reference and the
+ * 1374/1000 VBAT divider: mV * 4096 * 1000 / 1374 / 3300.
+ *
+ * This used to live in analogWDGConfig.LowThreshold - the analog watchdog was configured
+ * with it but its interrupt did nothing, so the threshold register doubled as storage.
+ */
+#define VBAT_MV_TO_ADC(mV)	((uint16_t)(((uint32_t)(mV) * 2981) / 3300))
+static uint16_t vbatPowOffTreshAdc;
 
 uint8_t pow5VChgLoadMaximumReached = 0;
 uint32_t pow5vPresentCounter;
@@ -57,17 +65,8 @@ uint8_t* log5vonMsgBuf __attribute__((section("no_init"))); // saved message poi
 uint32_t log5vonAdcPos __attribute__((section("no_init"))); // saved message pointer of initialized
 #endif
 
-//volatile uint32_t adcWdTicks;
-void HAL_ADC_LevelOutOfWindowCallback(ADC_HandleTypeDef* hadc){
-	adcDmaPos = __HAL_DMA_GET_COUNTER(hadc->DMA_Handle); //hadc->DMA_Handle->Instance->CNDTR;
-	//volatile uint16_t batVolt = GetSampleVoltage(2);
-	//batVolt++;
-	//adcWdTicks = HAL_GetTick();
-}
-
 #define REGULATOR_5V_TURN_ON() \
 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET); \
-	AnalogAdcWDGEnable(ENABLE); \
 	AnalogPowerIsGood();
 
 // power ldo enable
@@ -93,7 +92,7 @@ __STATIC_INLINE int Retry5VTurnOn() {
 	while(n--) {
 		DelayUs(200);
 		// Check battery voltage
-		volatile int16_t batVolt = (GetSample(ADC_VBAT_SENS_CHN) * aVdd * 11) >> 15; // 4096 * 1374 / 1000
+		volatile int16_t batVolt = (GetSample(ADC_VBAT_SENS_CHN) * AnalogGetAvdd() * 11) >> 15; // 4096 * 1374 / 1000
 		if ( (!POW_SOURCE_PRESENT()) && batVolt < vbatPowOffTresh) {
 			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET);
 			forcedPowerOffFlag = 1;
@@ -119,7 +118,6 @@ int8_t Turn5vBoost(uint8_t onOff) {
 			log5vonMsgBuf = LoggingInitMessage(LOG_5VREG_ON);
 #endif
 			POW_5V_DET_LDO_ENABLE(0);
-			AnalogAdcWDGEnable(DISABLE);
 #if defined LOGGING
 			log5vonAdcPos =  __HAL_DMA_GET_COUNTER(hadc.DMA_Handle);
 			//SetMarker(0);
@@ -141,7 +139,6 @@ int8_t Turn5vBoost(uint8_t onOff) {
 			if (status == REGULATOR_5V_SWITCHING_STATUS_SUCCESS) {
 				MS_TIME_COUNTER_INIT(pow5vOnTimeout);
 
-				AnalogAdcWDGEnable(ENABLE);
 				AnalogPowerIsGood(); // At this point ADC sampling restarts
 			}
 		} else {
@@ -157,7 +154,6 @@ int8_t Turn5vBoost(uint8_t onOff) {
 		return status;
 	} else {
 		POW_5V_DET_LDO_ENABLE(0);
-		AnalogAdcWDGEnable(DISABLE);
 		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET);
 		MS_TIME_COUNTER_INIT(pow5vDetTimeCount);
 
@@ -177,7 +173,7 @@ int8_t Turn5vBoost(uint8_t onOff) {
 
 	buf[1] = batteryRsoc>>2;
 	buf[2] = batteryTemp;
-	buf[3] = GetLoadCurrent() >> 5; // compress average current to one byte
+	buf[3] = 0; // load-current measurement removed
 
 	uint32_t pos = (adcPos>0 && adcPos<ADC_BUFFER_LENGTH) ? adcPos : __HAL_DMA_GET_COUNTER(hadc.DMA_Handle);
 	GetAdcSignals12(pos, buf+4);
@@ -218,7 +214,7 @@ void PowerSourceInit(void) {
 	}
 
 	vbatPowOffTresh = currentBatProfile!=NULL ? (uint16_t)(currentBatProfile->cutoffVoltage)*20+VBAT_TURNOFF_ADC_THRESHOLD : (uint16_t)3000+VBAT_TURNOFF_ADC_THRESHOLD;
-	AnalogAdcWDGConfig(ADC_VBAT_SENS_CHN,  vbatPowOffTresh);
+	vbatPowOffTreshAdc = VBAT_MV_TO_ADC(vbatPowOffTresh);
 
 	DelayUs(100);
 	volatile uint16_t batVolt = GetSampleVoltage(ADC_VBAT_SENS_CHN)*(int32_t)1374/1000;
@@ -232,7 +228,6 @@ void PowerSourceInit(void) {
 			wakeupOnCharge = 5; // schedule wake up when there is enough energy
 		} else {
 			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);
-			AnalogAdcWDGEnable(ENABLE);
 			AnalogPowerIsGood();
 			MS_TIME_COUNTER_INIT(pow5vOnTimeout);
 		}
@@ -278,16 +273,16 @@ void PowerSourceInit(void) {
 /*__STATIC_INLINE*/ void CheckMinimumPower(int16_t volt5) {
 	if ( POW_5V_BOOST_EN_STATUS() ) {
 
-		if ((AnalogSamplesReady() && volt5 < 2000 && aVdd > 2500) || POW_SOURCE_5VREG_IS_POWER_BAD()) {
+		if ((AnalogSamplesReady() && volt5 < 2000 && AnalogGetAvdd() > 2500) || POW_SOURCE_5VREG_IS_POWER_BAD()) {
 			//5V DCDC is in fault overcurrent state, turn it off to prevent draining battery
-			LOG_5VREG_FORCED_OFF(adcDmaPos);
+			LOG_5VREG_FORCED_OFF(0xFFFFFFFF);
 			Turn5vBoost(0);
 			return;
 		}
 
 		volatile uint16_t samt = GetSample(ADC_VBAT_SENS_CHN);
 		// if no sources connected, turn off 5V regulator and system switch when battery voltage drops below minimum
-		if ( samt < GetAdcWDGThreshold() && pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT && CHARGER_INSTAT()) {
+		if ( samt < vbatPowOffTreshAdc && pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT && CHARGER_INSTAT()) {
 			if ( POW_VSYS_OUTPUT_EN_STATUS() ) {
 				TurnVSysOutput(0);
 				forcedVSysOutputOffFlag = 1;
@@ -300,20 +295,19 @@ void PowerSourceInit(void) {
 			}
 		}
 	} else {
-		int16_t batVolt = (GetSample(ADC_VBAT_SENS_CHN) * aVdd * 11) >> 15; // 4096 * 1374 / 1000
+		int16_t batVolt = (GetSample(ADC_VBAT_SENS_CHN) * AnalogGetAvdd() * 11) >> 15; // 4096 * 1374 / 1000
 		if ( (!POW_SOURCE_PRESENT() /*chargerStatus == CHG_NO_VALID_SOURCE*/) && batVolt < vbatPowOffTresh && POW_VSYS_OUTPUT_EN_STATUS()) {
 			TurnVSysOutput(0);
 			forcedVSysOutputOffFlag = 1;
 		}
 	}
-	 adcDmaPos = 0xFFFFFFFF;
 }
 
 void PowerSource5vIoDetectionTask(void) {
 	if ( MS_TIME_COUNT(pow5vOnTimeout) < POW_5V_TURN_ON_TIMEOUT ) {
 		volatile int16_t batVolt;
 		if ( (!POW_SOURCE_PRESENT()) && MS_TIME_COUNT(pow5vOnTimeout) > 0) {
-			batVolt = (GetSample(ADC_VBAT_SENS_CHN) * aVdd * 11) >> 15; // 4096 * 1374 / 1000
+			batVolt = (GetSample(ADC_VBAT_SENS_CHN) * AnalogGetAvdd() * 11) >> 15; // 4096 * 1374 / 1000
 			if (batVolt < vbatPowOffTresh) {
 				LOG_5VREG_FORCED_OFF(0xFFFFFFFF);
 				Turn5vBoost(0);
@@ -383,7 +377,6 @@ void PowerSource5vIoDetectionTask(void) {
 				MS_TIME_COUNTER_INIT(pow5vPresentCounter);
 			} else {
 				if (fetActiveCount >= 3) {
-					MeasurePMOSLoadCurrent();//pow5vIoLoadCurrent = GetLoadCurrent();
 					pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_NOT_PRESENT;
 				}
 				POW_5V_DET_LDO_ENABLE(0);
@@ -459,22 +452,19 @@ void PowerSourceTask(void) {
 }
 
 void PowerSourceSetBatProfile(const BatteryProfile_T* batProfile) {
-	//vbatAdcTresh = currentBatProfile != NULL ? ((uint32_t)(currentBatProfile->cutoffVoltage*20+VBAT_TURNOFF_ADC_THRESHOLD) * 2981) /*20 * 4096 * 1000 / 1374*/ / 3300 : (((uint32_t)150*20+VBAT_TURNOFF_ADC_THRESHOLD) * 2981) / 3300;
-	//analogWDGConfig.LowThreshold = POW_5V_IO_DET_ADC_THRESHOLD;
-	//AnalogAdcWDGConfig(&analogWDGConfig);
-	vbatPowOffTresh = currentBatProfile!=NULL ? (uint16_t)(currentBatProfile->cutoffVoltage)*20+VBAT_TURNOFF_ADC_THRESHOLD : (uint16_t)3000+VBAT_TURNOFF_ADC_THRESHOLD;
-	AnalogAdcWDGConfig(ADC_VBAT_SENS_CHN,  vbatPowOffTresh);
+	vbatPowOffTresh =currentBatProfile!=NULL ? (uint16_t)(currentBatProfile->cutoffVoltage)*20+VBAT_TURNOFF_ADC_THRESHOLD : (uint16_t)3000+VBAT_TURNOFF_ADC_THRESHOLD;
+	vbatPowOffTreshAdc = VBAT_MV_TO_ADC(vbatPowOffTresh);
 }
 
 void PowerSourceSetVSysSwitchState(uint8_t state) {
 	if (state == 5) {
 		HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, GPIO_PIN_SET);
-		if ( GetSample(ADC_VBAT_SENS_CHN) > GetAdcWDGThreshold() || POW_SOURCE_PRESENT()/*chargerStatus != CHG_NO_VALID_SOURCE*/ )
+		if ( GetSample(ADC_VBAT_SENS_CHN) > vbatPowOffTreshAdc || POW_SOURCE_PRESENT()/*chargerStatus != CHG_NO_VALID_SOURCE*/ )
 			TurnVSysOutput(1);
 		vsysSwitchLimit = state;
 	} else if (state == 21) {
 		HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, GPIO_PIN_RESET);
-		if ( GetSample(ADC_VBAT_SENS_CHN) > GetAdcWDGThreshold() || POW_SOURCE_PRESENT()/*chargerStatus != CHG_NO_VALID_SOURCE*/ )
+		if ( GetSample(ADC_VBAT_SENS_CHN) > vbatPowOffTreshAdc || POW_SOURCE_PRESENT()/*chargerStatus != CHG_NO_VALID_SOURCE*/ )
 			TurnVSysOutput(1);
 		vsysSwitchLimit = state;
 	} else {

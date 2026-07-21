@@ -13,7 +13,6 @@
 #include <to_refactor/execution.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/io_control.h>
-#include <to_refactor/load_current_sense.h>
 #include <to_refactor/logging.h>
 #include <to_refactor/power_management.h>
 #include <to_refactor/power_source.h>
@@ -56,7 +55,6 @@ void CmdServerReadBatTemp(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadBatVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadBatCurrent(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadMainVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
-void CmdServerReadMainCurrent(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteButtonConfigurationSw1(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteButtonConfigurationSw2(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteButtonConfigurationSw3(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
@@ -182,7 +180,7 @@ static const MasterCommand_T masterCommands[REGISTERS_NUM] =
 /*76*/	NULL,// battery current high byte
 /*77*/	CmdServerReadMainVoltage,// RPI voltage low byte
 /*78*/	NULL,// RPI voltage high byte
-/*79*/	CmdServerReadMainCurrent,// RPI current low byte
+/*79*/	NULL,// RPI current low byte - load-current measurement removed, reads default reg (0)
 /*80*/	NULL,// RPI current high byte
 
 		// --charger parameters-- //
@@ -563,17 +561,6 @@ void CmdServerReadMainVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	}
 }
 
-void CmdServerReadMainCurrent(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
-	if (dir == MASTER_CMD_DIR_READ) {
-		uint16_t cur = GetLoadCurrent();
-		uint8_t adr = pData[0];
-		reg[adr] = cur;
-		reg[adr+1] = cur >> 8;
-		pData[0] = reg[adr];
-		pData[1] = reg[adr+1];
-		*dataLen = 2;
-	}
-}
 /*
 void CmdServerReadWriteChargeCurrent(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
@@ -1001,9 +988,9 @@ void CmdServerReadWriteEEPROM_WriteAddress(uint8_t dir, uint8_t *pData, uint16_t
 
 void CmdServerReadWriteTestAndCalibration(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		if (pData[1] == 0x55 && pData[2] == 0x26 && pData[3] == 0xa0 && pData[4] == 0x2b ) {
-			CalibrateLoadCurrent();
-		}
+		// The 0x55 0x26 0xa0 0x2b key used to trigger load-current calibration, which was
+		// removed together with the current-sensing feature. Left as a no-op so the register
+		// still ACKs and can host future test/calibration commands.
 	} else {
 		//pData[0] = 0;
 		*dataLen = 0;

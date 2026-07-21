@@ -22,9 +22,9 @@ typedef enum
 {
 	NV_STATIC_START_ID, /* static variables are not deleted when reset to default*/ \
 	NV_STATIC_ADDR_RESERVED0, \
-	VDG_ILOAD_CALIB_KTA_NV_ADDR, /* current measurement calibration vta coeff*/ \
-	VDG_ILOAD_CALIB_KTB_NV_ADDR, /* current measurement calibration vtb coeff*/ \
-	RES_ILOAD_CALIB_ZERO_NV_ADDR, \
+	NV_STATIC_ADDR_RETIRED_ILOAD_KTA, /* was current-measurement calib kta; feature removed */ \
+	NV_STATIC_ADDR_RETIRED_ILOAD_KTB, /* was current-measurement calib ktb; feature removed */ \
+	NV_STATIC_ADDR_RETIRED_ILOAD_ZERO, /* was current-sense zero / rev marker; feature removed */ \
 	NV_STATIC_ADDR_RESERVED1, \
 	NV_STATIC_ADDR_RESERVED2, \
 	NV_STATIC_ADDR_RESERVED3, \
