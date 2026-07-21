@@ -1,0 +1,8 @@
+#ifndef CONFIG_VERSION_H_
+#define CONFIG_VERSION_H_
+
+#define VERSION_MAJOR 1
+#define VERSION_MINOR 0
+#define VERSION_BUILD 5
+
+#endif /* CONFIG_VERSION_H_ */

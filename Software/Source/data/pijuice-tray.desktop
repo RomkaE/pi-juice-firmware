@@ -1,9 +1,0 @@
-[Desktop Entry]
-Version=1.3.3
-Type=Application
-Name=PiJuice Status Tray
-Exec=sudo -u pijuice /usr/bin/pijuice_tray.py
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-Comment=PiJuice status tray
