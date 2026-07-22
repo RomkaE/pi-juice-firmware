@@ -44,6 +44,7 @@
 #include <to_refactor/time_count.h>
 #include "main.h"
 #include "eeprom.h"
+#include "retained_memory.h"
 #include "stm32f0xx_hal.h"
 
 #include "charger_bq2416x.h"
@@ -416,6 +417,15 @@ static void WaitInterrupt() {
 static void main_init(void)
 {
 	//HAL_Init();
+	/*
+	 * Before touching any no_init variable: decide whether the retained section belongs to
+	 * this image at all. If it does not, drop executionState so the tests below fall
+	 * through to the cold-boot path and every retained value is re-read from NV.
+	 */
+	if (!RetainedMemoryCheck()) {
+		executionState = 0;
+	}
+
 	if (executionState != EXECUTION_STATE_NORMAL && executionState != EXECUTION_STATE_UPDATE && executionState != EXECUTION_STATE_CONFIG_RESET) {
 		if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST)) {
 			executionState = EXECUTION_STATE_POWER_RESET;

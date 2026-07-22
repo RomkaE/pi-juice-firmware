@@ -11,16 +11,28 @@
 #include "stdint.h"
 #include "stm32f0xx_hal.h"
 
-#define ADC_SCAN_CHANNELS		8
-#define ADC_BUFFER_LENGTH		((uint16_t)512*ADC_SCAN_CHANNELS)
-#define ADC_CS1_CHN	        0	// PA0, 5V rail sense (/2 divider), labelled CS1 in schematic
-#define ADC_CS2_CHN	        1	// PA1, current-sense amp output on >=2.3 / shunt tap on <2.3
-#define ADC_VBAT_SENS_CHN	  2
-#define ADC_NTC_CHN	        3
-#define POW_DET_SENS_CHN	  4
-#define ADC_IO1_CHN	        5
-#define ADC_TEMP_SENS_CHN	  6
-#define ADC_VREF_BUFF_CHN	  7
+/*
+ * The DMA ring holds ADC_FRAMES complete scans, one uint16_t per channel per frame, so
+ * index = frame * ADC_SCAN_CHANNELS + channel. A frame takes ~108 us (6 channels x
+ * (239.5 + 12.5) cycles at HSI14), hence the ring spans ~6.9 ms - several frames' worth of
+ * history for the 20 ms task loop, in well under 1 KB of the F030CC's 32 KB of RAM.
+ * Never index it directly: use GetSample()/GetSampleSum(), which locate the freshest frame
+ * from the DMA counter.
+ *
+ * Note ADC_SCAN_CHANNELS is no longer a power of two - nothing may reintroduce the old
+ * "multiply by 32768/ADC_SCAN_CHANNELS and shift" trick for dividing by it.
+ */
+#define ADC_SCAN_CHANNELS		6
+#define ADC_FRAMES          64
+#define ADC_BUFFER_LENGTH		((uint16_t)ADC_FRAMES * ADC_SCAN_CHANNELS)
+
+//
+#define ADC_CS1_CHN_IDX         0
+#define ADC_CS2_CHN_IDX	        1
+#define ADC_VBAT_SENS_CHN_IDX	  2
+#define POW_DET_SENS_CHN_IDX	  3
+#define ADC_TEMP_SENS_CHN_IDX	  4
+#define ADC_VREF_BUFF_CHN_IDX	  5
 
 // Board hardware revision, detected at runtime from the CS1/CS2 analog signals.
 #define HARD_REV_BELOW_2_3	0
@@ -28,7 +40,29 @@
 #define HARD_REV_UNKNOWN	0xFF
 #define ADC_CONT_MODE_NORMAL	0
 #define ADC_CONT_MODE_LOW_VOLTAGE 	1 // In this mode one channel in scan group is internal reference
-#define ADC_GET_BUFFER_SAMPLE(i)	(analogIn[(i)])
+
+/*
+ * Battery sense divider on PA2: Vbat = Vpin * VBAT_DIVIDER_NUM / VBAT_DIVIDER_DEN.
+ * Single definition for every VBAT conversion in the firmware - before this there were four
+ * hand-rolled variants (11/8, 1374/1000 twice, 4535/32768) that agreed to within 0.2%.
+ */
+#define VBAT_DIVIDER_NUM		1374
+#define VBAT_DIVIDER_DEN		1000
+#define ADC_VREF_NOMINAL_MV		3300
+
+/*
+ * Battery voltage in mV -> raw ADC count, for code that compares GetSample() readings
+ * directly instead of converting them.
+ *
+ * Deliberately assumes the nominal reference rather than AnalogGetAvdd(): this is used on
+ * the undervoltage cutoff path, which has to stay meaningful exactly when the supply is
+ * sagging and the measured AVDD is least trustworthy. The cost is that the cutoff tracks
+ * the real AVDD only as well as the 3.3 V rail holds.
+ *
+ * The evaluation order keeps every intermediate under 2^32 for mV up to ~1 MV.
+ */
+#define VBAT_MV_TO_ADC(mV)	((uint16_t)((uint32_t)(mV) * 4096U / VBAT_DIVIDER_NUM \
+					* VBAT_DIVIDER_DEN / ADC_VREF_NOMINAL_MV))
 
 // Written into the first/last cell before starting DMA; AnalogSamplesReady() reports
 // ready once DMA has overwritten both. Must be outside the 12-bit ADC range and must
@@ -65,11 +99,26 @@ void AnalogStart(void);
 void AnalogPowerIsGood(void);
 //void AnalogSetAdcMode(uint8_t mode);
 uint8_t AnalogSamplesReady();
-uint16_t GetSampleVoltage(uint8_t channel);
-uint16_t GetAverageBatteryVoltage(uint8_t channel);
+/*
+ * Battery voltage in mV. GetBatteryVoltage() uses the freshest frame and is what the
+ * protection paths want; GetAverageBatteryVoltage() averages VBAT_AVERAGE_FRAMES frames for
+ * the fuel gauge. Both apply the same divider and the same measured AVDD.
+ */
+uint16_t GetBatteryVoltage(void);
+uint16_t GetAverageBatteryVoltage(void);
+
 void GetAdcSignals02(uint32_t pos, uint8_t* buf);
 void GetAdcSignals12(uint32_t pos, uint8_t* buf);
 
+/* Freshest complete sample of one channel. */
 uint16_t GetSample(uint8_t channel);
+
+/*
+ * Sum (not average) of one channel over the last `frames` frames, freshest first. Returning
+ * the sum lets each caller keep its own scaling arithmetic unchanged. `frames` must not
+ * exceed ADC_FRAMES; it is the caller's averaging window, expressed in frames rather than
+ * in buffer offsets, so it stays correct if the ring is resized.
+ */
+uint32_t GetSampleSum(uint8_t channel, uint16_t frames);
 
 #endif /* ANALOG_H_ */

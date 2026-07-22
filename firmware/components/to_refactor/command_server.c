@@ -55,6 +55,7 @@ void CmdServerReadBatTemp(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadBatVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadBatCurrent(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadMainVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
+void CmdServerReadRetiredU16(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteButtonConfigurationSw1(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteButtonConfigurationSw2(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteButtonConfigurationSw3(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
@@ -180,7 +181,7 @@ static const MasterCommand_T masterCommands[REGISTERS_NUM] =
 /*76*/	NULL,// battery current high byte
 /*77*/	CmdServerReadMainVoltage,// RPI voltage low byte
 /*78*/	NULL,// RPI voltage high byte
-/*79*/	NULL,// RPI current low byte - load-current measurement removed, reads default reg (0)
+/*79*/	CmdServerReadRetiredU16,// RPI current low byte - load-current measurement removed, reads 0
 /*80*/	NULL,// RPI current high byte
 
 		// --charger parameters-- //
@@ -533,6 +534,24 @@ void CmdServerReadBatVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 		reg[adr+1] = batteryVoltage >> 8;
 		pData[0] = reg[adr];
 		pData[1] = reg[adr+1];
+		*dataLen = 2;
+	}
+}
+
+/*
+ * Reply for a retired 16-bit measurement. Returning nothing is not an option: the slot must
+ * keep answering with two bytes, because the host reads a fixed number of bytes plus a
+ * checksum and a short reply is reported as DATA_CORRUPTED rather than as a zero reading.
+ * Leaving the table entry NULL falls through to CmdServerDefaultReadWrite, which answers
+ * with one byte - which is exactly the bug this replaces.
+ */
+void CmdServerReadRetiredU16(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
+	if (dir == MASTER_CMD_DIR_READ) {
+		uint8_t adr = pData[0];
+		reg[adr] = 0;
+		reg[adr+1] = 0;
+		pData[0] = 0;
+		pData[1] = 0;
 		*dataLen = 2;
 	}
 }

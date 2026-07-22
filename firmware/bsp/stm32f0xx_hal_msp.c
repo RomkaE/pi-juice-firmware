@@ -98,7 +98,14 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
     __HAL_RCC_ADC1_CLK_ENABLE();
     __HAL_RCC_DMA1_CLK_ENABLE();
 
-    /* PA0..PA5 ------> ADC_IN0..ADC_IN5 */
+    /*
+     * PA0..PA5 into analog mode. Only PA0, PA1, PA2 and PA4 are scanned (see the channel
+     * table in analog.c); PA3 (battery NTC) and PA5 (config resistor, read once at init)
+     * are parked here because analog is the right idle state for an otherwise unused pin.
+     *
+     * PA7 is not here: it is the user-configurable IO1 pin, owned by io_control.c, which
+     * switches it between analog / digital in / out / PWM at run time.
+     */
     GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 |
                           GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;

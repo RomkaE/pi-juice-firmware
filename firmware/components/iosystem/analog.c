@@ -18,10 +18,20 @@
 
 #define ANALOG_ADC_GET_AVDD(a)		 (((uint32_t)*VREFINT_CAL_ADDR ) * 3300 / (a)) // refVolt = vRefAdc * aVdd / 4096 //volatile uint32_t refVolt = ((uint32_t)*VREFINT_CAL_ADDR ) * 3300 / 4096;
 
-//#define ANALOG_GET_VDG_AVG()	(4790 - (((analogIn[3] + analogIn[(uint16_t)ADC_SCAN_CHANNELS*256+3] + analogIn[(uint16_t)ADC_SCAN_CHANNELS*512+3] + analogIn[(uint16_t)ADC_SCAN_CHANNELS*768+3]) * aVdd) >> 13))
+/*
+ * Timeout for a polled conversion sequence, which needs ~108 us (6 channels x
+ * (239.5 + 12.5) cycles at HSI14).
+ *
+ * The value is not critical: HAL_GetTick() is overridden onto the FreeRTOS tick (main.c)
+ * and configTICK_RATE_HZ is 100, so it advances in 10 ms steps - every HAL timeout is
+ * quantised to 10..20 ms regardless of what is asked for. What matters here is that the
+ * return value is checked at all, so a failed conversion cannot be scaled into s_AVDD.
+ */
+#define ADC_SEQUENCE_TIMEOUT_MS		5
 
+static uint8_t s_HwRev = HARD_REV_UNKNOWN;
 
-static uint16_t aVdd;
+static uint16_t s_AVDD;
 
 extern ADC_HandleTypeDef hadc;
 ADC_ChannelConfTypeDef sConfig;
@@ -33,27 +43,47 @@ volatile uint32_t vRefAdc;
 uint16_t analogIn[ADC_BUFFER_LENGTH];
 
 uint16_t AnalogGetAvdd(void) {
-	return aVdd;
+	return s_AVDD;
 }
-
-static uint8_t hardwareRev = HARD_REV_UNKNOWN;
 
 uint8_t GetHardwareRev(void) {
-	return hardwareRev;
+	return s_HwRev;
 }
 
-uint16_t GetSampleVoltage(uint8_t channel) {
-    int32_t pos =  __HAL_DMA_GET_COUNTER(hadc.DMA_Handle);
-    int32_t ind = (((ADC_BUFFER_LENGTH - pos - 1) * (32768/ADC_SCAN_CHANNELS)) >> 15) * ADC_SCAN_CHANNELS + channel;
-	if (ind > (ADC_BUFFER_LENGTH - pos - 1)) ind -= ADC_SCAN_CHANNELS; // check if calculated channel sample is fresh
-	if (ind < 0) ind += ADC_BUFFER_LENGTH;
-	int16_t indRef = ind + ADC_VREF_BUFF_CHN - channel;
-	return (analogIn[ind] * ((uint32_t)*VREFINT_CAL_ADDR ) * 412 / analogIn[indRef]) >>  9;
+/*
+ * Index of the freshest complete sample of `channel` in the DMA ring.
+ *
+ * The DMA counter runs down, so ADC_BUFFER_LENGTH - counter - 1 is the last cell written.
+ * Truncating that to a frame boundary gives the frame in progress; if the requested channel
+ * has not been converted in it yet, step back one frame.
+ */
+static int32_t FreshSampleIndex(uint8_t channel) {
+	int32_t last = ADC_BUFFER_LENGTH - (int32_t)__HAL_DMA_GET_COUNTER(hadc.DMA_Handle) - 1;
+	int32_t ind = (last / ADC_SCAN_CHANNELS) * ADC_SCAN_CHANNELS + channel;
+	if (ind > last) ind -= ADC_SCAN_CHANNELS; // channel not written in the current frame yet
+	if (ind < 0) ind += ADC_BUFFER_LENGTH;    // wrapped past the start of the ring
+	return ind;
 }
+
+/*
+ * GetSampleVoltage() lived here: a ratiometric channel-to-mV conversion that took VREFINT
+ * from the same frame instead of the AnalogTask-refreshed AVDD. Its last caller was the IO1
+ * analog read; removed with it. Worth restoring if a measurement ever needs to be immune to
+ * AVDD moving between frames.
+ */
 
 //int16_t testBuf[512] __attribute__((section("no_init")));
 //volatile uint16_t testInd = 0;
 #if defined LOGGING
+/*
+ * These two walk the DMA ring by hand to dump a waveform. They were written against a
+ * 512-frame ring (~74 ms of history); the ring is now ADC_FRAMES (~9.2 ms), so they would
+ * still compile and still return data, just over an 8x shorter window - silently different
+ * traces. Logging is not maintained; bringing it back should use a dedicated log buffer
+ * over the two or three channels it actually needs, not the ADC ring.
+ */
+#error "LOGGING needs a dedicated log buffer - the ADC ring is now ADC_FRAMES frames (~9.2 ms), not 512"
+
 // Function used for logging of 5V GPIO and battery voltage signals
 // Signals are compressed to one byte per sample
 void GetAdcSignals02(uint32_t pos, uint8_t* buf) {
@@ -137,35 +167,78 @@ void GetAdcSignals12(uint32_t pos, uint8_t* buf) {
 //}
 #endif
 
-uint16_t GetAverageBatteryVoltage(uint8_t channel) {
-	uint16_t i;
-	uint32_t sum = 0;
-	for (i = channel; i < ADC_BUFFER_LENGTH; i+=(ADC_BUFFER_LENGTH/8)) {
-		sum += analogIn[i];
-	}
-	return (sum* 4535 / analogIn[ADC_VREF_BUFF_CHN] * ((uint32_t)*VREFINT_CAL_ADDR )) >> 15 ;//(sum*2267) >> 14;
-	//return (sum * ((uint32_t)*VREFINT_CAL_ADDR ) * 412 / analogIn[ADC_VREF_BUFF_CHN]) >>  8;
+/* Frames averaged by GetAverageBatteryVoltage(). Power of two - see the shift below. */
+#define VBAT_AVERAGE_FRAMES	8
+#define VBAT_AVERAGE_SHIFT	15	// 12 (ADC bits) + 3 (log2 VBAT_AVERAGE_FRAMES)
+
+/* mV at the divider tap -> mV at the battery. */
+#define VBAT_FROM_PIN_MV(v)	((uint16_t)((v) * VBAT_DIVIDER_NUM / VBAT_DIVIDER_DEN))
+
+uint16_t GetBatteryVoltage(void) {
+	uint32_t pinMv = ((uint32_t)GetSample(ADC_VBAT_SENS_CHN_IDX) * AnalogGetAvdd()) >> 12;
+	return VBAT_FROM_PIN_MV(pinMv);
+}
+
+uint16_t GetAverageBatteryVoltage(void) {
+	uint32_t sum = GetSampleSum(ADC_VBAT_SENS_CHN_IDX, VBAT_AVERAGE_FRAMES);
+	uint32_t pinMv = (sum * AnalogGetAvdd()) >> VBAT_AVERAGE_SHIFT;
+	return VBAT_FROM_PIN_MV(pinMv);
 }
 
 int32_t mcuTemperature = 25; // will contain the mcuTemperature in degree Celsius
 
 int16_t Get5vIoVoltage() {
-	int16_t adcAvg = (analogIn[0] + /*analogIn[1] +*/ analogIn[ADC_BUFFER_LENGTH/4] /*+ analogIn[ADC_BUFFER_LENGTH/4+1]*/ + analogIn[ADC_BUFFER_LENGTH/2] /*+ analogIn[ADC_BUFFER_LENGTH/2+1]*/ + analogIn[ADC_BUFFER_LENGTH*3/4] /*+ analogIn[ADC_BUFFER_LENGTH*3/4+1]*/) >>2;//>> 3;
-	return (aVdd > 3200 && aVdd < 3400) ? (adcAvg * aVdd) >> 11 : (adcAvg * 3300) >> 11;//adcAvg * aVdd / 4096 * 2;
+	int16_t adcAvg = GetSampleSum(ADC_CS1_CHN_IDX, 4) >> 2;
+	return (s_AVDD > 3200 && s_AVDD < 3400) ? (adcAvg * s_AVDD) >> 11 : (adcAvg * 3300) >> 11;//adcAvg * s_AVDD / 4096 * 2;
 }
 
 uint16_t GetSample(uint8_t channel) {
-  int32_t pos =  __HAL_DMA_GET_COUNTER(hadc.DMA_Handle);
-  int32_t ind = (((ADC_BUFFER_LENGTH - pos - 1) * (32768/ADC_SCAN_CHANNELS)) >> 15) * ADC_SCAN_CHANNELS + channel;
-	if (ind > (ADC_BUFFER_LENGTH - pos - 1)) ind -= ADC_SCAN_CHANNELS; // check if calculated channel sample is fresh
-	if (ind < 0) ind += ADC_BUFFER_LENGTH;
-	return analogIn[ind];
+	return analogIn[FreshSampleIndex(channel)];
+}
+
+uint32_t GetSampleSum(uint8_t channel, uint16_t frames) {
+	int32_t ind = FreshSampleIndex(channel);
+	uint32_t sum = 0;
+	while (frames--) {
+		sum += analogIn[ind];
+		ind -= ADC_SCAN_CHANNELS;
+		if (ind < 0) ind += ADC_BUFFER_LENGTH;
+	}
+	return sum;
 }
 
 uint8_t AnalogSamplesReady() {
 	return analogIn[0] != ADC_SAMPLE_SENTINEL && analogIn[ADC_BUFFER_LENGTH-1] != ADC_SAMPLE_SENTINEL;
 }
 
+/*
+ * The scan group, and with it the layout of every frame in analogIn[].
+ *
+ *  buffer idx | ADC ch | pin  | signal
+ *  -----------+--------+------+-------------------------------------------------
+ *      0      |   0    | PA0  | 5V rail sense through a /2 divider (CS1)
+ *      1      |   1    | PA1  | current-sense amp output (>=2.3) / shunt tap (<2.3) (CS2)
+ *      2      |   2    | PA2  | VBAT
+ *      3      |   4    | PA4  | POW_DET_SEN
+ *      4      |  16    |  -   | MCU temperature
+ *      5      |  17    |  -   | VREFINT
+ *
+ * CH3 (PA3, battery NTC) and CH7 (PA7, IO1) used to be in this group and were dropped - see
+ * the notes at their former ConfigChannel calls below.
+ *
+ * STM32F0 has no configurable ranks: HAL_ADC_ConfigChannel only sets or clears a bit in
+ * CHSELR, and the sequence order comes from SCANDIR. With ADC_SCAN_DIRECTION_FORWARD the
+ * scan runs in ascending channel number no matter in which order the calls below are made,
+ * so the buffer index of a signal is its position in the sorted channel set - which is what
+ * the ADC_*_CHN_IDX constants in analog.h spell out.
+ *
+ * The delicate part is CH5 (config resistor): it is enabled for a single measurement at the
+ * top of this function and removed again with ADC_RANK_NONE. If that removal ever gets
+ * lost, indices 5/6/7 shift by one with no other symptom - hence the assert at the end.
+ *
+ * SamplingTime is not per channel either: on F0 there is a single SMPR shared by the whole
+ * group, so the last assignment wins and speeding up one channel speeds up all of them.
+ */
 void AnalogInit(void)
 {
   // TODO - some sort of clever check and initialization of a resistor soldered onto the board:
@@ -180,7 +253,10 @@ void AnalogInit(void)
 
     uint32_t resistorConfigAdc;
     HAL_ADC_Start(&hadc);
-    HAL_ADC_PollForConversion(&hadc, 1);
+    if (HAL_ADC_PollForConversion(&hadc, ADC_SEQUENCE_TIMEOUT_MS) != HAL_OK)
+    {
+      APP_ERROR(APP_HAL_ERROR);
+    }
     resistorConfigAdc = HAL_ADC_GetValue(&hadc);
     HAL_ADC_Stop(&hadc);
     SwitchResCongigInit(resistorConfigAdc);
@@ -205,7 +281,10 @@ void AnalogInit(void)
   }
 
   HAL_ADC_Start(&hadc);
-  HAL_ADC_PollForConversion(&hadc, 1);
+  if (HAL_ADC_PollForConversion(&hadc, ADC_SEQUENCE_TIMEOUT_MS) != HAL_OK)
+  {
+    APP_ERROR(APP_HAL_ERROR); // s_AVDD below would divide by a stale reading
+  }
   vRefAdc = HAL_ADC_GetValue(&hadc);
   HAL_ADC_Stop(&hadc);
   /*sConfig.Channel = ADC_CHANNEL_17; //
@@ -215,7 +294,7 @@ void AnalogInit(void)
    APP_ERROR(APP_HAL_ERROR);
    }*/
 
-  aVdd = ANALOG_ADC_GET_AVDD(vRefAdc);
+  s_AVDD = ANALOG_ADC_GET_AVDD(vRefAdc);
   }
 
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
@@ -244,13 +323,11 @@ void AnalogInit(void)
     APP_ERROR(APP_HAL_ERROR);
   }
 
-  /**Configure for the selected ADC regular channel to be converted.
+  /*
+   * CH3 (PA3, battery NTC) is not scanned: battery temperature is not going to be measured
+   * through the ADC. The pin stays in analog mode, the thermistor path in the fuel gauge
+   * driver falls back to the MCU temperature sensor.
    */
-  sConfig.Channel = ADC_CHANNEL_3; // NTC
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-  {
-    APP_ERROR(APP_HAL_ERROR);
-  }
 
   /**Configure for the selected ADC regular channel to be converted.
    */
@@ -266,17 +343,24 @@ void AnalogInit(void)
    APP_ERROR(APP_HAL_ERROR);
    }*/
 
-  sConfig.Channel = ADC_CHANNEL_7; // IO1
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-  {
-    APP_ERROR(APP_HAL_ERROR);
-  }
+  /*
+   * TODO: CH7 (PA7, IO1) is not scanned - the analog-input mode of the user IO pins was
+   * removed. Restoring it means putting the channel back here and reinstating the read in
+   * IoRead(); note that IO2 (PA8) has no ADC channel at all on this part.
+   */
 
   sConfig.Channel = ADC_CHANNEL_16; // temperature
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
     APP_ERROR(APP_HAL_ERROR);
   }
+
+  /*
+   * CHSELR now defines both the scan order and the frame layout: one converted channel per
+   * set bit, ascending. Any mismatch with ADC_SCAN_CHANNELS silently shifts every
+   * ADC_*_CHN_IDX above the offending channel.
+   */
+  assert_param(__builtin_popcount(hadc.Instance->CHSELR) == ADC_SCAN_CHANNELS);
 
   // make bufer data invalid
   analogIn[0] = ADC_SAMPLE_SENTINEL;
@@ -293,29 +377,32 @@ void AnalogInit(void)
 }
 
 /*
- * One-shot board-revision probe. PA1 (ADC_CS2_CHN) carries the NCS213 current-sense amp
+ * One-shot board-revision probe. PA1 (ADC_CS2_CHN_IDX) carries the NCS213 current-sense amp
  * output on >=2.3 hardware (idles near 1570 counts while PA0/5V-sense sits ~3100) and a
  * plain shunt tap that tracks PA0 within a few counts on <2.3. A single comparison with a
  * wide margin (3x the largest shunt drop, 3x below the NCS idle offset) separates the two.
  * Needs the 5V rail up so both taps are energised; retries every task tick until then.
  */
 static void DetectHardwareRev(void) {
-	if (hardwareRev != HARD_REV_UNKNOWN) return;
+	if (s_HwRev != HARD_REV_UNKNOWN) return;
 	if (!AnalogSamplesReady() || Get5vIoVoltage() <= 4500) return;
-	int32_t d = (int32_t)GetSample(ADC_CS1_CHN) - (int32_t)GetSample(ADC_CS2_CHN);
-	hardwareRev = (d > 500) ? HARD_REV_2_3_AND_ABOVE : HARD_REV_BELOW_2_3;
+	int32_t d = (int32_t)GetSample(ADC_CS1_CHN_IDX) - (int32_t)GetSample(ADC_CS2_CHN_IDX);
+	s_HwRev = (d > 500) ? HARD_REV_2_3_AND_ABOVE : HARD_REV_BELOW_2_3;
 }
 
 void AnalogTask(void) {
 
 	if (MS_TIME_COUNT(tempCalcCounter) > 2000) {
-		int32_t vtemp = (((uint32_t)analogIn[ADC_TEMP_SENS_CHN]) * aVdd * 10) >> 12;
+		int32_t vtemp = (((uint32_t)GetSample(ADC_TEMP_SENS_CHN_IDX)) * s_AVDD * 10) >> 12;
 		volatile int32_t v30 = (((uint32_t)*TEMP30_CAL_ADDR ) * 33000) >> 12;
 		mcuTemperature = (v30 - vtemp) / 43 + 30; //avg_slope = 4.3
 		//mcuTemperature = ((((int32_t)*TEMP30_CAL_ADDR - analogIn[7]) * 767) >> 12) + 30;
 		MS_TIME_COUNTER_INIT(tempCalcCounter);
 	}
-	aVdd = ANALOG_ADC_GET_AVDD(GetSample(ADC_VREF_BUFF_CHN));
+	uint16_t vRefSample = GetSample(ADC_VREF_BUFF_CHN_IDX);
+	if (vRefSample != 0) { // zero before DMA has filled the ring; the macro divides by it
+		s_AVDD = ANALOG_ADC_GET_AVDD(vRefSample);
+	}
 
 	DetectHardwareRev();
 }
@@ -342,6 +429,19 @@ void AnalogStart(void) {
   }
 }
 
+/*
+ * Refresh s_AVDD right after the 5V regulator has settled, without waiting for the ring to
+ * refill.
+ *
+ * The single conversion below yields VREFINT and not some other channel only because
+ * EOCSelection is ADC_EOC_SEQ_CONV: the poll waits for the end of the whole sequence, and
+ * CH17 is the highest channel number, hence the last one converted with SCANDIR forward.
+ * Adding any channel above 17 to the group would break this silently.
+ *
+ * The commented-out reconfiguration below would narrow the group to CH17 for the duration.
+ * It is deliberately left off: this runs on the 5V turn-on path, where extra ADC stop/start
+ * cycles cost more than the sequence they would save.
+ */
 void AnalogPowerIsGood(void) {
 	// get avdd
 	if (HAL_IS_BIT_SET(hadc.Instance->CR, ADC_CR_ADSTART)) {
@@ -363,9 +463,15 @@ void AnalogPowerIsGood(void) {
 		APP_ERROR(APP_HAL_ERROR);
 	}*/
 
+	/*
+	 * ADC_SEQUENCE_TIMEOUT_MS, not 1: the sequence itself needs ~144 us, but the HAL timeout
+	 * is counted in whole 1 ms ticks, so a value of 1 expires anywhere between 0 and 1 ms
+	 * depending on where inside the current tick the call lands.
+	 */
 	HAL_ADC_Start(&hadc);
-	HAL_ADC_PollForConversion(&hadc, 1);
-	vRefAdc = HAL_ADC_GetValue(&hadc);
+	if (HAL_ADC_PollForConversion(&hadc, ADC_SEQUENCE_TIMEOUT_MS) == HAL_OK) {
+		vRefAdc = HAL_ADC_GetValue(&hadc);
+	} // on timeout keep the previous vRefAdc rather than scaling by a stale/zero reading
 	HAL_ADC_Stop(&hadc);
 	/*sConfig.Channel = ADC_CHANNEL_17; // remove adc ref voltage channel
 	sConfig.Rank = ADC_RANK_NONE;
@@ -381,7 +487,7 @@ void AnalogPowerIsGood(void) {
 		APP_ERROR(APP_HAL_ERROR);
 	}*/
 
-	aVdd = ANALOG_ADC_GET_AVDD(vRefAdc);
+	s_AVDD = ANALOG_ADC_GET_AVDD(vRefAdc);
 
 	// make bufer data invalid
 	analogIn[0] = ADC_SAMPLE_SENTINEL;

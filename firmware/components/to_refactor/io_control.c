@@ -163,6 +163,11 @@ void IoConfigure(uint8_t pin) {
 
 	switch (ioConfig[pin-1]&0x0F) {
 	case 0: case 1:
+		/*
+		 * 0 = not used, 1 = analog input. TODO: mode 1 no longer measures anything (see
+		 * IoRead) - both are kept as plain analog mode, which is the right idle state for
+		 * an unused pin. Still accepted over I2C so stored configurations keep loading.
+		 */
 		//HAL_TIM_PWM_Stop(htim, TIM_CHANNEL_1);
 		gpioInitStruct.Mode = GPIO_MODE_ANALOG;
 	    HAL_GPIO_Init(GPIOA, &gpioInitStruct);
@@ -317,7 +322,6 @@ void IoWrite(uint8_t pin, uint8_t data[], uint8_t len)
 
 void IoRead(uint8_t pin, uint8_t data[], uint16_t *len)
 {
-	uint16_t val;
 	if (pin == 1) {
 		gpioInitStruct.Pin = GPIO_PIN_7;
 		htim = &htim14;
@@ -330,9 +334,12 @@ void IoRead(uint8_t pin, uint8_t data[], uint16_t *len)
 
 	switch (ioConfig[pin-1]&0x0F) {
 		case 1:
-			val = GetSampleVoltage(ADC_IO1_CHN);
-			data[0] = val&0xFF;
-			data[1] = (val >> 8) & 0xFF;
+			/*
+			 * TODO: analog input on IO1/IO2 removed - PA7 is no longer in the ADC scan group
+			 * and PA8 never had a channel. Mode 1 now reads back 0.
+			 */
+			data[0] = 0;
+			data[1] = 0;
 			break;
 		case 2:
 			data[0] = HAL_GPIO_ReadPin(GPIOA, gpioInitStruct.Pin);

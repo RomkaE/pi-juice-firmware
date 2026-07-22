@@ -228,7 +228,7 @@ void FuelGaugeInit(void) {
 		FuelGaugeDvInit();
 	}
 
-	uint16_t batVolt = GetSampleVoltage(ADC_VBAT_SENS_CHN)*(int32_t)1374/1000;
+	uint16_t batVolt = GetBatteryVoltage();
 	if (batVolt > 2550) {
 		if (soc < 0 || soc>2139095040)
 			soc = GetSocFromOCV(batVolt);
@@ -311,7 +311,7 @@ void FuelGaugeTask(void) {
 	if ( dt > 125 ) {
 
 		MS_TIME_COUNTER_INIT(fuelGaugeTaskTimer);
-		uint16_t batVolt = GetAverageBatteryVoltage(ADC_VBAT_SENS_CHN);
+		uint16_t batVolt = GetAverageBatteryVoltage();
 
 		if (CHARGER_IS_BATTERY_PRESENT() && batVolt > 2550) {
 			if (!prevBatPresent) {
@@ -410,31 +410,14 @@ void FuelGaugeTask(void) {
 						}
 					} else {
 						// fuel gauge ic is not responsive or absent
-						if ( currentBatProfile != NULL ) {
-							// use direct NTC measurement
-							volatile uint16_t ntcAdcSample = ADC_GET_BUFFER_SAMPLE(ADC_NTC_CHN);
-							if (ntcAdcSample<3000 && ntcAdcSample>5) { // sensor is connected
-								//volatile int32_t r = ntcAdcSample * (int32_t)240000 / (4096 - ntcAdcSample);
-								int32_t dr25 = ntcAdcSample * (int32_t)240000 / ((int16_t)4096 - ntcAdcSample)*10 / currentBatProfile->ntcResistance;
-								uint16_t beta = currentBatProfile->ntcB;
-								int32_t it = dr25<261 ? (dr25-4)>>1 : ((dr25+2300)*13)>>8;
-								it = it < 0 ? 0 : it;
-								it = it > 255 ? 255 : it;
-								int16_t ntcTemp =  (int32_t)65593*beta / (logTbl[it]* (int32_t)8 + (int32_t)220*beta) - 273; //1.0 / (log((double)r/r25)/beta + (double)1.0/298.15) - 273.15;
-								if ( (ntcTemp>=23 && ntcTemp<=27 && (mcuTemperature<15 || mcuTemperature>45)) || ntcTemp <-29 || ntcTemp > 90 ) {
-									// there can be fixed resistor instead of NTC, use mcu measurement instead
-									batteryTemp = mcuTemperature;
-								} else {
-									batteryTemp = ntcTemp;
-								}
-								ntcFaultFlag = 0;
-							} else {
-								batteryTemp = mcuTemperature;
-								ntcFaultFlag = 1;
-							}
-						} else {
-							batteryTemp = mcuTemperature;
-						}
+						/*
+						 * Direct NTC measurement removed together with ADC channel 3 - battery
+						 * temperature is not measured through the ADC. Without the fuel gauge
+						 * IC the MCU sensor is the only source left, and there is no NTC left
+						 * to report a fault about.
+						 */
+						batteryTemp = mcuTemperature;
+						ntcFaultFlag = 0;
 					}
 				} else  {
 					if ( tempSensorConfig == BAT_TEMP_SENSE_CONFIG_ON_BOARD ) {
