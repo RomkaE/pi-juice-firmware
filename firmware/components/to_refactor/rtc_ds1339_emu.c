@@ -5,7 +5,6 @@
  *      Author: milan
  */
 // linux driver for rtc and alarm config.txt: dtoverlay=i2c-rtc,ds1339,wakeup-source
-#include <to_refactor/logging.h>
 #include <to_refactor/power_management.h>
 #include <to_refactor/power_source.h>
 #include <to_refactor/rtc_ds1339_emu.h>
@@ -63,74 +62,12 @@ void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *phrtc)
 	alarmEventFlag = 1;
 }
 
-#if defined LOGGING
-__STATIC_INLINE void LOG_ALARM_EVENT() {
-	uint8_t *buf = LoggingInitMessage(ALARM_EVT);
-	if (buf == NULL) 	return;
-	buf[0] = rtc_buffer[0x0E];
-	buf[1] = rtc_buffer[0x0E + 1];
-
-	extern BatteryStatus_T batteryStatus;
-	extern PowerSourceStatus_T powerInStatus;
-	extern PowerSourceStatus_T power5vIoStatus;
-	extern uint16_t batteryRsoc;
-	extern int8_t batteryTemp;
-	extern uint16_t batteryVoltage;
-
-	buf[3] = 0;
-	buf[3] |= (batteryStatus << 2);
-	buf[3] |= (powerInStatus << 4);
-	buf[3] |= (power5vIoStatus << 6);
-
-	buf[4] = batteryRsoc>>2;
-	buf[5] = batteryTemp;
-	buf[6] = batteryVoltage;
-	buf[7] = batteryVoltage >> 8;
-
-	RtcReadAlarm1(buf+10, 1);
-}
-#else
-#define LOG_ALARM_EVENT()
-#endif
-
-#if defined LOGGING
-__STATIC_INLINE void LOG_ALARM_WRITE() {
-	uint8_t *buf = LoggingInitMessage(ALARM_WRITE);
-	if (buf == NULL) 	return;
-	buf[0] = rtc_buffer[0x0E];
-	buf[1] = rtc_buffer[0x0E + 1];
-
-	extern BatteryStatus_T batteryStatus;
-	extern PowerSourceStatus_T powerInStatus;
-	extern PowerSourceStatus_T power5vIoStatus;
-	extern uint16_t batteryRsoc;
-	extern int8_t batteryTemp;
-	extern uint16_t batteryVoltage;
-
-	buf[3] = 0;
-	buf[3] |= (batteryStatus << 2);
-	buf[3] |= (powerInStatus << 4);
-	buf[3] |= (power5vIoStatus << 6);
-
-	buf[4] = batteryRsoc>>2;
-	buf[5] = batteryTemp;
-	buf[6] = batteryVoltage;
-	buf[7] = batteryVoltage >> 8;
-
-	RtcReadAlarm1(buf+10, 1);
-}
-#else
-#define LOG_ALARM_WRITE()
-#endif
-
 void EvaluateAlarm(void)
 {
 	static volatile RTC_TimeTypeDef sTime;
 	static RTC_DateTypeDef dateConf;
 	uint32_t tempReg;
 	//static volatile uint8_t min;
-
-	LOG_ALARM_EVENT();
 
 	// if alarm 1 interrupt enabled activate int signal
 	//if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) )
@@ -447,8 +384,6 @@ void RtcWriteAlarm1(uint8_t *buffer, uint8_t extended) {
 	}
 
 	HAL_RTC_SetAlarm_IT(&hrtc, &sAlarm, RTC_FORMAT_BCD);
-
-	LOG_ALARM_WRITE();
 }
 
 void RtcWriteControlStatus(uint8_t *buffer, uint16_t dataLen) {

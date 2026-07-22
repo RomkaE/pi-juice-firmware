@@ -8,6 +8,8 @@
 #ifndef POWER_MANAGEMENT_H_
 #define POWER_MANAGEMENT_H_
 
+#include <stdint.h>
+
 typedef enum RunPinInstallationStatus_T {
 	RUN_PIN_NOT_INSTALLED = 0,
 	RUN_PIN_INSTALLED,

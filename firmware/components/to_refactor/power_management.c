@@ -8,7 +8,6 @@
 #include "iosystem/analog.h"
 #include <to_refactor/button.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
-#include <to_refactor/logging.h>
 #include <to_refactor/power_management.h>
 #include <to_refactor/power_source.h>
 #include <to_refactor/time_count.h>
@@ -92,39 +91,6 @@ void PowerManagementInit(void) {
 	MS_TIME_COUNTER_INIT(powerMngmtTaskMsCounter);
 
 }
-#if defined LOGGING
-__STATIC_INLINE void LOG_PM_WAKEUP_EVENT(uint8_t triggers) {
-	uint8_t *buf = LoggingInitMessage(WAKEUP_EVT);
-	if (buf == NULL) 	return;
-	buf[0] = triggers;
-
-	buf[1] = 0;
-	buf[1] |= (batteryStatus << 2);
-	buf[1] |= (powerInStatus << 4);
-	buf[1] |= (power5vIoStatus << 6);
-
-	buf[2] = POW_5V_BOOST_EN_STATUS();
-	buf[2] |= POW_VSYS_OUTPUT_EN_STATUS()<<2;
-	buf[2] |= (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_12) == GPIO_PIN_SET)<<3;
-
-	buf[3] = wakeupOnCharge;
-	buf[4] = wakeupOnCharge>>8;
-
-	buf[5] = batteryRsoc>>2;
-	buf[6] = batteryTemp;
-	buf[7] = batteryVoltage;
-	buf[8] = batteryVoltage >> 8;
-	uint16_t ioVolt = Get5vIoVoltage();
-	buf[9] = ioVolt;
-	buf[10] = ioVolt >> 8;
-	int16_t curr = 0; // load-current measurement removed
-	buf[11] = curr;
-	buf[12] = curr>>8;
-}
-#else
-#define LOG_PM_WAKEUP_EVENT(triggers)
-#endif
-
 int8_t ResetHost(void) {
 	if ( (POW_5V_BOOST_EN_STATUS() || power5vIoStatus != POW_SOURCE_NOT_PRESENT) && runPinInstallationStatus == RUN_PIN_INSTALLED ) {
 		Turn5vBoost(1);
@@ -186,7 +152,6 @@ void PowerOnButtonEventCb(uint8_t b, ButtonEvent_T event) {
 	//if ( event == BUTTON_EVENT_SINGLE_PRESS ) {
 		if ( (!POW_5V_BOOST_EN_STATUS() && power5vIoStatus == POW_SOURCE_NOT_PRESENT)
 				|| (MS_TIME_COUNT(lastWakeupTimer) > 12000/*15000*/ && MS_TIME_COUNT(lastHostCommandTimer) > 11000)  ) {
-			LOG_PM_WAKEUP_EVENT(0x10);
 			if (ResetHost() == 0) {//if (ResetHost() == 0) {
 				wakeupOnCharge = 0xFFFF;
 				rtcWakeupEventFlag = 0;
@@ -195,7 +160,6 @@ void PowerOnButtonEventCb(uint8_t b, ButtonEvent_T event) {
 			}
 		}
 		ButtonRemoveEvent(b);
-		//LogPut(LOG_5VREG_ON);
 	//}
 }
 
@@ -229,7 +193,6 @@ void PowerMngmtHostPollEvent(void) {
 void PowerManagementTask(void) {
 
 	if (MS_TIME_COUNT(powerMngmtTaskMsCounter) >= 500) {
-		//LogPut(LOG_5VREG_ON);
 		MS_TIME_COUNTER_INIT(powerMngmtTaskMsCounter);
 
 		volatile int isWakeupOnCharge = batteryRsoc >= wakeupOnCharge && CHARGER_IS_INPUT_PRESENT() && CHARGER_IS_BATTERY_PRESENT();
@@ -239,8 +202,6 @@ void PowerManagementTask(void) {
 				&& 	( (MS_TIME_COUNT(lastHostCommandTimer) > 15000 && MS_TIME_COUNT(lastWakeupTimer) > 30000)
 						//|| (!POW_5V_BOOST_EN_STATUS() && power5vIoStatus == POW_SOURCE_NOT_PRESENT) //  Host is non powered
 		   ) ) {
-
-			LOG_PM_WAKEUP_EVENT((isWakeupOnCharge&0x01) | ((rtcWakeupEventFlag<<1)&0x02) | ((ioWakeupEvent<<2)&0x04));
 
 			if ( ResetHost() == 0 ) { //if ( WakeUpHost() == 0 ) {
 				wakeupOnCharge = 0xFFFF;
@@ -259,8 +220,6 @@ void PowerManagementTask(void) {
 		}
 
 		if (watchdogExpirePeriod && MS_TIME_COUNT(lastHostCommandTimer) > watchdogTimer) {
-			LOG_PM_WAKEUP_EVENT(0x08);
-
 			if ( ResetHost() == 0 ) {
 				wakeupOnCharge = 0xFFFF;
 				watchdogExpiredFlag = 1;

@@ -37,7 +37,6 @@
 #include <to_refactor/execution.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/io_control.h>
-#include <to_refactor/logging.h>
 #include <to_refactor/power_management.h>
 #include <to_refactor/power_source.h>
 #include <to_refactor/rtc_ds1339_emu.h>
@@ -127,59 +126,6 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void MemInit(uint8_t *buffer, uint8_t val, int32_t size) {
 	while((size--) > 0) buffer[size] = val;
 }
-
-#if defined LOGGING
-__STATIC_INLINE void LOG_PM_MCU_RESET_EVENT() {
-	uint8_t *buf = LoggingInitMessage(MCU_RESET);
-	if (buf == NULL) 	return;
-	switch(executionState) {
-		case EXECUTION_STATE_NORMAL:
-			buf[0] = 0;
-			break;
-		case EXECUTION_STATE_POWER_ON:
-			buf[0] = 1;
-			break;
-		case EXECUTION_STATE_POWER_RESET:
-			buf[0] = 2;
-			break;
-		case EXECUTION_STATE_UPDATE:
-			buf[0] = 3;
-			break;
-		case EXECUTION_STATE_CONFIG_RESET:
-			buf[0] = 4;
-			break;
-		default:
-			buf[0] = 0xff;
-			break;
-	}
-
-	buf[1] = 0;
-	buf[1] |= (batteryStatus << 2);
-	buf[1] |= (powerInStatus << 4);
-	buf[1] |= (power5vIoStatus << 6);
-
-	buf[2] = POW_5V_BOOST_EN_STATUS();
-	buf[2] |= POW_VSYS_OUTPUT_EN_STATUS()<<2;
-	buf[2] |= (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_12) == GPIO_PIN_SET)<<3;
-
-	extern uint16_t wakeupOnCharge;
-	buf[3] = wakeupOnCharge;
-	buf[4] = wakeupOnCharge>>8;
-
-	buf[5] = batteryRsoc>>2;
-	buf[6] = batteryTemp;
-	buf[7] = batteryVoltage;
-	buf[8] = batteryVoltage >> 8;
-	uint16_t ioVolt = Get5vIoVoltage();
-	buf[9] = ioVolt;
-	buf[10] = ioVolt >> 8;
-	int16_t curr = 0; // load-current measurement removed
-	buf[11] = curr;
-	buf[12] = curr>>8;
-}
-#else
-#define LOG_PM_MCU_RESET_EVENT()
-#endif
 
 typedef  void (*pFunction)(void);
 pFunction Jump_To_Start;
@@ -496,9 +442,6 @@ static void main_init(void)
 	IoControlInit();
 
 	NvSetDataInitialized();
-#if defined LOGGING
-	LoggingInit();
-#endif
 	/*if ( executionState == EXECUTION_STATE_CONFIG_RESET ) {
 		LedSetRGB(1, 0, 255, 0);
 	} else if (executionState == EXECUTION_STATE_POWER_RESET) {
@@ -521,8 +464,6 @@ static void main_init(void)
 	state = STATE_NORMAL;
 
 	HAL_I2C_EnableListen_IT(&hi2c1);
-
-	LOG_PM_MCU_RESET_EVENT();
 
 	executionState = EXECUTION_STATE_NORMAL; // after initialization indicate it for future wd resets
 

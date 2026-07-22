@@ -13,7 +13,6 @@
 #include <to_refactor/execution.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/io_control.h>
-#include <to_refactor/logging.h>
 #include <to_refactor/power_management.h>
 #include <to_refactor/power_source.h>
 #include <to_refactor/rtc_ds1339_emu.h>
@@ -98,7 +97,6 @@ void CmdServerReadWriteIoConfig1(uint8_t dir, uint8_t *pData, uint16_t *dataLen)
 void CmdServerReadWriteIoConfig2(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteIoValue1(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteIoValue2(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
-void CmdServerReadWriteLogging(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 
 static const MasterCommand_T masterCommands[REGISTERS_NUM] =
 {
@@ -383,7 +381,7 @@ static const MasterCommand_T masterCommands[REGISTERS_NUM] =
 /*243*/	NULL,
 /*244*/	NULL,
 /*245*/	NULL,
-/*246*/	CmdServerReadWriteLogging,
+/*246*/	NULL,
 /*247*/	NULL,
 /*248*/	CmdServerReadWriteTestAndCalibration,
 /*249*/	NULL,
@@ -1131,12 +1129,3 @@ void CmdServerReadWriteIoValue2(uint8_t dir, uint8_t *pData, uint16_t *dataLen) 
 	}
 }
 
-void CmdServerReadWriteLogging(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
-#if defined LOGGING
-	if (dir == MASTER_CMD_DIR_WRITE) {
-		LoggingWriteConfigCmd(pData+1, *dataLen - 1);
-	} else {
-		LoggingReadMessageCmd(pData, dataLen);
-	}
-#endif
-}

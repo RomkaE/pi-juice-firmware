@@ -107,9 +107,6 @@ uint8_t AnalogSamplesReady();
 uint16_t GetBatteryVoltage(void);
 uint16_t GetAverageBatteryVoltage(void);
 
-void GetAdcSignals02(uint32_t pos, uint8_t* buf);
-void GetAdcSignals12(uint32_t pos, uint8_t* buf);
-
 /* Freshest complete sample of one channel. */
 uint16_t GetSample(uint8_t channel);
 

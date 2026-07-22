@@ -8,7 +8,6 @@
 #include "iosystem/analog.h"
 #include <to_refactor/execution.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
-#include <to_refactor/logging.h>
 #include <to_refactor/power_source.h>
 #include <to_refactor/time_count.h>
 #include "charger_bq2416x.h"
@@ -59,11 +58,6 @@ PowerSourceStatus_T power5vIoStatus = POW_SOURCE_NOT_PRESENT;
 
 PowerRegulatorConfig_T powerRegulatorConfig = POW_REGULATOR_MODE_POW_DET;
 
-#if defined LOGGING
-uint8_t* log5vonMsgBuf __attribute__((section("no_init"))); // saved message pointer of initialized
-uint32_t log5vonAdcPos __attribute__((section("no_init"))); // saved message pointer of initialized
-#endif
-
 #define REGULATOR_5V_TURN_ON() \
 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET); \
 	AnalogPowerIsGood();
@@ -113,14 +107,7 @@ int8_t Turn5vBoost(uint8_t onOff) {
 
 		int status;
 		if ( batteryVoltage > vbatPowOffTresh || POW_SOURCE_PRESENT()/*chargerStatus != CHG_NO_VALID_SOURCE*/) {
-#if defined LOGGING
-			log5vonMsgBuf = LoggingInitMessage(LOG_5VREG_ON);
-#endif
 			POW_5V_DET_LDO_ENABLE(0);
-#if defined LOGGING
-			log5vonAdcPos =  __HAL_DMA_GET_COUNTER(hadc.DMA_Handle);
-			//SetMarker(0);
-#endif
 			DelayUs(5);
 			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);
 
@@ -129,12 +116,6 @@ int8_t Turn5vBoost(uint8_t onOff) {
 			if (status == REGULATOR_5V_SWITCHING_STATUS_SUCCESS) {
 				status = Retry5VTurnOn();
 			}
-#if defined LOGGING
-			if (log5vonMsgBuf != NULL) {
-				// Report ADC signals to Logging
-				GetAdcSignals02(log5vonAdcPos, log5vonMsgBuf+1);
-			}
-#endif
 			if (status == REGULATOR_5V_SWITCHING_STATUS_SUCCESS) {
 				MS_TIME_COUNTER_INIT(pow5vOnTimeout);
 
@@ -143,13 +124,6 @@ int8_t Turn5vBoost(uint8_t onOff) {
 		} else {
 			status = REGULATOR_5V_SWITCHING_STATUS_NO_ENERGY;
 		}
-#if defined LOGGING
-		if (log5vonMsgBuf != NULL) {
-			// report status
-			log5vonMsgBuf[0] = status;
-			log5vonMsgBuf = NULL;
-		}
-#endif
 		return status;
 	} else {
 		POW_5V_DET_LDO_ENABLE(0);
@@ -159,28 +133,6 @@ int8_t Turn5vBoost(uint8_t onOff) {
 		return REGULATOR_5V_SWITCHING_STATUS_SUCCESS;
 	}
 }
-
-#if defined LOGGING
-/*__STATIC_INLINE*/ void LOG_5VREG_FORCED_OFF(uint32_t adcPos) {
-	forcedPowerOffFlag = 1;
-	uint8_t *buf = LoggingInitMessage(LOG_5VREG_OFF);
-	if (log5vonMsgBuf == NULL) 	return;
-	buf[0] = 0;
-	buf[0] |= (batteryStatus << 2);
-	buf[0] |= (powerInStatus << 4);
-	buf[0] |= (power5vIoStatus << 6);
-
-	buf[1] = batteryRsoc>>2;
-	buf[2] = batteryTemp;
-	buf[3] = 0; // load-current measurement removed
-
-	uint32_t pos = (adcPos>0 && adcPos<ADC_BUFFER_LENGTH) ? adcPos : __HAL_DMA_GET_COUNTER(hadc.DMA_Handle);
-	GetAdcSignals12(pos, buf+4);
-
-}
-#else
-#define LOG_5VREG_FORCED_OFF(adcPos) (forcedPowerOffFlag = 1)
-#endif
 
 __STATIC_INLINE void TurnVSysOutput(uint8_t onOff){
 	if (onOff){
@@ -222,7 +174,7 @@ void PowerSourceInit(void) {
 	if ( HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == GPIO_PIN_SET ) {
 		// if there is mcu power-on, but reg was on, it can be power lost fault condition, check sources
 		if (executionState == EXECUTION_STATE_POWER_RESET && batVolt < vbatPowOffTresh && CHARGER_INSTAT()) {
-			LOG_5VREG_FORCED_OFF(0xFFFFFFFF);
+			forcedPowerOffFlag = 1;
 			Turn5vBoost(0);
 			wakeupOnCharge = 5; // schedule wake up when there is enough energy
 		} else {
@@ -239,9 +191,6 @@ void PowerSourceInit(void) {
 		// after power-up state is 500mA limit
 		HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, GPIO_PIN_SET);
 		vsysSwitchLimit = 5;
-#if defined LOGGING
-		log5vonMsgBuf = NULL;
-#endif
 	} else {
 		if (vsysSwitchLimit == 21 )
 			HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1,  GPIO_PIN_RESET); // 2.1A limit value, is valid only after reset
@@ -274,7 +223,7 @@ void PowerSourceInit(void) {
 
 		if ((AnalogSamplesReady() && volt5 < 2000 && AnalogGetAvdd() > 2500) || POW_SOURCE_5VREG_IS_POWER_BAD()) {
 			//5V DCDC is in fault overcurrent state, turn it off to prevent draining battery
-			LOG_5VREG_FORCED_OFF(0xFFFFFFFF);
+			forcedPowerOffFlag = 1;
 			Turn5vBoost(0);
 			return;
 		}
@@ -288,7 +237,7 @@ void PowerSourceInit(void) {
 				MS_TIME_COUNTER_INIT(forcedPowerOffCounter); // leave 2 ms for switch to react
 			} else if ( MS_TIME_COUNT(forcedPowerOffCounter) >= 2) {
 				POW_5V_DET_LDO_ENABLE(0);
-				LOG_5VREG_FORCED_OFF(0xFFFFFFFF);
+				forcedPowerOffFlag = 1;
 				Turn5vBoost(0);
 				wakeupOnCharge = 5; // schedule wake up when power is applied
 			}
@@ -308,7 +257,7 @@ void PowerSource5vIoDetectionTask(void) {
 		if ( (!POW_SOURCE_PRESENT()) && MS_TIME_COUNT(pow5vOnTimeout) > 0) {
 			batVolt = GetBatteryVoltage();
 			if (batVolt < vbatPowOffTresh) {
-				LOG_5VREG_FORCED_OFF(0xFFFFFFFF);
+				forcedPowerOffFlag = 1;
 				Turn5vBoost(0);
 			}
 		}
