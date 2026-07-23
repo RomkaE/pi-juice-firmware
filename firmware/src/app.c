@@ -44,10 +44,12 @@
 #include "main.h"
 #include "eeprom.h"
 #include "retained_memory.h"
-#include "stm32f0xx_hal.h"
-
 #include "charger_bq2416x.h"
 #include "led.h"
+
+// ST HAL/CubeMX:
+#include "stm32f0xx_hal.h"
+#include "cube-mx/i2c.h"
 
 // FreeRTOS:
 #include "FreeRTOS.h"
@@ -57,9 +59,7 @@
 // LOG:
 #include "log/log.h"
 
-#define OWN1_I2C_ADDRESS		0x14
-#define OWN2_I2C_ADDRESS		0x68
-#define SMBUS_TIMEOUT_DEFAULT                 ((uint32_t)0x80618061)
+/* Slave addresses live in cube-mx/i2c.h together with the I2C1 setup. */
 
 #define NEED_EVENT_POLL()		((chargerNeedPoll \
 								|| extiFlag \
@@ -70,10 +70,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 
-/* Owned by cube-mx/i2c.c, cube-mx/rtc.c and cube-mx/iwdg.c since the split. */
-extern I2C_HandleTypeDef hi2c1;
-extern I2C_HandleTypeDef hi2c2;
-//SMBUS_HandleTypeDef hsmbus;
+/* Owned by cube-mx/i2c.c, cube-mx/rtc.c and cube-mx/iwdg.c since the split.
+ * hi2c1/hi2c2 are declared by cube-mx/i2c.h. */
 
 extern RTC_HandleTypeDef hrtc;
 
@@ -109,12 +107,9 @@ static StackType_t TaskStackApp[1024 * 1];
 
 /* Private function prototypes -----------------------------------------------*/
 static void MX_GPIO_Init(void);
-static void MX_I2C1_Init(void);
-static void MX_I2C2_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM17_Init(void);
-//static void MX_SMBUS_Init(void);
 static void MX_IWDG_Init(void);
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
@@ -389,6 +384,7 @@ static void main_init(void)
 	NvInit();
 
 	// Initialize all configured peripherals
+	// 
 	if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == GPIO_PIN_RESET && executionState == EXECUTION_STATE_POWER_RESET)
 	{
 		executionState = EXECUTION_STATE_POWER_ON;
@@ -530,119 +526,13 @@ static void  main_poll(void)
     WaitInterrupt();
 }
 
-/* I2C1 init function not used, MX_SMBUS_Init used instead*/
-static void MX_I2C1_Init(void)
-{
-
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x00FF0000;//0x00C4092A;//0x00300000;//0x00900000 for 48000 i2c clock
-	uint16_t var = 0;
-	EE_ReadVariable(OWN_ADDRESS1_NV_ADDR, &var);
-	if ( (((~var)&0xFF) == (var>>8)) ) {
-		// Use NV address
-		hi2c1.Init.OwnAddress1 = var&0xFF;
-	} else {
-		// Use default address
-		hi2c1.Init.OwnAddress1 = OWN1_I2C_ADDRESS << 1;
-	}
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_ENABLE;//I2C_DUALADDRESS_DISABLE;
-	EE_ReadVariable(OWN_ADDRESS2_NV_ADDR, &var);
-	if ( (((~var)&0xFF) == (var>>8)) ) {
-		// Use NV address
-		hi2c1.Init.OwnAddress2 = var&0xFF;
-	} else {
-		// Use default address
-		hi2c1.Init.OwnAddress2 = OWN2_I2C_ADDRESS << 1;
-	}
-  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  //I2C_Disable_IRQ(&hi2c1, (0x00000011U)/*I2C_XFER_ERROR_IT*/);
-  //__HAL_I2C_DISABLE_IT(&hi2c1, I2C_IT_ERRI | I2C_IT_NACKI);
-
-    /**Configure Analogue filter
-    */
-  /*if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }*/
-
-}
-#if 0
-static void MX_SMBUS_Init(void) {
-	hsmbus.Instance = I2C1;
-	hsmbus.Init.Timing = 0x00300000;//0x00900000 for 48000 i2c clock
-	hsmbus.Init.AnalogFilter = SMBUS_ANALOGFILTER_DISABLED;//SMBUS_ANALOGFILTER_ENABLED;//
-	uint16_t var = 0;
-	EE_ReadVariable(OWN_ADDRESS1_NV_ADDR, &var);
-	if ( (((~var)&0xFF) == (var>>8)) ) {
-		// Use NV address
-		hsmbus.Init.OwnAddress1 = var&0xFF;
-	} else {
-		// Use default address
-		hsmbus.Init.OwnAddress1 = OWN1_I2C_ADDRESS << 1;
-	}
-	hsmbus.Init.AddressingMode = SMBUS_ADDRESSINGMODE_7BIT;
-	hsmbus.Init.DualAddressMode = SMBUS_DUALADDRESS_ENABLED;//I2C_DUALADDRESS_DISABLE;
-	EE_ReadVariable(OWN_ADDRESS2_NV_ADDR, &var);
-	if ( (((~var)&0xFF) == (var>>8)) ) {
-		// Use NV address
-		hsmbus.Init.OwnAddress2 = var&0xFF;
-	} else {
-		// Use default address
-		hsmbus.Init.OwnAddress2 = OWN2_I2C_ADDRESS << 1;
-	}
-	hsmbus.Init.OwnAddress2Masks = SMBUS_OA2_NOMASK;
-	hsmbus.Init.GeneralCallMode = SMBUS_GENERALCALL_DISABLED;
-	hsmbus.Init.NoStretchMode = SMBUS_NOSTRETCH_DISABLED;
-	hsmbus.Init.PacketErrorCheckMode = SMBUS_PEC_DISABLED;
-	hsmbus.Init.PeripheralMode = SMBUS_PERIPHERAL_MODE_SMBUS_SLAVE;//SMBUS_PERIPHERAL_MODE_SMBUS_SLAVE_ARP ;
-	hsmbus.Init.SMBusTimeout = SMBUS_TIMEOUT_DEFAULT;
-	if (HAL_SMBUS_Init(&hsmbus) != HAL_OK)
-	{
-		Error_Handler();
-	}
-
-	// Configure Analogue filter
-	/*if (HAL_I2CEx_ConfigAnalogFilter(&hsmbus, SMBUS_ANALOGFILTER_ENABLE) != HAL_OK)
-	{
-	  Error_Handler();
-	}*/
-}
-#endif
-/* I2C2 init function */
-static void MX_I2C2_Init(void)
-{
-
-  hi2c2.Instance = I2C2;
-  hi2c2.Init.Timing = 0x20000A0D;//0x0010020B;//0x2000090E;//0x0010020A;//0x00900000;//0x2000090E;
-  hi2c2.Init.OwnAddress1 = 0;
-  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c2.Init.OwnAddress2 = 0;
-  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-    /**Configure Analogue filter
-    */
-  /*if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }*/
-
-}
+/*
+ * MX_I2C1_Init() and MX_I2C2_Init() used to be duplicated here as static
+ * functions shadowing the ones in cube-mx/i2c.c. The copies here were the
+ * ones actually running, with different TIMINGR values, so every edit to
+ * cube-mx/i2c.c was silently dead. There is now a single definition, in
+ * cube-mx/i2c.c.
+ */
 
 /* RTC init function */
 static void MX_RTC_Init(void)

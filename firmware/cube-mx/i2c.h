@@ -38,6 +38,11 @@ extern I2C_HandleTypeDef hi2c2;
 
 /* USER CODE BEGIN Private defines */
 
+/* Default slave addresses on I2C1, used when the NV copy is not valid.
+ * OWN1 answers the PiJuice command server, OWN2 the emulated DS1339 RTC. */
+#define OWN1_I2C_ADDRESS		0x14
+#define OWN2_I2C_ADDRESS		0x68
+
 /* USER CODE END Private defines */
 
 void MX_I2C1_Init(void);

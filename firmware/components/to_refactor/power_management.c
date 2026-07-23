@@ -126,7 +126,11 @@ int8_t ResetHost(void) {
 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET);
 		i2c_GPIO_InitStruct.Pin       = GPIO_PIN_6;
 		i2c_GPIO_InitStruct.Mode      = GPIO_MODE_AF_OD;
-		i2c_GPIO_InitStruct.Pull      = GPIO_NOPULL;
+		/* Must match HAL_I2C_MspInit(), which configures I2C1 with GPIO_PULLUP.
+		 * This block borrows SCL as an output to pulse the host awake and then
+		 * hands it back to the peripheral; restoring it with GPIO_NOPULL used to
+		 * silently drop the internal pull-up for the rest of the run. */
+		i2c_GPIO_InitStruct.Pull      = GPIO_PULLUP;
 		i2c_GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
 		i2c_GPIO_InitStruct.Alternate = GPIO_AF1_I2C1;
 		HAL_GPIO_Init(GPIOB, &i2c_GPIO_InitStruct);

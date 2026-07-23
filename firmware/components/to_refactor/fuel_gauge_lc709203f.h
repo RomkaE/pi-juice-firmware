@@ -36,6 +36,11 @@ extern uint16_t batteryRsoc;
 extern int8_t batteryTemp;
 extern volatile int16_t batteryCurrent;
 extern int8_t fuelGaugeI2cErrorCounter;
+
+/* Saturating diagnostic counters, see fuel_gauge_lc709203f.c: transfers that
+ * failed at HAL level versus transfers that completed with a bad CRC-8. */
+extern uint16_t fuelGaugeHalErrorCount;
+extern uint16_t fuelGaugeCrcErrorCount;
 extern volatile uint8_t fuelGaugeTempMode;
 extern BatteryTempSenseConfig_T tempSensorConfig;
 extern uint16_t fgIcId;

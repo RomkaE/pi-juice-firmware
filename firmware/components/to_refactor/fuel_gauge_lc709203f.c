@@ -40,6 +40,28 @@ static uint8_t prevBatPresent = 0;
 
 int8_t fuelGaugeI2cErrorCounter = 0;
 
+/*
+ * Diagnostic counters, saturating, never cleared by the driver itself.
+ *
+ * FuelGaugeReadWord() reports two failures that used to be indistinguishable
+ * once they reached the caller, which made it impossible to tell what the bus
+ * to the fuel gauge is actually doing:
+ *
+ *   - a HAL error (NACK on the address, timeout, BERR/ARLO) means the transfer
+ *     did not complete - the problem is at bus or device level;
+ *   - a CRC-8 mismatch means the transfer completed but a byte came back
+ *     corrupted - the problem is noise on the data lines.
+ *
+ * The first points at pull-ups, routing or the device itself; the second at
+ * coupling from the switching regulator, and is what the digital filter and the
+ * lowered SCL frequency on I2C2 are meant to address. Read them over SWD or
+ * expose them through the command server when debugging.
+ */
+uint16_t fuelGaugeHalErrorCount = 0;
+uint16_t fuelGaugeCrcErrorCount = 0;
+
+#define FG_COUNT_SATURATING(c)	do { if ((c) < 0xFFFF) (c)++; } while (0)
+
 BatteryTempSenseConfig_T tempSensorConfig = BAT_TEMP_SENSE_CONFIG_AUTO_DETECT;
 RsocMeasurementConfig_T rsocMeasurementConfig = RSOC_MEASUREMENT_AUTO_DETECT;
 
@@ -60,7 +82,10 @@ int8_t FuelGaugeReadWord(uint8_t cmd, uint16_t *word) {
 	uint8_t readData[10] = {0x16, cmd, 0x17, 0, 0, 0};
 
 	HAL_StatusTypeDef succ = HAL_I2C_Mem_Read(&hi2c2, 0x16, cmd, 1, readData+3, 3, 1);
-	if (succ != HAL_OK ) return (int8_t)succ;
+	if (succ != HAL_OK ) {
+		FG_COUNT_SATURATING(fuelGaugeHalErrorCount);
+		return (int8_t)succ;
+	}
 	/*HAL_Delay(2);
 	HAL_I2C_Mem_Read_IT(&hi2c2, 0x16, cmd, 1, readData+3, 3);
 	uint32_t timeout = HAL_GetTick() + 2;
@@ -70,6 +95,7 @@ int8_t FuelGaugeReadWord(uint8_t cmd, uint16_t *word) {
 		*word = (((uint16_t)readData[4])<<8) | readData[3];
 		return 0;
 	} else {
+		FG_COUNT_SATURATING(fuelGaugeCrcErrorCount);
 		return -1;
 	}
 }
@@ -78,7 +104,9 @@ int8_t FuelGaugeWriteWord(uint8_t cmd, uint16_t word) {
 	uint8_t writeData[5] = {0x16, cmd, word, word>>8, 0};
 	writeData[4] = Crc8Block(0, writeData, 4);
 	//HAL_Delay(2);
-	return  HAL_I2C_Mem_Write(&hi2c2, 0x16, cmd, 1, (uint8_t*)&writeData[2], 3, 1);
+	HAL_StatusTypeDef succ = HAL_I2C_Mem_Write(&hi2c2, 0x16, cmd, 1, (uint8_t*)&writeData[2], 3, 1);
+	if (succ != HAL_OK) FG_COUNT_SATURATING(fuelGaugeHalErrorCount);
+	return (int8_t)succ;
 	//if ( succ != 0 ) return 1;
 	//uint32_t timeout = HAL_GetTick() + 2;
 	//while (HAL_I2C_GetState(&hi2c2) != HAL_I2C_STATE_READY && timeout > HAL_GetTick());
@@ -265,6 +293,11 @@ void SocEvaluateFuelGaugeIc(void) {
 	} else if (succ > 0) {
 		fuelGaugeI2cErrorCounter = fuelGaugeI2cErrorCounter < 127 ? fuelGaugeI2cErrorCounter + 1 : 127;
 		return;
+	} else {
+		// CRC mismatch: the IC answered, so it is present - do not count it as
+		// absent, but batteryVoltage was left untouched, so skip this cycle
+		// instead of deriving anything from the stale value.
+		return;
 	}
 
 	// read state of charge
@@ -274,6 +307,9 @@ void SocEvaluateFuelGaugeIc(void) {
 		soc = ((int32_t)batteryRsoc) << 21;
 	} else if (succ > 0) {
 		fuelGaugeI2cErrorCounter = fuelGaugeI2cErrorCounter < 127 ? fuelGaugeI2cErrorCounter + 1 : 127;
+		return;
+	} else {
+		// CRC mismatch, see above - batteryRsoc still holds the previous value.
 		return;
 	}
 
