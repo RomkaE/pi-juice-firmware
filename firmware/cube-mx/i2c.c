@@ -140,16 +140,6 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
     __HAL_RCC_I2C1_CLK_ENABLE();
   /* USER CODE BEGIN I2C1_MspInit 1 */
 
-    /*
-     * I2C1 is the slave the Raspberry Pi talks to. CubeMX only emits the NVIC
-     * setup when the interrupt is ticked in the .ioc NVIC tab, so it was lost
-     * when this file was regenerated - leaving I2C1_IRQHandler() present but
-     * never invoked, i.e. no host communication at all.
-     * Priority taken from the original firmware.
-     */
-    HAL_NVIC_SetPriority(I2C1_IRQn, 0, 1);
-    HAL_NVIC_EnableIRQ(I2C1_IRQn);
-
   /* USER CODE END I2C1_MspInit 1 */
   }
   else if(i2cHandle->Instance==I2C2)
@@ -165,7 +155,7 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
     */
     GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_11;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF1_I2C2;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -173,24 +163,6 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
     /* I2C2 clock enable */
     __HAL_RCC_I2C2_CLK_ENABLE();
   /* USER CODE BEGIN I2C2_MspInit 1 */
-
-    /*
-     * No NVIC setup here on purpose.
-     *
-     * I2C2 is the master bus towards the BQ2416x charger and the LC709203F fuel
-     * gauge, and every live transfer on it is blocking: HAL_I2C_Mem_Read() and
-     * HAL_I2C_Mem_Write() poll the status flags with a timeout and never enable
-     * the peripheral interrupt sources. The only _IT/_DMA variants in the tree
-     * sit inside comment blocks (charger_bq2416x.c and fuel_gauge_lc709203f.c).
-     *
-     * The original firmware enabled I2C2_IRQn and DMA1_Channel4_5_IRQn here
-     * anyway; both were dead. The DMA one is worse than dead - nothing calls
-     * __HAL_LINKDMA() for I2C, so hi2c2.hdmarx/hdmatx stay NULL and
-     * DMA1_Channel4_5_IRQHandler() would dereference them if it ever fired.
-     *
-     * If the charger driver is ever moved to interrupt mode, I2C2_IRQn has to
-     * come back with it.
-     */
 
   /* USER CODE END I2C2_MspInit 1 */
   }

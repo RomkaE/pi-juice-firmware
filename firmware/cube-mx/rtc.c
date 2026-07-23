@@ -123,14 +123,6 @@ void HAL_RTC_MspInit(RTC_HandleTypeDef* rtcHandle)
     __HAL_RCC_RTC_ENABLE();
   /* USER CODE BEGIN RTC_MspInit 1 */
 
-    /*
-     * Drives the DS1339 alarm emulation and the wake-up timer used to leave
-     * STOP mode. Lost together with the other NVIC setups when this file was
-     * regenerated. Priority taken from the original firmware.
-     */
-    HAL_NVIC_SetPriority(RTC_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(RTC_IRQn);
-
   /* USER CODE END RTC_MspInit 1 */
   }
 }

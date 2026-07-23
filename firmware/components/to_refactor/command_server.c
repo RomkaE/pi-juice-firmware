@@ -569,7 +569,7 @@ void CmdServerReadBatCurrent(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 void CmdServerReadMainVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	if (dir == MASTER_CMD_DIR_READ) {
 		uint8_t adr = pData[0];
-		volatile uint16_t ioVolt = Get5vIoVoltage();
+		volatile uint16_t ioVolt = analog_Get5vPi();
 		reg[adr] = ioVolt;
 		reg[adr+1] = ioVolt >> 8;
 		pData[0] = reg[adr];
@@ -1021,6 +1021,8 @@ void CmdServerRunBootloader(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 
 	executionState = EXECUTION_STATE_UPDATE;
 
+	// TODO
+	/*
 	HAL_ADC_MspDeInit(&hadc);
 	HAL_I2C_DeInit(&hi2c1);//HAL_SMBUS_MspDeInit(&hsmbus);
 	HAL_I2C_MspDeInit(&hi2c2);
@@ -1044,6 +1046,7 @@ void CmdServerRunBootloader(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
   __HAL_RCC_TIM17_CLK_DISABLE();
   __HAL_RCC_PWR_CLK_DISABLE();
   __HAL_RCC_SYSCFG_CLK_DISABLE();
+  */
 
   // Disable used PLL
 

@@ -69,7 +69,6 @@
 								|| alarmEventFlag ))
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc;
 
 /* Owned by cube-mx/i2c.c, cube-mx/rtc.c and cube-mx/iwdg.c since the split. */
 extern I2C_HandleTypeDef hi2c1;
@@ -81,7 +80,6 @@ extern RTC_HandleTypeDef hrtc;
 extern IWDG_HandleTypeDef hiwdg;
 
 TIM_HandleTypeDef htim3;
-TIM_HandleTypeDef htim15;
 TIM_HandleTypeDef htim17;
 
 uint8_t resetStatus = 0;
@@ -111,12 +109,10 @@ static StackType_t TaskStackApp[1024 * 1];
 
 /* Private function prototypes -----------------------------------------------*/
 static void MX_GPIO_Init(void);
-static void MX_ADC_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM3_Init(void);
-static void MX_TIM15_Init(void);
 static void MX_TIM17_Init(void);
 //static void MX_SMBUS_Init(void);
 static void MX_IWDG_Init(void);
@@ -362,7 +358,6 @@ static void WaitInterrupt() {
 
 static void main_init(void)
 {
-	//HAL_Init();
 	/*
 	 * Before touching any no_init variable: decide whether the retained section belongs to
 	 * this image at all. If it does not, drop executionState so the tests below fall
@@ -391,24 +386,19 @@ static void main_init(void)
 
 	__HAL_FLASH_PREFETCH_BUFFER_ENABLE();
 
-	HAL_MspInit();
-
 	NvInit();
 
-	// Configure the system clock
-	SystemClock_Config();
-
 	// Initialize all configured peripherals
-	MX_GPIO_Init();
-	if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == GPIO_PIN_RESET && executionState == EXECUTION_STATE_POWER_RESET) {
+	if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == GPIO_PIN_RESET && executionState == EXECUTION_STATE_POWER_RESET)
+	{
 		executionState = EXECUTION_STATE_POWER_ON;
 	}
-	MX_ADC_Init();
-	MX_I2C1_Init();//MX_SMBUS_Init();//  // NOTE: need 48KHz clock to work on 400KHz
+
+	// TOD:
+	MX_I2C1_Init();
 	MX_I2C2_Init();
 	MX_RTC_Init();
 	MX_TIM3_Init();
-	MX_TIM15_Init();
 	MX_TIM17_Init();
 	MX_TIM1_Init();
 
@@ -423,10 +413,9 @@ static void main_init(void)
 	MS_TIME_COUNTER_INIT(mainPollMsCounter);
 	MS_TIME_COUNTER_INIT(lowPowerDealyTimer);
 
+	// TODO:
 	MX_IWDG_Init();
 
-
-	AnalogInit();
 	BatteryInit();
 	if (executionState == EXECUTION_STATE_POWER_ON) {
 		HAL_Delay(100);  // after power-on, charger and fuel gauge requires initialization time
@@ -471,13 +460,10 @@ static void main_init(void)
 
 static void  main_poll(void)
 {
-	while (1)
-	{
     // Do not disturb i2c transfer if this is i2c interrupt wakeup
     if ( MS_TIME_COUNT(mainPollMsCounter) >= TICK_PERIOD_MS || NEED_EVENT_POLL())
     {
-      PowerSource5vIoDetectionTask();
-      AnalogTask();
+//      PowerSource5vIoDetectionTask();
       ChargerTask();
       FuelGaugeTask();
       BatteryTask();
@@ -514,7 +500,7 @@ static void  main_poll(void)
       }
       // Load-current gating removed with the current-sensing feature; the 5V-rail-low test
       // below is the remaining low-power entry condition.
-      else if ((Get5vIoVoltage() < 4600 && !POW_VSYS_OUTPUT_EN_STATUS())
+      else if ((analog_Get5vPi() < 4600 && !POW_VSYS_OUTPUT_EN_STATUS())
           && MS_TIME_COUNT(lastHostCommandTimer) > 5000
           && MS_TIME_COUNT(lowPowerDealyTimer) >= 22
           && MS_TIME_COUNT(lastWakeupTimer) > 20000
@@ -542,43 +528,6 @@ static void  main_poll(void)
       MS_TIME_COUNTER_INIT(mainPollMsCounter);
     }
     WaitInterrupt();
-  }
-}
-
-/** System Clock Configuration
-*/
-
-
-/* ADC init function */
-static void MX_ADC_Init(void)
-{
-
-    /**Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-    */
-  hadc.Instance = ADC1;
-  hadc.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc.Init.Resolution = ADC_RESOLUTION_12B;
-  hadc.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc.Init.ScanConvMode = ADC_SCAN_DIRECTION_FORWARD;
-  hadc.Init.EOCSelection = ADC_EOC_SEQ_CONV;
-  hadc.Init.LowPowerAutoWait = DISABLE;
-  hadc.Init.LowPowerAutoPowerOff = DISABLE;
-  hadc.Init.ContinuousConvMode = ENABLE;
-  hadc.Init.DiscontinuousConvMode = DISABLE;
-  hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc.Init.DMAContinuousRequests = ENABLE;
-  hadc.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
-  if (HAL_ADC_Init(&hadc) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /* ### - 2 - Start calibration ############################################ */
-  if (HAL_ADCEx_Calibration_Start(&hadc) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
 }
 
 /* I2C1 init function not used, MX_SMBUS_Init used instead*/
@@ -811,65 +760,6 @@ void MX_TIM3_Init(void)
 
 }
 
-/* TIM15 init function */
-static void MX_TIM15_Init(void)
-{
-
-  TIM_MasterConfigTypeDef sMasterConfig;
-  TIM_OC_InitTypeDef sConfigOC;
-//  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig;
-
-  htim15.Instance = TIM15;
-  htim15.Init.Prescaler = 2;
-  htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim15.Init.Period = 65535;
-  htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim15.Init.RepetitionCounter = 0;
-  if (HAL_TIM_PWM_Init(&htim15) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim15, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  if (HAL_TIM_PWM_ConfigChannel(&htim15, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  if (HAL_TIM_PWM_ConfigChannel(&htim15, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /*sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 0;
-  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-  if (HAL_TIMEx_ConfigBreakDeadTime(&htim15, &sBreakDeadTimeConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }*/
-
-  HAL_TIM_MspPostInit(&htim15);
-
-}
-
 /* TIM17 init function */
 static void MX_TIM17_Init(void)
 {
@@ -1070,22 +960,18 @@ static void TaskApp(void *parameters)
 {
   (void)parameters;
 
-  // LOG:
-  // With the RTT back end Log_Printf() writes straight into the SEGGER ring
-  // buffer, so no pump task is needed. A buffered back end (CDC) would have to
-  // bring its own task back to drive log_poll().
-  #if LOG_ENABLED
-  {
-    log_Init(LOG_LEVEL_VERBOSE);
-  }
-  #endif /* LOG_ENABLED */
-
+  LOG_INIT(LOG_LEVEL_VERBOSE);
   LOG_INFO("APP task started");
 
+  // TODO - move/remove
   main_init();
+
+  // Subsystems initialization:
+  analog_Init();
+
   while(1)
   {
-	  main_poll();
+	  main_poll();  // TODO - move/remove
   }
 }
 

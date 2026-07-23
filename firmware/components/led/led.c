@@ -124,6 +124,7 @@ void LedInit(void) {
 	  }
 
 	  // LED2 C1
+	  /*
 	  if (HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1) != HAL_OK)
 	  {
 	    // PWM generation Error
@@ -136,6 +137,7 @@ void LedInit(void) {
 	    // PWM generation Error
 	    Error_Handler();
 	  }
+    */
 
 	  // LED2 C3
 	  if (HAL_TIM_PWM_Start(&htim17, TIM_CHANNEL_1) != HAL_OK)

@@ -1,3 +1,9 @@
+/*
+ * app.h
+ *
+ *  Created on: 2026
+ *      Author: Roman Egoshin
+ */
 
 /*============================ INCLUDES ======================================*/
 
@@ -7,8 +13,8 @@
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
-#include "cube-mx/main.h"
-#include "cube-mx/i2c.h"
+#include "cube-mx/gpio.h"
+#include "cube-mx/dma.h"
 
 /*============================ TYPES =========================================*/
 
@@ -19,9 +25,6 @@ typedef void (*pFunction)(void);
 
 /*============================ PRIVATE DEFINITIONS ===========================*/
 
-#define SYSMEM_BOOT_BASE    0x1FFF0000UL      // System memory start address
-#define DFU_MAGIC_ENTER     0xBEDA0FA5UL
-#define DFU_MAGIC_EXIT      0xBC7A00A1UL
 
 /*============================ PRIVATE PROTOTYPES ============================*/
 
@@ -35,6 +38,9 @@ void bsp_Init(void)
   HAL_Init();
   HAL_SetTickFreq(HAL_TICK_FREQ_100HZ);
   SystemClock_Config();
+
+  MX_GPIO_Init();
+  MX_DMA_Init();
 }
 
 void bsp_DeInit(void)

@@ -13,30 +13,30 @@
 #include "app-error/app_assert.h"
 #include "board.h"
 
-// ST HAL:
+// ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
 
 // FreeRTOS:
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "rtmon_config.h"
-#if RTMON_ENABLED
+// RealTime monitor:
 #include "rtmon.h"
-#endif
 
 int main(void)
 {
+  bsp_Init();
+
   #if RTMON_ENABLED
     rtmon_Init();
   #endif
   app_Init();
   vTaskStartScheduler();
-  while (1);
+  while (1);  // TODO - reboot!
 }
 
-// TODO - remove
-// LOG adapter:
+// TODO: remove
+// adapter for logs:
 uint32_t app_timer_get_ms(void)
 {
   return HAL_GetTick();

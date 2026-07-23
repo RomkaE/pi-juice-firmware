@@ -207,7 +207,7 @@ int8_t FuelGaugeIcInit(void) {
 		dischargeCount = HAL_GetTick();
 		dischargeCountTemp = dischargeCount;
 
-		batteryTemp = mcuTemperature;
+		batteryTemp = analog_GetTempMCU();
 
 		return 0;
 	} else {
@@ -228,7 +228,7 @@ void FuelGaugeInit(void) {
 		FuelGaugeDvInit();
 	}
 
-	uint16_t batVolt = GetBatteryVoltage();
+	uint16_t batVolt = analog_GetVBatt();
 	if (batVolt > 2550) {
 		if (soc < 0 || soc>2139095040)
 			soc = GetSocFromOCV(batVolt);
@@ -311,7 +311,7 @@ void FuelGaugeTask(void) {
 	if ( dt > 125 ) {
 
 		MS_TIME_COUNTER_INIT(fuelGaugeTaskTimer);
-		uint16_t batVolt = GetAverageBatteryVoltage();
+		uint16_t batVolt = analog_GetVBattAvg();
 
 		if (CHARGER_IS_BATTERY_PRESENT() && batVolt > 2550) {
 			if (!prevBatPresent) {
@@ -358,7 +358,7 @@ void FuelGaugeTask(void) {
 								// check if NTC measurement is valid, compatible NTC sensor should give temp reading above -20C
 								if (fuelGaugeTemp <= 0x09E4 || currentBatProfile==NULL || currentBatProfile->ntcB == 0xFFFF ) {
 									// in case of invalid measurement, use on board measurement and update fuel gauge
-									batteryTemp = mcuTemperature;
+									batteryTemp = analog_GetTempMCU();
 									ntcFaultFlag = 1;
 									// Set I2C mode
 									if (FuelGaugeWriteWord(0x16, 0x0000) == 0) fuelGaugeTempMode = FUEL_GAUGE_TEMP_MODE_I2C;
@@ -374,9 +374,9 @@ void FuelGaugeTask(void) {
 										volatile int16_t Tx10 = (currentBatProfile->ntcB * (int32_t)fuelGaugeTemp) / (currentBatProfile->ntcB*10 - (((int32_t)fuelGaugeTemp*logTbl[it])>>13)); // T = (B * T10k) / (B - T10k*log(k))
 										ntcTemp = Tx10 - 273;
 									}
-									if ( ntcTemp>=23 && ntcTemp<=27 && (mcuTemperature<15 || mcuTemperature>45) ) {
+									if ( ntcTemp>=23 && ntcTemp<=27 && (analog_GetTempMCU()<15 || analog_GetTempMCU() >45) ) {
 										// there can be fixed resistor instead of NTC, use mcu measurement instead
-										batteryTemp = mcuTemperature;
+										batteryTemp = analog_GetTempMCU();
 										if (FuelGaugeWriteWord(0x16, 0x0000) == 0) fuelGaugeTempMode = FUEL_GAUGE_TEMP_MODE_I2C;
 									} else {
 										batteryTemp = ntcTemp;
@@ -388,7 +388,7 @@ void FuelGaugeTask(void) {
 								fuelGaugeI2cErrorCounter = fuelGaugeI2cErrorCounter < 127 ? fuelGaugeI2cErrorCounter + 1 : 127;
 							}
 						} else {
-							fuelGaugeTemp = mcuTemperature * 10 + 2732;
+							fuelGaugeTemp = analog_GetTempMCU() * 10 + 2732;
 							fuelGaugeTemp = fuelGaugeTemp > 0x0D04 ? 0x0D04 : fuelGaugeTemp;
 							fuelGaugeTemp = fuelGaugeTemp < 0x09E4 ? 0x09E4 : fuelGaugeTemp;
 							succ = FuelGaugeWriteWord(0x08, fuelGaugeTemp);
@@ -399,7 +399,7 @@ void FuelGaugeTask(void) {
 							} else if (succ > 0) {
 								fuelGaugeI2cErrorCounter = fuelGaugeI2cErrorCounter < 127 ? fuelGaugeI2cErrorCounter + 1 : 127;
 							}
-							batteryTemp = mcuTemperature;
+							batteryTemp = analog_GetTempMCU();
 						}
 					} else if ( fuelGaugeI2cErrorCounter > -5 && fuelGaugeI2cErrorCounter < 0 ) {
 						// ic is not properly initialized, retry
@@ -416,17 +416,17 @@ void FuelGaugeTask(void) {
 						 * IC the MCU sensor is the only source left, and there is no NTC left
 						 * to report a fault about.
 						 */
-						batteryTemp = mcuTemperature;
+						batteryTemp = analog_GetTempMCU();
 						ntcFaultFlag = 0;
 					}
 				} else  {
 					if ( tempSensorConfig == BAT_TEMP_SENSE_CONFIG_ON_BOARD ) {
-						batteryTemp = mcuTemperature;
+						batteryTemp = analog_GetTempMCU();
 					} else {
 						batteryTemp = 25;
 					}
 					if ( fuelGaugeI2cErrorCounter == 0 ) {
-						fuelGaugeTemp = mcuTemperature * 10 + 2732;
+						fuelGaugeTemp = analog_GetTempMCU() * 10 + 2732;
 						fuelGaugeTemp = fuelGaugeTemp > 0x0D04 ? 0x0D04 : fuelGaugeTemp;
 						fuelGaugeTemp = fuelGaugeTemp < 0x09E4 ? 0x09E4 : fuelGaugeTemp;
 						if (fuelGaugeTempMode == FUEL_GAUGE_TEMP_MODE_THERMISTOR) {
@@ -454,7 +454,7 @@ void FuelGaugeTask(void) {
 			fuelGaugeI2cErrorCounter = -1; // indicate that fuel gauge needs initialization after battery insertion
 			batteryRsoc = 0;
 			batteryVoltage = batVolt;
-			batteryTemp = mcuTemperature;
+			batteryTemp = analog_GetTempMCU();
 		}
 	}
 }

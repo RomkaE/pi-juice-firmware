@@ -26,7 +26,7 @@ extern "C" {
 
 #if LOG_ENABLED == 1
 
-#define LOG_INIT(x)						Log_Init(x)
+#define LOG_INIT(x)						log_Init(x)
 #define LOG(level, format_msg, ...)		Log_Printf(level, 0, format_msg, ##__VA_ARGS__)
 #define LOGN(level, format_msg, ...)	Log_Printf(level, 1, format_msg, ##__VA_ARGS__)
 

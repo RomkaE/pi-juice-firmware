@@ -1,3 +1,10 @@
+/*
+ * app.h
+ *
+ *  Created on: 2026
+ *      Author: Roman Egoshin
+ */
+
 #ifndef BOARD_H_
 #define BOARD_H_
 

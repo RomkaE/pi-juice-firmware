@@ -27,6 +27,8 @@
 
 /* External variables --------------------------------------------------------*/
 extern ADC_HandleTypeDef hadc;
+
+
 extern I2C_HandleTypeDef hi2c1;
 extern I2C_HandleTypeDef hi2c2;
 //extern SMBUS_HandleTypeDef hsmbus;
@@ -102,6 +104,11 @@ void I2C2_IRQHandler(void)
   HAL_I2C_ER_IRQHandler(&hi2c2);
 }
 
+void DMA1_Channel1_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(hadc.DMA_Handle);
+}
+
 /**
   * @brief  This function handles DMA interrupt request.
   * @param  None
@@ -121,15 +128,6 @@ void DMA1_Channel4_5_IRQHandler(void)
   HAL_DMA_IRQHandler(hi2c2.hdmatx);
 }
 
-/**
-* @brief  This function handles DMA1 Channel1 interrupt request.
-* @param  None
-* @retval None
-*/
-void DMA1_Channel1_IRQHandler(void)
-{
-  HAL_DMA_IRQHandler(hadc.DMA_Handle);
-}
 
 /**
   * @brief  This function handles RTC Alarm interrupt request.
