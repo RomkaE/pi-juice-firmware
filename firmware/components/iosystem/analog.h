@@ -8,7 +8,9 @@
 #ifndef ANALOG_H_
 #define ANALOG_H_
 
-#include "stdint.h"
+#include <stdint.h>
+
+
 #include "stm32f0xx_hal.h"
 
 /*
@@ -29,10 +31,10 @@
 //
 #define ADC_CS1_CHN_IDX         0
 #define ADC_CS2_CHN_IDX	        1
-#define ADC_VBAT_SENS_CHN_IDX	  2
-#define POW_DET_SENS_CHN_IDX	  3
-#define ADC_TEMP_SENS_CHN_IDX	  4
-#define ADC_VREF_BUFF_CHN_IDX	  5
+#define ADC_VBAT_CHN_IDX	      2
+#define ADC_POW_DET_CHN_IDX	    3
+#define ADC_TEMP_INT_CHN_IDX	  4
+#define ADC_VREF_INT_CHN_IDX	  5
 
 // Board hardware revision, detected at runtime from the CS1/CS2 analog signals.
 #define HARD_REV_BELOW_2_3	0
@@ -73,29 +75,33 @@
 
 extern int32_t mcuTemperature;
 
+// TODO - remove
 extern ADC_HandleTypeDef hadc;
 extern uint16_t analogIn[ADC_BUFFER_LENGTH];
+
+void AnalogInit(void);
+
+void AnalogTask(void);
+
+void AnalogStop(void);
+
+void AnalogStart(void);
 
 /*
  * Analog supply voltage in mV, derived from the internal reference. Refreshed by
  * AnalogTask() from the freshest VREFINT sample and by AnalogPowerIsGood() after the 5V
  * regulator settles. Kept behind an accessor so analog.c owns the only writable copy.
  */
-uint16_t AnalogGetAvdd(void);
+uint16_t analog_GetAvdd(void);
 
 /*
  * Detected board revision, one of HARD_REV_*. Probed by AnalogTask() from the CS1/CS2
  * signals once the 5V rail is up, so it stays HARD_REV_UNKNOWN until the first probe.
  */
-uint8_t GetHardwareRev(void);
+uint8_t analog_GetHardwareRev(void);
 
-//extern uint32_t analogBufferTicks;
-
-void AnalogInit(void);
-void AnalogTask(void);
 int16_t Get5vIoVoltage();
-void AnalogStop(void);
-void AnalogStart(void);
+
 void AnalogPowerIsGood(void);
 //void AnalogSetAdcMode(uint8_t mode);
 uint8_t AnalogSamplesReady();
