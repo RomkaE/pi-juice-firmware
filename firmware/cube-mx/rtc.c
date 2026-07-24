@@ -27,23 +27,16 @@
 RTC_HandleTypeDef hrtc;
 
 /* RTC init function */
+/* RTC init function */
 void MX_RTC_Init(void)
 {
 
-  /* USER CODE BEGIN RTC_Init 0 */
+//  RTC_TimeTypeDef sTime;
+//  RTC_DateTypeDef sDate;
+//  RTC_AlarmTypeDef sAlarm;
 
-  /* USER CODE END RTC_Init 0 */
-
-  RTC_TimeTypeDef sTime = {0};
-  RTC_DateTypeDef sDate = {0};
-  RTC_AlarmTypeDef sAlarm = {0};
-
-  /* USER CODE BEGIN RTC_Init 1 */
-
-  /* USER CODE END RTC_Init 1 */
-
-  /** Initialize RTC Only
-  */
+    /**Initialize RTC Only
+    */
   hrtc.Instance = RTC;
   hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
   hrtc.Init.AsynchPrediv = 127;
@@ -56,60 +49,51 @@ void MX_RTC_Init(void)
     Error_Handler();
   }
 
-  /* USER CODE BEGIN Check_RTC_BKUP */
-
-  /* USER CODE END Check_RTC_BKUP */
-
-  /** Initialize RTC and set the Time and Date
-  */
-  sTime.Hours = 0x0;
-  sTime.Minutes = 0x0;
-  sTime.Seconds = 0x0;
-  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+// for testing/debug only
+#if 0
+  /* (1) Write access for RTC registers */
+  /* (2) Disable wake up timerto modify it */
+  /* (3) Wait until it is allow to modify wake up reload value */
+  /* (4) Modify wake up value reload counter to have a wake up each 1Hz */
+  /* (5) Enable wake up counter and wake up interrupt */
+  /* (6) Disable write access */
+  RTC->WPR = 0xCA; /* (1) */
+  RTC->WPR = 0x53; /* (1) */
+  RTC->CR &= ~RTC_CR_WUTE; /* (2) */
+  while ((RTC->ISR & RTC_ISR_WUTWF) != RTC_ISR_WUTWF) /* (3) */
+  {
+   /* add time out here for a robust application */
+  }
+  RTC->WUTR = 0x9C0; /* (4) */
+  RTC->CR = RTC_CR_WUTE | RTC_CR_WUTIE | 0x00000000; /* (5) */
+  RTC->WPR = 0xFE; /* (6) */
+  volatile uint32_rtccr = RTC->CR;
+  RTC->WPR = 0x64; /* (6) */
+#endif
+  /*if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 2000, RTC_WAKEUPCLOCK_RTCCLK_DIV16) != HAL_OK)
   {
     Error_Handler();
-  }
-  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
-  sDate.Month = RTC_MONTH_JANUARY;
-  sDate.Date = 0x1;
-  sDate.Year = 0x0;
+  }*/
 
-  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Enable the Alarm A
-  */
-  sAlarm.AlarmTime.Hours = 0x0;
-  sAlarm.AlarmTime.Minutes = 0x0;
-  sAlarm.AlarmTime.Seconds = 0x0;
-  sAlarm.AlarmTime.SubSeconds = 0x0;
-  sAlarm.AlarmTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-  sAlarm.AlarmTime.StoreOperation = RTC_STOREOPERATION_RESET;
-  sAlarm.AlarmMask = RTC_ALARMMASK_NONE;
-  sAlarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
+    /**Enable the Alarm A
+    */
+  /*sAlarm.Alarm = RTC_ALARM_A;
+  sAlarm.AlarmDateWeekDay = RTC_WEEKDAY_MONDAY;
   sAlarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
-  sAlarm.AlarmDateWeekDay = 0x1;
-  sAlarm.Alarm = RTC_ALARM_A;
-  if (HAL_RTC_SetAlarm(&hrtc, &sAlarm, RTC_FORMAT_BCD) != HAL_OK)
+  sAlarm.AlarmMask = RTC_ALARMMASK_DATEWEEKDAY;
+  sAlarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_NONE;
+  sAlarm.AlarmTime.TimeFormat = RTC_HOURFORMAT12_AM;
+  sAlarm.AlarmTime.Hours = 0x02;
+  sAlarm.AlarmTime.Minutes = 0x20;
+  sAlarm.AlarmTime.Seconds = 0x04;
+  sAlarm.AlarmTime.SubSeconds = 0x56;
+  if (HAL_RTC_SetAlarm_IT(&hrtc, &sAlarm, RTC_FORMAT_BCD) != HAL_OK)
   {
     Error_Handler();
-  }
-
-  /** Enable the WakeUp
-  */
-  if (HAL_RTCEx_SetWakeUpTimer(&hrtc, 0, RTC_WAKEUPCLOCK_RTCCLK_DIV16) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN RTC_Init 2 */
-
-  /* USER CODE END RTC_Init 2 */
+  }*/
 
 }
+
 
 void HAL_RTC_MspInit(RTC_HandleTypeDef* rtcHandle)
 {

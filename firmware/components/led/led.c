@@ -13,9 +13,8 @@
 
 
 extern TIM_HandleTypeDef htim3;
-extern TIM_HandleTypeDef htim15;
 extern TIM_HandleTypeDef htim17;
-GPIO_InitTypeDef GPIO_InitStruct;
+//GPIO_InitTypeDef GPIO_InitStruct;
 
 typedef struct
 {
@@ -282,13 +281,12 @@ void LedFunctionSetRGB(LedFunction_T func, uint8_t r, uint8_t g, uint8_t b) {
 }
 
 void LedStop(void) {
+  extern TIM_HandleTypeDef htim3;
+  extern TIM_HandleTypeDef htim17;
 	if ((htim3.Instance->CR1 & TIM_CR1_CEN) == 0) {
 		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
 		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
 		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_3);
-
-		HAL_TIM_PWM_Stop(&htim15, TIM_CHANNEL_1);
-		HAL_TIM_PWM_Stop(&htim15, TIM_CHANNEL_2);
 		HAL_TIM_PWM_Stop(&htim17, TIM_CHANNEL_1);
 
 		//Configure GPIOB output pins

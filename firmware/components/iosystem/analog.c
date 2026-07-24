@@ -9,7 +9,6 @@
 #include "analog.h"
 #include <to_refactor/config_switch_resistor.h>
 #include <to_refactor/time_count.h>
-#include "stm32f0xx_hal.h"
 #include "nv.h"
 #include "app-error/app_error.h"
 #include "app-error/app_assert.h"
@@ -106,6 +105,7 @@ static EventWrapper_t s_QueBuf[10];   // TODO - remove magic number
 
 // HAL instances:
 extern ADC_HandleTypeDef hadc;
+extern TIM_HandleTypeDef htim15;
 
 // Half of the ring the DMA has just finished:
 static const uint16_t *volatile s_pReadyHalfBuf;
@@ -140,6 +140,9 @@ static void adc_Start(void)
 {
   // Start conversion in DMA mode:
   if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)s_BufADC, ADC_BUFFER_LENGTH) != HAL_OK)
+    APP_ERROR(APP_HAL_ERROR);
+
+  if (HAL_TIM_Base_Start(&htim15) != HAL_OK)
     APP_ERROR(APP_HAL_ERROR);
 }
 
@@ -264,8 +267,6 @@ static void Task(void *parameters)
 
   // Arm the DMA (ADC now waits on the trigger), then let TIM15 TRGO pace the conversions.
   adc_Start();
-  if (HAL_TIM_Base_Start(&htim15) != HAL_OK)
-    APP_ERROR(APP_HAL_ERROR);
 
   while(1)
   {
