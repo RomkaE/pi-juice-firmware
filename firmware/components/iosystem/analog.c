@@ -35,7 +35,7 @@
 // CH0, CH2, CH4, CH16, CH17.
 #define ADC_5VPI_CHN_IDX          0
 #define ADC_VBAT_CHN_IDX          1
-#define ADC_POW_CHN_IDX           2
+#define ADC_PWR_CHN_IDX           2
 #define ADC_TEMP_INT_CHN_IDX      3
 #define ADC_VREF_INT_CHN_IDX      4
 
@@ -96,7 +96,7 @@ static uint16_t s_RawBatt;
 static uint16_t s_VBatt;      // in mV
 static uint16_t s_VBattAvg;   // in mV
 static uint16_t s_5VPI;       // in mV
-static uint16_t s_RawPOW;
+static uint16_t s_RawPWR;
 
 // FreeRTOS task:
 static TaskHandle_t s_TaskHandle;
@@ -222,8 +222,8 @@ static void ProcessHalf(const uint16_t *half)
   s_VBatt = VBAT_FROM_PIN_MV(vbatPinMv);
   s_VBattAvg = s_VBatt;           // the 32-frame average already is the smoothed value
 
-  // POW_DET raw counts, consumed by the 5V-in detection in power_source.c.
-  s_RawPOW = acc[ADC_POW_CHN_IDX] >> ADC_HALF_SHIFT;
+  // PWR_DET raw counts, consumed by the 5V-in detection in power_source.c.
+  s_RawPWR = acc[ADC_PWR_CHN_IDX] >> ADC_HALF_SHIFT;
 
   // 5V PI rail sensed through a /2 divider: >>11 == /4096 * 2.
   uint16_t raw5v = acc[ADC_5VPI_CHN_IDX] >> ADC_HALF_SHIFT;
@@ -351,9 +351,9 @@ uint16_t analog_Get5vPi()
   return s_5VPI;
 }
 
-uint16_t analog_GetRawPOW(void)
+uint16_t analog_GetRawPWR(void)
 {
-  return s_RawPOW;
+  return s_RawPWR;
 }
 
 uint32_t analog_GetErrMask(bool _clear)

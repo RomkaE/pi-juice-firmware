@@ -20,6 +20,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "board.h"
 
 /* USER CODE BEGIN 0 */
 //extern void SysTickCb();
@@ -152,20 +153,20 @@ void ADC1_IRQHandler(void)
   */
 void EXTI4_15_IRQHandler(void)
 {
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_7);
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_12);
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_13);
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_8); // IO2
+  HAL_GPIO_EXTI_IRQHandler(I2C1_SDA_PIN);
+  HAL_GPIO_EXTI_IRQHandler(BTN_SW1_PIN);
+  HAL_GPIO_EXTI_IRQHandler(BTN_SW2_PIN);
+  HAL_GPIO_EXTI_IRQHandler(EXT_IO2_PIN);
 }
 
 void EXTI0_1_IRQHandler(void)
 {
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+  HAL_GPIO_EXTI_IRQHandler(CHG_INT_PIN);
 }
 
 void EXTI2_3_IRQHandler(void)
 {
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_2);
+  HAL_GPIO_EXTI_IRQHandler(BTN_SW3_PIN);
 }
 
 /*void WWDG_IRQHandler(void)

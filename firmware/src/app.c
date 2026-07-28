@@ -51,6 +51,7 @@
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
+#include "board.h"
 #include "cube-mx/i2c.h"
 #include "driver/i2c/i2c_slave.h"
 #include "driver/i2c/i2c_master.h"
@@ -71,7 +72,7 @@
 #define NEED_EVENT_POLL()		((chargerNeedPoll \
 								|| extiFlag \
 								|| rtcWakeupEventFlag \
-								|| POW_SOURCE_NEED_POLL() \
+								|| PWR_SOURCE_NEED_POLL() \
 								|| alarmEventFlag ))
 
 /* Private variables ---------------------------------------------------------*/
@@ -115,27 +116,25 @@ void ButtonDualLongPressEventCb(void) {
 
 	executionState = EXECUTION_STATE_CONFIG_RESET;
 	while(1) {
-	  LedSetRGB(LED1, 150, 0, 0);
-	  LedSetRGB(LED2, 150, 0, 0);
+	  LedSetRGB(LED_D1, 150, 0, 0);
 	  HAL_Delay(500);
-	  LedSetRGB(LED1, 0, 0, 150);
-	  LedSetRGB(LED2, 0, 0, 150);
+	  LedSetRGB(LED_D1, 0, 0, 150);
 	  HAL_Delay(500);
 	}
 }
 
 uint8_t extiFlag = 0;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-  if (GPIO_Pin == GPIO_PIN_0)
+  if (GPIO_Pin == CHG_INT_PIN)
   {
 	  // CH_INT
 	  chargerInterruptFlag = 1;
 	  extiFlag = 1;
-  } else if (GPIO_Pin == GPIO_PIN_7)
+  } else if (GPIO_Pin == I2C1_SDA_PIN)
   {
 	  // I2C SDA
 	  extiFlag = 2;
-  } else if (GPIO_Pin == GPIO_PIN_8) {
+  } else if (GPIO_Pin == EXT_IO2_PIN) {
 	  extiFlag = 4;
 	  ioWakeupEvent = 1;
   } else {
@@ -178,7 +177,7 @@ static void main_init(void)
 
 	// Initialize all configured peripherals
 	// 
-	if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == GPIO_PIN_RESET && executionState == EXECUTION_STATE_POWER_RESET)
+	if (HAL_GPIO_ReadPin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN) == GPIO_PIN_RESET && executionState == EXECUTION_STATE_POWER_RESET)
 	{
 		executionState = EXECUTION_STATE_POWER_ON;
 	}
@@ -186,7 +185,6 @@ static void main_init(void)
 	// TODO:
 	MX_RTC_Init();
 	MX_TIM3_Init();
-	MX_TIM17_Init();
 	MX_TIM1_Init();
 
 	// TODO - fix
@@ -222,13 +220,13 @@ static void main_init(void)
 		LedSetRGB(1, 0, 0, 0);
 	}*/
 
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET); // ee write protect
+	HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, GPIO_PIN_SET); // ee write protect
 	uint16_t var = 0;
 	EE_ReadVariable(ID_EEPROM_ADR_NV_ADDR, &var);
 	if ( (((~var)&0xFF) == (var>>8)) ) {
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, (var&0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN, (var&0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 	} else {
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET); // default ee Adr
+		HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN, GPIO_PIN_RESET); // default ee Adr
 	}
 
 	state = STATE_NORMAL;
@@ -286,7 +284,7 @@ static void main_poll(void)
     }
     // Load-current gating removed with the current-sensing feature; the 5V-rail-low test
     // below is the remaining low-power entry condition.
-    else if ((analog_Get5vPi() < 4600 && !POW_VSYS_OUTPUT_EN_STATUS())
+    else if ((analog_Get5vPi() < 4600 && !PWR_VSYS_OUTPUT_EN_STATUS())
         && MS_TIME_COUNT(lastHostCommandTimer) > 5000
         && MS_TIME_COUNT(lowPowerDealyTimer) >= 22
         && MS_TIME_COUNT(lastWakeupTimer) > 20000

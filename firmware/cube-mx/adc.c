@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "adc.h"
+#include "board.h"
 
 /* USER CODE BEGIN 0 */
 
@@ -127,10 +128,10 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
     PA2     ------> ADC_IN2
     PA4     ------> ADC_IN4
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_2|GPIO_PIN_4;
+    GPIO_InitStruct.Pin = ADC_5V_PI_PIN|ADC_VBAT_PIN|ADC_PWR_DET_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    HAL_GPIO_Init(ADC_5V_PI_PORT, &GPIO_InitStruct);
 
     /* ADC1 DMA Init */
     /* ADC Init */
@@ -173,7 +174,7 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
     PA2     ------> ADC_IN2
     PA4     ------> ADC_IN4
     */
-    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_0|GPIO_PIN_2|GPIO_PIN_4);
+    HAL_GPIO_DeInit(ADC_5V_PI_PORT, ADC_5V_PI_PIN|ADC_VBAT_PIN|ADC_PWR_DET_PIN);
 
     /* ADC1 DMA DeInit */
     HAL_DMA_DeInit(adcHandle->DMA_Handle);

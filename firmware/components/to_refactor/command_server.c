@@ -33,7 +33,6 @@ extern I2C_HandleTypeDef hi2c2;
 extern I2C_HandleTypeDef hi2c1;//extern SMBUS_HandleTypeDef hsmbus;
 extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim15;
-extern TIM_HandleTypeDef htim17;
 
 extern uint16_t wakeupOnCharge;
 extern uint8_t powerOffBtnEventFlag;
@@ -164,7 +163,7 @@ static const MasterCommand_T masterCommands[REGISTERS_NUM] =
 /*61*/	NULL,
 /*62*/	NULL,
 /*63*/	NULL,
-/*64*/	CmdServerReadStatus, // status, bit0-fault, bit1-button event,bit2&3-bat status,bit4&5-IN stat,bit6&7-Pi 5V pow stat
+/*64*/	CmdServerReadStatus, // status, bit0-fault, bit1-button event,bit2&3-bat status,bit4&5-IN stat,bit6&7-Pi 5V pwr stat
 /*65*/	CmdServerReadRsoc, // state of charge %
 /*66*/	CmdServerReadRsocHigherResolution, // state of charge % 0.1 resolution, two bytes
 /*67*/	NULL, // reserved for high byte of state of charge
@@ -979,26 +978,26 @@ void CmdServerReadWriteOwnAddress2(uint8_t dir, uint8_t *pData, uint16_t *dataLe
 
 void CmdServerReadWriteEEPROM_WriteProtect(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, (pData[1]&0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, (pData[1]&0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 	} else {
-		pData[0] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_8) == GPIO_PIN_SET ? 1 : 0;
+		pData[0] = HAL_GPIO_ReadPin(EE_WP_PORT, EE_WP_PIN) == GPIO_PIN_SET ? 1 : 0;
 		*dataLen = 1;
 	}
 }
 
 void CmdServerReadWriteEEPROM_WriteAddress(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		uint8_t adrState = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_3) == GPIO_PIN_SET ? 0x52 : 0x50;
+		uint8_t adrState = HAL_GPIO_ReadPin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN) == GPIO_PIN_SET ? 0x52 : 0x50;
 		if ( (pData[1] == 0x50 || pData[1] == 0x52) && adrState != pData[1] ){
 			EE_WriteVariable(ID_EEPROM_ADR_NV_ADDR, pData[1] | ((uint16_t)~(pData[1])<<8));
 			uint16_t var = 0;
 			EE_ReadVariable(ID_EEPROM_ADR_NV_ADDR, &var);
 			if ( (var&0xFF) == pData[1] && (((~var)&0xFF) == (var>>8)) ) {
-				HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, (pData[1]&0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+				HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN, (pData[1]&0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 			}
 		}
 	} else {
-		pData[0] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_3) == GPIO_PIN_SET ? 0x52 : 0x50;
+		pData[0] = HAL_GPIO_ReadPin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN) == GPIO_PIN_SET ? 0x52 : 0x50;
 		*dataLen = 1;
 	}
 }

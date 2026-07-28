@@ -325,9 +325,9 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
     PB6     ------> I2C1_SCL
     PB7     ------> I2C1_SDA
     */
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_6);
+    HAL_GPIO_DeInit(I2C1_SCL_PORT, I2C1_SCL_PIN);
 
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_7);
+    HAL_GPIO_DeInit(I2C1_SDA_PORT, I2C1_SDA_PIN);
 
   /* USER CODE BEGIN I2C1_MspDeInit 1 */
 
@@ -345,9 +345,9 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
     PB10     ------> I2C2_SCL
     PB11     ------> I2C2_SDA
     */
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_10);
+    HAL_GPIO_DeInit(I2C2_SCL_PORT, I2C2_SCL_PIN);
 
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_11);
+    HAL_GPIO_DeInit(I2C2_SDA_PORT, I2C2_SDA_PIN);
 
   /* USER CODE BEGIN I2C2_MspDeInit 1 */
 

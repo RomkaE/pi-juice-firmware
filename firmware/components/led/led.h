@@ -10,8 +10,7 @@
 
 #include "stdint.h"
 
-#define LED1	0
-#define LED2	1
+#define LED_D1	    0
 
 typedef enum LedFunction_T {
 	LED_NOT_USED = 0,

@@ -13,7 +13,6 @@
 
 
 extern TIM_HandleTypeDef htim3;
-extern TIM_HandleTypeDef htim17;
 //GPIO_InitTypeDef GPIO_InitStruct;
 
 typedef struct
@@ -44,11 +43,7 @@ typedef struct
 
 } Led_T;
 
-static Led_T leds[2] = {
-
-	{ LED_CHARGE_STATUS, 60, 60, 100},
-	{ LED_USER_LED, 0, 0, 0 },
-};
+static Led_T s_LED = { LED_CHARGE_STATUS, 60, 60, 100};
 
 static const uint16_t pwm_table[] = {
      65535,    65508,    65479,    65451,    65422,    65394,    65365,    65337,
@@ -85,357 +80,247 @@ static const uint16_t pwm_table[] = {
      4543,    3908,    3267,    2623,    1974,    1320,    662,    0
  };
 
-void LedInit(void) {
+void LedInit(void)
+{
+  // Start LED_D1 red (TIM3_CH1)
+  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1) != HAL_OK)
+  {
+    // PWM generation Error
+    Error_Handler();
+  }
 
-	/*HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET); //LED1B
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET); //LED1G
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_SET); //LED1R
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_4));
-  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);*/
-    //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
-    //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+  // Start LED_D1 green (TIM3_CH2)
+  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2) != HAL_OK)
+  {
+    // PWM generation Error
+    Error_Handler();
+  }
 
-	  // Start channel 1 RED2
-	  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1) != HAL_OK)
-	  {
-	    // PWM generation Error
-	    Error_Handler();
-	  }
-
-	  // Start channel 2 Green2
-	  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2) != HAL_OK)
-	  {
-	    // PWM generation Error
-	    Error_Handler();
-	  }
-
-	  // Start channel 3 Blue2
-	  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3) != HAL_OK)
-	  {
-	    // PWM generation Error
-	    Error_Handler();
-	  }
-
-	  // LED2 C1
-	  /*
-	  if (HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1) != HAL_OK)
-	  {
-	    // PWM generation Error
-	    Error_Handler();
-	  }
-
-	  // LED2 C2
-	  if (HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_2) != HAL_OK)
-	  {
-	    // PWM generation Error
-	    Error_Handler();
-	  }
-    */
-
-	  // LED2 C3
-	  if (HAL_TIM_PWM_Start(&htim17, TIM_CHANNEL_1) != HAL_OK)
-	  {
-	    // PWM generation Error
-	    Error_Handler();
-	  }
+  // Start LED_D1 blue (TIM3_CH3)
+  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3) != HAL_OK)
+  {
+    // PWM generation Error
+    Error_Handler();
+  }
 
 	uint16_t var = 0;
-	EE_ReadVariable(NV_LED_FUNC_1, &var);
+	EE_ReadVariable(NV_LED_D1_FUNC, &var);
 	if (((~var)&0xFF) == (var>>8)) {
-		leds[0].func = var&0xFF;
+		s_LED.func = var&0xFF;
 	}
-	EE_ReadVariable(NV_LED_PARAM_R_1, &var);
+	EE_ReadVariable(NV_LED_D1_PARAM_R, &var);
 	if (((~var)&0xFF) == (var>>8)) {
-		leds[0].paramR = var&0xFF;
+		s_LED.paramR = var&0xFF;
 	}
-	EE_ReadVariable(NV_LED_PARAM_G_1, &var);
+	EE_ReadVariable(NV_LED_D1_PARAM_G, &var);
 	if (((~var)&0xFF) == (var>>8)) {
-		leds[0].paramG = var&0xFF;
+		s_LED.paramG = var&0xFF;
 	}
-	EE_ReadVariable(NV_LED_PARAM_B_1, &var);
+	EE_ReadVariable(NV_LED_D1_PARAM_B, &var);
 	if (((~var)&0xFF) == (var>>8)) {
-		leds[0].paramB = var&0xFF;
+		s_LED.paramB = var&0xFF;
 	}
-	if (leds[0].func == LED_USER_LED) {
-		LedSetRGB(LED1, leds[1].paramR, leds[1].paramG, leds[1].paramB);
+	if (s_LED.func == LED_USER_LED) {
+		LedSetRGB(LED_D1, s_LED.paramR, s_LED.paramG, s_LED.paramB);
 	}else {
-		LedSetRGB(LED1, 0, 0, 0);
-	}
-
-	var = 0;
-	EE_ReadVariable(NV_LED_FUNC_2, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		leds[1].func = var&0xFF;
-	}
-	EE_ReadVariable(NV_LED_PARAM_R_2, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		leds[1].paramR = var&0xFF;
-	}
-	EE_ReadVariable(NV_LED_PARAM_G_2, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		leds[1].paramG = var&0xFF;
-	}
-	EE_ReadVariable(NV_LED_PARAM_B_2, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		leds[1].paramB = var&0xFF;
-	}
-	if (leds[1].func == LED_USER_LED) {
-		LedSetRGB(LED2, leds[1].paramR, leds[1].paramG, leds[1].paramB);
-	}else {
-		LedSetRGB(LED2, 0, 0, 0);
+		LedSetRGB(LED_D1, 0, 0, 0);
 	}
 }
 
 uint8_t LedGetParamR(uint8_t func) {
-	if (leds[0].func == func) {
-		return leds[0].paramR;
-	} else if (leds[1].func == func) {
-		return leds[1].paramR;
-	}
+	if (s_LED.func == func)
+		return s_LED.paramR;
 	return 0;
 }
 uint8_t LedGetParamG(uint8_t func) {
-	if (leds[0].func == func) {
-		return leds[0].paramG;
-	} else if (leds[1].func == func) {
-		return leds[1].paramG;
-	}
+	if (s_LED.func == func)
+		return s_LED.paramG;
 	return 0;
 }
 uint8_t LedGetParamB(uint8_t func) {
-	if (leds[0].func == func) {
-		return leds[0].paramB;
-	} else if (leds[1].func == func) {
-		return leds[1].paramB;
-	}
+	if (s_LED.func == func)
+		return s_LED.paramB;
 	return 0;
 }
 
-void ProcessBlink(uint8_t n) {
-	if (leds[n].blinkCount) {
-		if ( (leds[n].blinkCount & 0x1) ) {
+static void ProcessBlink(void) {
+	if (s_LED.blinkCount) {
+		if ( (s_LED.blinkCount & 0x1) ) {
 			// odd count for off color
-			if (MS_TIME_COUNT(leds[n].blinkTimer) >= leds[n].blinkPeriod2) {
-				MS_TIME_COUNTER_INIT(leds[n].blinkTimer);
-				leds[n].blinkCount --;
-				if (leds[n].blinkCount == 0) {
-					if (leds[n].blinkRepeat == 0xFF) {
-						leds[n].blinkCount = 256;
+			if (MS_TIME_COUNT(s_LED.blinkTimer) >= s_LED.blinkPeriod2) {
+				MS_TIME_COUNTER_INIT(s_LED.blinkTimer);
+				s_LED.blinkCount --;
+				if (s_LED.blinkCount == 0) {
+					if (s_LED.blinkRepeat == 0xFF) {
+						s_LED.blinkCount = 256;
 					} else {
-						LedSetRGB(n, leds[n].r, leds[n].g, leds[n].b);
+						LedSetRGB(LED_D1, s_LED.r, s_LED.g, s_LED.b);
 					}
 				} else
-					LedSetRGB(n, leds[n].blinkR1, leds[n].blinkG1, leds[n].blinkB1);
+					LedSetRGB(LED_D1, s_LED.blinkR1, s_LED.blinkG1, s_LED.blinkB1);
 			}
 		} else {
 			// even count for on color
-			if (MS_TIME_COUNT(leds[n].blinkTimer) >= leds[n].blinkPeriod1) {
-				LedSetRGB(n, leds[n].blinkR2, leds[n].blinkG2, leds[n].blinkB2);
-				MS_TIME_COUNTER_INIT(leds[n].blinkTimer);
-				leds[n].blinkCount --;
+			if (MS_TIME_COUNT(s_LED.blinkTimer) >= s_LED.blinkPeriod1) {
+				LedSetRGB(LED_D1, s_LED.blinkR2, s_LED.blinkG2, s_LED.blinkB2);
+				MS_TIME_COUNTER_INIT(s_LED.blinkTimer);
+				s_LED.blinkCount --;
 			}
 		}
 	}
 }
 
 void LedTask(void) {
-	ProcessBlink(0);
-	ProcessBlink(1);
+	ProcessBlink();
 }
 void LedSetRGB(uint8_t led, uint8_t r, uint8_t g, uint8_t b) {
-	if (led == 1) {
-		TIM15->CCR1 = 65535 - pwm_table[r];
-		TIM15->CCR2 = 65535 - pwm_table[g];
-		TIM17->CCR1 = 65535 - pwm_table[b];
-	} else 	if (led == 0) {
-		TIM3->CCR1 = 65535 - pwm_table[r];
-		TIM3->CCR2 = 65535 - pwm_table[g];
-		TIM3->CCR3 = 65535 - pwm_table[b];
-	}
+  if (led == LED_D1)
+  {
+    TIM3->CCR1 = 65535 - pwm_table[r];
+    TIM3->CCR2 = 65535 - pwm_table[g];
+    TIM3->CCR3 = 65535 - pwm_table[b];
+  }
+  else
+  {
+    // TODO - error logs
+  }
 }
 
 void LedFunctionSetRGB(LedFunction_T func, uint8_t r, uint8_t g, uint8_t b) {
-	if (leds[0].func == func) {
-		leds[0].r = r;
-		leds[0].g = g;
-		leds[0].b = b;
-		leds[0].blinkRepeat = 0;
-		leds[0].blinkCount = 0;
-		LedSetRGB(LED1, r, g, b);
-	}
-
-	if (leds[1].func == func) {
-		leds[1].r = r;
-		leds[1].g = g;
-		leds[1].b = b;
-		leds[1].blinkRepeat = 0;
-		leds[1].blinkCount = 0;
-		LedSetRGB(LED2, r, g, b);
+	if (s_LED.func == func) {
+		s_LED.r = r;
+		s_LED.g = g;
+		s_LED.b = b;
+		s_LED.blinkRepeat = 0;
+		s_LED.blinkCount = 0;
+		LedSetRGB(LED_D1, r, g, b);
 	}
 }
 
 void LedStop(void) {
-  extern TIM_HandleTypeDef htim3;
-  extern TIM_HandleTypeDef htim17;
-	if ((htim3.Instance->CR1 & TIM_CR1_CEN) == 0) {
+	if ((htim3.Instance->CR1 & TIM_CR1_CEN) == TIM_CR1_CEN) {
 		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
 		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
 		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_3);
-		HAL_TIM_PWM_Stop(&htim17, TIM_CHANNEL_1);
-
-		//Configure GPIOB output pins
-		/*GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_4|GPIO_PIN_5;
-		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-		GPIO_InitStruct.Pull = GPIO_NOPULL;
-		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-		HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-		HAL_GPIO_WritePin(GPIOB, GPIO_InitStruct.Pin, GPIO_PIN_RESET);*/
 	}
 }
 
 void LedStart(void) {
-	if ((htim3.Instance->CR1 & TIM_CR1_CEN) == TIM_CR1_CEN)
-		//Configure GPIOB PWM pins
-		/*GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_4|GPIO_PIN_5;
-		GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-		GPIO_InitStruct.Pull = GPIO_NOPULL;
-		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-		GPIO_InitStruct.Alternate = GPIO_AF1_TIM3;
-		HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);*/
+	if ((htim3.Instance->CR1 & TIM_CR1_CEN) == 0)
 		LedInit();
 }
 
 void LedSetConfiguarion(uint8_t led, uint8_t data[], uint8_t len) {
-	if (led > 1) return;
 	uint16_t var = 0;
-	if (led == 0) {
-		NvWriteVariableU8(NV_LED_FUNC_1, data[0]);
-		NvWriteVariableU8(NV_LED_PARAM_R_1, data[1]);
-		NvWriteVariableU8(NV_LED_PARAM_G_1, data[2]);
-		NvWriteVariableU8(NV_LED_PARAM_B_1, data[3]);
+	if (led == LED_D1) {
+		NvWriteVariableU8(NV_LED_D1_FUNC, data[0]);
+		NvWriteVariableU8(NV_LED_D1_PARAM_R, data[1]);
+		NvWriteVariableU8(NV_LED_D1_PARAM_G, data[2]);
+		NvWriteVariableU8(NV_LED_D1_PARAM_B, data[3]);
 
-		EE_ReadVariable(NV_LED_FUNC_1, &var);
+		EE_ReadVariable(NV_LED_D1_FUNC, &var);
 		if (((~var)&0xFF) == (var>>8)) {
-			leds[led].func = var&0xFF;
+			s_LED.func = var&0xFF;
 		}
-		EE_ReadVariable(NV_LED_PARAM_R_1, &var);
+		EE_ReadVariable(NV_LED_D1_PARAM_R, &var);
 		if (((~var)&0xFF) == (var>>8)) {
-			leds[led].paramR = var&0xFF;
+			s_LED.paramR = var&0xFF;
 		}
-		EE_ReadVariable(NV_LED_PARAM_G_1, &var);
+		EE_ReadVariable(NV_LED_D1_PARAM_G, &var);
 		if (((~var)&0xFF) == (var>>8)) {
-			leds[led].paramG = var&0xFF;
+			s_LED.paramG = var&0xFF;
 		}
-		EE_ReadVariable(NV_LED_PARAM_B_1, &var);
+		EE_ReadVariable(NV_LED_D1_PARAM_B, &var);
 		if (((~var)&0xFF) == (var>>8)) {
-			leds[led].paramB = var&0xFF;
+			s_LED.paramB = var&0xFF;
 		}
-		if (leds[led].func == LED_USER_LED) {
-			LedSetRGB(LED1, leds[led].paramR, leds[led].paramG, leds[led].paramB);
+		if (s_LED.func == LED_USER_LED) {
+			LedSetRGB(LED_D1, s_LED.paramR, s_LED.paramG, s_LED.paramB);
 		}else {
-			LedSetRGB(LED1, 0, 0, 0);
+			LedSetRGB(LED_D1, 0, 0, 0);
 		}
 	}
-	if (led == 1) {
-		NvWriteVariableU8(NV_LED_FUNC_2, data[0]);
-		NvWriteVariableU8(NV_LED_PARAM_R_2, data[1]);
-		NvWriteVariableU8(NV_LED_PARAM_G_2, data[2]);
-		NvWriteVariableU8(NV_LED_PARAM_B_2, data[3]);
-
-		EE_ReadVariable(NV_LED_FUNC_2, &var);
-		if (((~var)&0xFF) == (var>>8)) {
-			leds[led].func = var&0xFF;
-		}
-		EE_ReadVariable(NV_LED_PARAM_R_2, &var);
-		if (((~var)&0xFF) == (var>>8)) {
-			leds[led].paramR = var&0xFF;
-		}
-		EE_ReadVariable(NV_LED_PARAM_G_2, &var);
-		if (((~var)&0xFF) == (var>>8)) {
-			leds[led].paramG = var&0xFF;
-		}
-		EE_ReadVariable(NV_LED_PARAM_B_2, &var);
-		if (((~var)&0xFF) == (var>>8)) {
-			leds[led].paramB = var&0xFF;
-		}
-		if (leds[led].func == LED_USER_LED) {
-			LedSetRGB(LED2, leds[led].paramR, leds[led].paramG, leds[led].paramB);
-		}else {
-			LedSetRGB(LED2, 0, 0, 0);
-		}
+	else
+	{
+	  // TODO - error logs
 	}
+}
 
+/*
+ * Only D1 is populated, so the second LED's registers (0x103, 0x105, 0x107) answer with
+ * zeros of the expected length. Returning without touching *len is not an option: the
+ * command server checksums whatever length the caller pre-set - 1 byte, see i2c_slave.c -
+ * so the host would get a stale byte carrying a valid checksum. Same approach as
+ * CmdServerReadRetiredU16() takes for the retired current registers.
+ */
+static void LedReadUnused(uint8_t data[], uint16_t *len, uint16_t n) {
+  for (uint16_t i = 0; i < n; i++) data[i] = 0;
+  *len = n;
 }
 
 void LedGetConfiguarion(uint8_t led, uint8_t data[], uint16_t *len) {
-	if (led > 1) return;
-	data[0] = leds[led].func;
-	data[1] = leds[led].paramR;
-	data[2] = leds[led].paramG;
-	data[3] = leds[led].paramB;
+	if (led > LED_D1) { LedReadUnused(data, len, 4); return; }
+	data[0] = s_LED.func;
+	data[1] = s_LED.paramR;
+	data[2] = s_LED.paramG;
+	data[3] = s_LED.paramB;
 	*len = 4;
 }
 
 void LedCmdSetState(uint8_t led, uint8_t data[], uint8_t len) {
-	if (led > 1 || leds[led].func != LED_USER_LED) return;
-	leds[led].r = data[0];
-	leds[led].g = data[1];
-	leds[led].b = data[2];
-	LedSetRGB(led, data[0], data[1], data[2]);
+	if (led > LED_D1 || s_LED.func != LED_USER_LED) return;
+	s_LED.r = data[0];
+	s_LED.g = data[1];
+	s_LED.b = data[2];
+	LedSetRGB(LED_D1, data[0], data[1], data[2]);
 }
 
 void LedCmdGetState(uint8_t led, uint8_t data[], uint16_t *len) {
-	if (led > 1) return;
-	data[0] = leds[led].r;
-	data[1] = leds[led].g;
-	data[2] = leds[led].b;
+	if (led > LED_D1) { LedReadUnused(data, len, 3); return; }
+	data[0] = s_LED.r;
+	data[1] = s_LED.g;
+	data[2] = s_LED.b;
 	*len = 3;
 }
 
 void LedCmdSetBlink(uint8_t led, uint8_t data[], uint8_t len) {
-	if (led > 1 || leds[led].func == LED_NOT_USED) return;
+	if (led > LED_D1 || s_LED.func == LED_NOT_USED) return;
 
-	leds[led].blinkRepeat = data[0];
-	leds[led].blinkCount = data[0];
-	leds[led].blinkCount <<= 1; // *=2
-	leds[led].blinkR1 = data[1];
-	leds[led].blinkG1 = data[2];
-	leds[led].blinkB1 = data[3];
-	leds[led].blinkPeriod1 = data[4];
-	leds[led].blinkPeriod1 *= 10;
-	leds[led].blinkR2 = data[5];
-	leds[led].blinkG2 = data[6];
-	leds[led].blinkB2 = data[7];
-	leds[led].blinkPeriod2 = data[8];
-	leds[led].blinkPeriod2 *= 10;
+	s_LED.blinkRepeat = data[0];
+	s_LED.blinkCount = data[0];
+	s_LED.blinkCount <<= 1; // *=2
+	s_LED.blinkR1 = data[1];
+	s_LED.blinkG1 = data[2];
+	s_LED.blinkB1 = data[3];
+	s_LED.blinkPeriod1 = data[4];
+	s_LED.blinkPeriod1 *= 10;
+	s_LED.blinkR2 = data[5];
+	s_LED.blinkG2 = data[6];
+	s_LED.blinkB2 = data[7];
+	s_LED.blinkPeriod2 = data[8];
+	s_LED.blinkPeriod2 *= 10;
 
 
-	if (leds[led].blinkRepeat) {
-		LedSetRGB(led, leds[led].blinkR1, leds[led].blinkG1, leds[led].blinkB1);
-		MS_TIME_COUNTER_INIT(leds[led].blinkTimer);
+	if (s_LED.blinkRepeat) {
+		LedSetRGB(LED_D1, s_LED.blinkR1, s_LED.blinkG1, s_LED.blinkB1);
+		MS_TIME_COUNTER_INIT(s_LED.blinkTimer);
 	} else {
-		LedSetRGB(led, leds[led].r, leds[led].g, leds[led].b);
+		LedSetRGB(LED_D1, s_LED.r, s_LED.g, s_LED.b);
 	}
 
 }
 
 void LedCmdGetBlink(uint8_t led, uint8_t data[], uint16_t *len) {
-	if (led > 1) return;
+	if (led > LED_D1) { LedReadUnused(data, len, 9); return; }
 
-	data[0] = leds[led].blinkRepeat < 255 ? leds[led].blinkCount >> 1 : 255;
-	data[1] = leds[led].blinkR1;
-	data[2] = leds[led].blinkG1;
-	data[3] = leds[led].blinkB1;
-	data[4] = leds[led].blinkPeriod1 / 10;
-	data[5] = leds[led].blinkR2;
-	data[6] = leds[led].blinkG2;
-	data[7] = leds[led].blinkB2;
-	data[8] = leds[led].blinkPeriod2 / 10;
+	data[0] = s_LED.blinkRepeat < 255 ? s_LED.blinkCount >> 1 : 255;
+	data[1] = s_LED.blinkR1;
+	data[2] = s_LED.blinkG1;
+	data[3] = s_LED.blinkB1;
+	data[4] = s_LED.blinkPeriod1 / 10;
+	data[5] = s_LED.blinkR2;
+	data[6] = s_LED.blinkG2;
+	data[7] = s_LED.blinkB2;
+	data[8] = s_LED.blinkPeriod2 / 10;
 	*len = 9;
 }

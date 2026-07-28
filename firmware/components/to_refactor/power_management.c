@@ -92,16 +92,16 @@ void PowerManagementInit(void) {
 
 }
 int8_t ResetHost(void) {
-	if ( (POW_5V_BOOST_EN_STATUS() || power5vIoStatus != POW_SOURCE_NOT_PRESENT) && runPinInstallationStatus == RUN_PIN_INSTALLED ) {
+	if ( (PWR_5V_BOOST_EN_STATUS() || power5vIoStatus != PWR_SOURCE_NOT_PRESENT) && runPinInstallationStatus == RUN_PIN_INSTALLED ) {
 		Turn5vBoost(1);
 		// activate RUN signal
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(HOST_RUN_PORT, HOST_RUN_PIN, GPIO_PIN_RESET);
 		DelayUs(100);
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(HOST_RUN_PORT, HOST_RUN_PIN, GPIO_PIN_SET);
 		MS_TIME_COUNTER_INIT(lastWakeupTimer);
 		return 0;
-	} else if (power5vIoStatus == POW_SOURCE_NOT_PRESENT) {
-		if (POW_5V_BOOST_EN_STATUS()) {
+	} else if (power5vIoStatus == PWR_SOURCE_NOT_PRESENT) {
+		if (PWR_5V_BOOST_EN_STATUS()) {
 			// do power circle, first turn power off
 			Turn5vBoost(0);
 			// schedule turn on after delay
@@ -114,17 +114,17 @@ int8_t ResetHost(void) {
 			MS_TIME_COUNTER_INIT(lastWakeupTimer);
 			return 0;
 		}
-	} else if ( (POW_5V_BOOST_EN_STATUS() || power5vIoStatus != POW_SOURCE_NOT_PRESENT) ) {
+	} else if ( (PWR_5V_BOOST_EN_STATUS() || power5vIoStatus != PWR_SOURCE_NOT_PRESENT) ) {
 		// wakeup via RPI GPIO3
 	    GPIO_InitTypeDef i2c_GPIO_InitStruct;
-		i2c_GPIO_InitStruct.Pin = GPIO_PIN_6;
+		i2c_GPIO_InitStruct.Pin = I2C1_SCL_PIN;
 		i2c_GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
 		i2c_GPIO_InitStruct.Pull = GPIO_NOPULL;
-	    HAL_GPIO_Init(GPIOB, &i2c_GPIO_InitStruct);
-	    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET);
+	    HAL_GPIO_Init(I2C1_SCL_PORT, &i2c_GPIO_InitStruct);
+	    HAL_GPIO_WritePin(I2C1_SCL_PORT, I2C1_SCL_PIN, GPIO_PIN_RESET);
 		DelayUs(100);
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET);
-		i2c_GPIO_InitStruct.Pin       = GPIO_PIN_6;
+		HAL_GPIO_WritePin(HOST_RUN_PORT, HOST_RUN_PIN, GPIO_PIN_SET);
+		i2c_GPIO_InitStruct.Pin       = I2C1_SCL_PIN;
 		i2c_GPIO_InitStruct.Mode      = GPIO_MODE_AF_OD;
 		/* Must match HAL_I2C_MspInit(), which configures I2C1 with GPIO_PULLUP.
 		 * This block borrows SCL as an output to pulse the host awake and then
@@ -132,8 +132,8 @@ int8_t ResetHost(void) {
 		 * silently drop the internal pull-up for the rest of the run. */
 		i2c_GPIO_InitStruct.Pull      = GPIO_PULLUP;
 		i2c_GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
-		i2c_GPIO_InitStruct.Alternate = GPIO_AF1_I2C1;
-		HAL_GPIO_Init(GPIOB, &i2c_GPIO_InitStruct);
+		i2c_GPIO_InitStruct.Alternate = I2C1_GPIO_AF;
+		HAL_GPIO_Init(I2C1_SCL_PORT, &i2c_GPIO_InitStruct);
 		MS_TIME_COUNTER_INIT(lastWakeupTimer);
 		return 0;
 	}
@@ -142,7 +142,7 @@ int8_t ResetHost(void) {
 
 /*static int8_t WakeUpHost(void) {
 	if (	MS_TIME_COUNT(lastHostCommandTimer) > 15000
-			|| (!POW_5V_BOOST_EN_STATUS() && power5vIoStatus == POW_SOURCE_NOT_PRESENT) //  Host is non powered
+			|| (!PWR_5V_BOOST_EN_STATUS() && power5vIoStatus == PWR_SOURCE_NOT_PRESENT) //  Host is non powered
 		) {
 		return ResetHost();
 	} else {
@@ -154,7 +154,7 @@ int8_t ResetHost(void) {
 
 void PowerOnButtonEventCb(uint8_t b, ButtonEvent_T event) {
 	//if ( event == BUTTON_EVENT_SINGLE_PRESS ) {
-		if ( (!POW_5V_BOOST_EN_STATUS() && power5vIoStatus == POW_SOURCE_NOT_PRESENT)
+		if ( (!PWR_5V_BOOST_EN_STATUS() && power5vIoStatus == PWR_SOURCE_NOT_PRESENT)
 				|| (MS_TIME_COUNT(lastWakeupTimer) > 12000/*15000*/ && MS_TIME_COUNT(lastHostCommandTimer) > 11000)  ) {
 			if (ResetHost() == 0) {//if (ResetHost() == 0) {
 				wakeupOnCharge = 0xFFFF;
@@ -170,7 +170,7 @@ void PowerOnButtonEventCb(uint8_t b, ButtonEvent_T event) {
 void PowerOffButtonEventCb(uint8_t b, ButtonEvent_T event) {
 	//if ( event == BUTTON_EVENT_LONG_PRESS2 ) {
 		// cut power to rpi
-		if ( POW_5V_BOOST_EN_STATUS() && power5vIoStatus == POW_SOURCE_NOT_PRESENT ) {
+		if ( PWR_5V_BOOST_EN_STATUS() && power5vIoStatus == PWR_SOURCE_NOT_PRESENT ) {
 				Turn5vBoost(0);
 				powerOffBtnEventFlag = 1;
 		}
@@ -204,7 +204,7 @@ void PowerManagementTask(void) {
 				&& 	!delayedPowerOffCounter // deny wake-up during shutdown
 				&& 	!delayedTurnOnFlag
 				&& 	( (MS_TIME_COUNT(lastHostCommandTimer) > 15000 && MS_TIME_COUNT(lastWakeupTimer) > 30000)
-						//|| (!POW_5V_BOOST_EN_STATUS() && power5vIoStatus == POW_SOURCE_NOT_PRESENT) //  Host is non powered
+						//|| (!PWR_5V_BOOST_EN_STATUS() && power5vIoStatus == PWR_SOURCE_NOT_PRESENT) //  Host is non powered
 		   ) ) {
 
 			if ( ResetHost() == 0 ) { //if ( WakeUpHost() == 0 ) {
@@ -242,7 +242,7 @@ void PowerManagementTask(void) {
 	}
 
 	if ( delayedPowerOffCounter && delayedPowerOffCounter <= HAL_GetTick() ) {
-		if (POW_5V_BOOST_EN_STATUS() && (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT)) {
+		if (PWR_5V_BOOST_EN_STATUS() && (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_PRESENT)) {
 			Turn5vBoost(0);
 		}
 		delayedPowerOffCounter = 0;

@@ -23,6 +23,7 @@ void NvInit(void){
 void NvEreaseAllVariables(void) {
 	int32_t i;
 
+  // TODO - format EEPROM
 	for (i=NV_START_ID;i<NV_VAR_NUM;i++) {
 		EE_WriteVariable(i, 0xFFFF);
 	}

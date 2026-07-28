@@ -8,6 +8,7 @@
 #include <to_refactor/button.h>
 #include <to_refactor/time_count.h>
 #include "stm32f0xx_hal.h"
+#include "board.h"
 #include "nv.h"
 
 
@@ -258,11 +259,21 @@ void ButtonTask(void) {
 
 	uint8_t oldDualLongPressStatus = buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent;
 
-	ProcessButton(0, HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13)); // sw1
+	/*
+	 * TODO(hw): index 0 is SW1 for the host - command 0x110 maps straight to
+	 * ButtonSetConfiguarion(0, ...) - and buttons[0] carries the POWER_ON/POWER_OFF
+	 * defaults. But index 0 is read from SW2, and SW1, the only button actually
+	 * populated, lands on index 1 whose defaults are USER_EVENT only.
+	 *
+	 * So either the schematic labels are swapped relative to this mapping, or the
+	 * populated button genuinely cannot power the board on or off. Needs a hardware
+	 * check before touching - swapping the two lines below changes behaviour.
+	 */
+	ProcessButton(0, HAL_GPIO_ReadPin(BTN_SW2_PORT, BTN_SW2_PIN)); // host-facing sw1
 
-	ProcessButton(1, HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_12)); // sw2
+	ProcessButton(1, HAL_GPIO_ReadPin(BTN_SW1_PORT, BTN_SW1_PIN)); // host-facing sw2
 
-	ProcessButton(2, HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2));  // sw3
+	ProcessButton(2, HAL_GPIO_ReadPin(BTN_SW3_PORT, BTN_SW3_PIN));  // host-facing sw3
 
 	if ((buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent) > oldDualLongPressStatus) ButtonDualLongPressEventCb();
 
@@ -306,11 +317,11 @@ void ButtonSetConfiguarion(uint8_t b, uint8_t data[], uint8_t len) {
 	/*if ( buttonConfigData.func >= BUTTON_FUNC_NUMBER  ) return;
 	if ( buttonConfigData.func != BUTTON_FUNC_POWER_BUTTON && buttons[b].func == BUTTON_FUNC_POWER_BUTTON ) {
 		// ensure this will not override existing power button, if only one defined
-		int i, powBtnCnt = 0;
+		int i, pwrBtnCnt = 0;
 		for (i=0;i<3;i++) {
-			if (buttons[i].func == BUTTON_FUNC_POWER_BUTTON) powBtnCnt ++;
+			if (buttons[i].func == BUTTON_FUNC_POWER_BUTTON) pwrBtnCnt ++;
 		}
-		if (powBtnCnt<2) return;
+		if (pwrBtnCnt<2) return;
 	}*/
 	buttonConfigData.pressConfig = data[1];
 	buttonConfigData.releaseFunc = data[2];

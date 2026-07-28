@@ -14,11 +14,11 @@
 #include "stm32f0xx_hal.h"
 #include "nv.h"
 
-#define POW_5V_IO_DET_ADC_THRESHOLD		2950
+#define PWR_5V_IO_DET_ADC_THRESHOLD		2950
 #define VBAT_TURNOFF_ADC_THRESHOLD		0 // mV unit
-#define POW_5V_DET_LDO_EN_STATUS()		(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_11) == GPIO_PIN_SET)
-#define POW_SOURCE_PRESENT()			(powerInStatus==POW_SOURCE_NORMAL || powerInStatus==POW_SOURCE_WEAK || power5vIoStatus==POW_SOURCE_NORMAL || power5vIoStatus==POW_SOURCE_WEAK)
-#define POW_SOURCE_5VREG_IS_POWER_BAD() ((analog_GetHwRev() == HARD_REV_2_3_AND_ABOVE) && (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_RESET))
+#define PWR_5V_DET_LDO_EN_STATUS()		(HAL_GPIO_ReadPin(PWR_5V_LDO_EN_PORT, PWR_5V_LDO_EN_PIN) == GPIO_PIN_SET)
+#define PWR_SOURCE_PRESENT()			(powerInStatus==PWR_SOURCE_NORMAL || powerInStatus==PWR_SOURCE_WEAK || power5vIoStatus==PWR_SOURCE_NORMAL || power5vIoStatus==PWR_SOURCE_WEAK)
+#define PWR_SOURCE_5VREG_IS_PWR_BAD() ((analog_GetHwRev() == HARD_REV_2_3_AND_ABOVE) && (HAL_GPIO_ReadPin(PWR_5V_PG_PORT, PWR_5V_PG_PIN) == GPIO_PIN_RESET))
 
 
 uint8_t forcedPowerOffFlag __attribute__((section("no_init")));
@@ -27,53 +27,53 @@ uint8_t forcedVSysOutputOffFlag __attribute__((section("no_init")));
 extern uint8_t resetStatus;
 extern uint16_t wakeupOnCharge;
 
-uint8_t pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_UNKNOWN;
-static uint16_t vbatPowOffTresh;
+uint8_t pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_UNKNOWN;
+static uint16_t vbatPwrOffTresh;
 
 /*
- * Same cutoff as vbatPowOffTresh, pre-converted to raw ADC counts for the code paths that
+ * Same cutoff as vbatPwrOffTresh, pre-converted to raw ADC counts for the code paths that
  * compare an uncorrected GetSample() reading. VBAT_MV_TO_ADC lives in analog.h, next to the
  * divider constants it is built from.
  *
  * This used to live in analogWDGConfig.LowThreshold - the analog watchdog was configured
  * with it but its interrupt did nothing, so the threshold register doubled as storage.
  */
-static uint16_t vbatPowOffTreshAdc;
+static uint16_t vbatPwrOffTreshAdc;
 
-uint8_t pow5VChgLoadMaximumReached = 0;
-uint32_t pow5vPresentCounter;
+uint8_t pwr5VChgLoadMaximumReached = 0;
+uint32_t pwr5vPresentCounter;
 
 //static uint32_t delayedInitTimeCount;
 
-static uint32_t pow5vDetTimeCount;
+static uint32_t pwr5vDetTimeCount;
 
-uint32_t pow5vOnTimeout __attribute__((section("no_init")));
+uint32_t pwr5vOnTimeout __attribute__((section("no_init")));
 
 static uint32_t forcedPowerOffCounter __attribute__((section("no_init")));
 
 volatile uint8_t vsysSwitchLimit __attribute__((section("no_init")));
 
-PowerSourceStatus_T powerInStatus = POW_SOURCE_NOT_PRESENT;
-PowerSourceStatus_T power5vIoStatus = POW_SOURCE_NOT_PRESENT;
+PowerSourceStatus_T powerInStatus = PWR_SOURCE_NOT_PRESENT;
+PowerSourceStatus_T power5vIoStatus = PWR_SOURCE_NOT_PRESENT;
 
-PowerRegulatorConfig_T powerRegulatorConfig = POW_REGULATOR_MODE_POW_DET;
+PowerRegulatorConfig_T powerRegulatorConfig = PWR_REGULATOR_MODE_PWR_DET;
 
 // power ldo enable
-__STATIC_INLINE void POW_5V_DET_LDO_ENABLE(uint8_t enabled) {
-	if  (powerRegulatorConfig == POW_REGULATOR_MODE_DCDC) {
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_RESET);
-	} else if (powerRegulatorConfig == POW_REGULATOR_MODE_LDO) {
-		if (POW_5V_BOOST_EN_STATUS())
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_SET);
+__STATIC_INLINE void PWR_5V_DET_LDO_ENABLE(uint8_t enabled) {
+	if  (powerRegulatorConfig == PWR_REGULATOR_MODE_DCDC) {
+		HAL_GPIO_WritePin(PWR_5V_LDO_EN_PORT, PWR_5V_LDO_EN_PIN, GPIO_PIN_RESET);
+	} else if (powerRegulatorConfig == PWR_REGULATOR_MODE_LDO) {
+		if (PWR_5V_BOOST_EN_STATUS())
+			HAL_GPIO_WritePin(PWR_5V_LDO_EN_PORT, PWR_5V_LDO_EN_PIN, GPIO_PIN_SET);
 		else
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(PWR_5V_LDO_EN_PORT, PWR_5V_LDO_EN_PIN, GPIO_PIN_RESET);
 	} else {
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, enabled?GPIO_PIN_SET:GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(PWR_5V_LDO_EN_PORT, PWR_5V_LDO_EN_PIN, enabled?GPIO_PIN_SET:GPIO_PIN_RESET);
 	}
 }
 
 void Power5VSetModeLDO(void) {
-	POW_5V_DET_LDO_ENABLE(1);
+	PWR_5V_DET_LDO_ENABLE(1);
 }
 
 __STATIC_INLINE int Retry5VTurnOn() {
@@ -82,16 +82,16 @@ __STATIC_INLINE int Retry5VTurnOn() {
 		DelayUs(200);
 		// Check battery voltage
 		volatile int16_t batVolt = analog_GetVBatt();
-		if ( (!POW_SOURCE_PRESENT()) && batVolt < vbatPowOffTresh) {
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET);
+		if ( (!PWR_SOURCE_PRESENT()) && batVolt < vbatPwrOffTresh) {
+			HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_RESET);
 			forcedPowerOffFlag = 1;
 			return REGULATOR_5V_SWITCHING_STATUS_NO_ENERGY;
 		}
 	}
 
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_RESET);
 	DelayUs(5);
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_SET);
 
 	return REGULATOR_5V_SWITCHING_STATUS_SUCCESS;
 }
@@ -100,13 +100,13 @@ int8_t Turn5vBoost(uint8_t onOff) {
 	if (onOff) {
 
 	  // Already ENABLED:
-		if (POW_5V_BOOST_EN_STATUS()) return 0;
+		if (PWR_5V_BOOST_EN_STATUS()) return 0;
 
 		int status;
-		if ( batteryVoltage > vbatPowOffTresh || POW_SOURCE_PRESENT()/*chargerStatus != CHG_NO_VALID_SOURCE*/) {
-			POW_5V_DET_LDO_ENABLE(0);
+		if ( batteryVoltage > vbatPwrOffTresh || PWR_SOURCE_PRESENT()/*chargerStatus != CHG_NO_VALID_SOURCE*/) {
+			PWR_5V_DET_LDO_ENABLE(0);
 			DelayUs(5);
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_SET);
 
 			// Retry turn on in case of large capacitive load
 			status = Retry5VTurnOn();
@@ -114,16 +114,16 @@ int8_t Turn5vBoost(uint8_t onOff) {
 				status = Retry5VTurnOn();
 			}
 			if (status == REGULATOR_5V_SWITCHING_STATUS_SUCCESS) {
-				MS_TIME_COUNTER_INIT(pow5vOnTimeout);
+				MS_TIME_COUNTER_INIT(pwr5vOnTimeout);
 			}
 		} else {
 			status = REGULATOR_5V_SWITCHING_STATUS_NO_ENERGY;
 		}
 		return status;
 	} else {
-		POW_5V_DET_LDO_ENABLE(0);
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET);
-		MS_TIME_COUNTER_INIT(pow5vDetTimeCount);
+		PWR_5V_DET_LDO_ENABLE(0);
+		HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_RESET);
+		MS_TIME_COUNTER_INIT(pwr5vDetTimeCount);
 
 		return REGULATOR_5V_SWITCHING_STATUS_SUCCESS;
 	}
@@ -131,9 +131,9 @@ int8_t Turn5vBoost(uint8_t onOff) {
 
 __STATIC_INLINE void TurnVSysOutput(uint8_t onOff){
 	if (onOff){
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(PWR_VSYS_EN_PORT, PWR_VSYS_EN_PIN, GPIO_PIN_RESET);
 	} else {
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(PWR_VSYS_EN_PORT, PWR_VSYS_EN_PIN, GPIO_PIN_SET);
 	}
 }
 
@@ -144,56 +144,56 @@ void PowerSourceInit(void) {
 		forcedPowerOffFlag = 0;
 		forcedVSysOutputOffFlag = 0;
 		forcedPowerOffCounter = 0;
-		pow5vOnTimeout = (uint32_t)0-1;
+		pwr5vOnTimeout = (uint32_t)0-1;
 	}
 
-	MS_TIME_COUNTER_INIT(pow5vPresentCounter);
-	MS_TIME_COUNTER_INIT(pow5vDetTimeCount);
+	MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
+	MS_TIME_COUNTER_INIT(pwr5vDetTimeCount);
 
 	uint16_t var = 0;
 	EE_ReadVariable(POWER_REGULATOR_CONFIG_NV_ADDR, &var);
 	if (((~var)&0xFF) == (var>>8)) {
 		uint8_t temp = var&0xFF;
-		if (temp < POW_REGULATOR_MODE_END) {
+		if (temp < PWR_REGULATOR_MODE_END) {
 			powerRegulatorConfig = temp;
 		}
 	}
 
-	vbatPowOffTresh = currentBatProfile!=NULL ? (uint16_t)(currentBatProfile->cutoffVoltage)*20+VBAT_TURNOFF_ADC_THRESHOLD : (uint16_t)3000+VBAT_TURNOFF_ADC_THRESHOLD;
-	vbatPowOffTreshAdc = VBAT_MV_TO_ADC(vbatPowOffTresh);
+	vbatPwrOffTresh = currentBatProfile!=NULL ? (uint16_t)(currentBatProfile->cutoffVoltage)*20+VBAT_TURNOFF_ADC_THRESHOLD : (uint16_t)3000+VBAT_TURNOFF_ADC_THRESHOLD;
+	vbatPwrOffTreshAdc = VBAT_MV_TO_ADC(vbatPwrOffTresh);
 
 	DelayUs(100);
 	volatile uint16_t batVolt = analog_GetVBatt();
 
 	// maintain regulator state before reset
-	if ( HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == GPIO_PIN_SET ) {
+	if ( HAL_GPIO_ReadPin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN) == GPIO_PIN_SET ) {
 		// if there is mcu power-on, but reg was on, it can be power lost fault condition, check sources
-		if (executionState == EXECUTION_STATE_POWER_RESET && batVolt < vbatPowOffTresh && CHARGER_INSTAT()) {
+		if (executionState == EXECUTION_STATE_POWER_RESET && batVolt < vbatPwrOffTresh && CHARGER_INSTAT()) {
 			forcedPowerOffFlag = 1;
 			Turn5vBoost(0);
 			wakeupOnCharge = 5; // schedule wake up when there is enough energy
 		} else {
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);
-			MS_TIME_COUNTER_INIT(pow5vOnTimeout);
+			HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_SET);
+			MS_TIME_COUNTER_INIT(pwr5vOnTimeout);
 		}
 	} else {
-		POW_5V_DET_LDO_ENABLE(0);
+		PWR_5V_DET_LDO_ENABLE(0);
 		Turn5vBoost(0);
 	}
 
 	if ( executionState == EXECUTION_STATE_POWER_ON || executionState == EXECUTION_STATE_POWER_RESET ) {
 		// after power-up state is 500mA limit
-		HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(PWR_VSYS_ILIM_PORT, PWR_VSYS_ILIM_PIN, GPIO_PIN_SET);
 		vsysSwitchLimit = 5;
 	} else {
 		if (vsysSwitchLimit == 21 )
-			HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1,  GPIO_PIN_RESET); // 2.1A limit value, is valid only after reset
+			HAL_GPIO_WritePin(PWR_VSYS_ILIM_PORT, PWR_VSYS_ILIM_PIN,  GPIO_PIN_RESET); // 2.1A limit value, is valid only after reset
 		else
-			HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(PWR_VSYS_ILIM_PORT, PWR_VSYS_ILIM_PIN, GPIO_PIN_SET);
 	}
 
-	if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_12) == GPIO_PIN_RESET && executionState != EXECUTION_STATE_POWER_ON ) { // after power-up vsys switch should be disabled
-		if ( executionState == EXECUTION_STATE_POWER_RESET && batVolt < vbatPowOffTresh && CHARGER_INSTAT() ) {
+	if (HAL_GPIO_ReadPin(PWR_VSYS_EN_PORT, PWR_VSYS_EN_PIN) == GPIO_PIN_RESET && executionState != EXECUTION_STATE_POWER_ON ) { // after power-up vsys switch should be disabled
+		if ( executionState == EXECUTION_STATE_POWER_RESET && batVolt < vbatPwrOffTresh && CHARGER_INSTAT() ) {
 			TurnVSysOutput(0);
 			forcedVSysOutputOffFlag = 1;
 		} else {
@@ -204,18 +204,18 @@ void PowerSourceInit(void) {
 	}
 
 	GPIO_InitTypeDef GPIO_InitStruct;
-	GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_12;
+	GPIO_InitStruct.Pin = PWR_5V_BOOST_EN_PIN|PWR_VSYS_EN_PIN;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+	HAL_GPIO_Init(PWR_5V_BOOST_EN_PORT, &GPIO_InitStruct);
 
 }
 
 /*__STATIC_INLINE*/ void CheckMinimumPower(int16_t volt5) {
-	if ( POW_5V_BOOST_EN_STATUS() ) {
+	if ( PWR_5V_BOOST_EN_STATUS() ) {
 
-		if ((volt5 < 2000 && analog_GetAvdd() > 2500) || POW_SOURCE_5VREG_IS_POWER_BAD())
+		if ((volt5 < 2000 && analog_GetAvdd() > 2500) || PWR_SOURCE_5VREG_IS_PWR_BAD())
 		{
 			//5V DCDC is in fault overcurrent state, turn it off to prevent draining battery
 			forcedPowerOffFlag = 1;
@@ -225,13 +225,13 @@ void PowerSourceInit(void) {
 
 		uint16_t samt = analog_GetVBatt();
 		// if no sources connected, turn off 5V regulator and system switch when battery voltage drops below minimum
-		if ( samt < vbatPowOffTreshAdc && pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT && CHARGER_INSTAT()) {
-			if ( POW_VSYS_OUTPUT_EN_STATUS() ) {
+		if ( samt < vbatPwrOffTreshAdc && pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_PRESENT && CHARGER_INSTAT()) {
+			if ( PWR_VSYS_OUTPUT_EN_STATUS() ) {
 				TurnVSysOutput(0);
 				forcedVSysOutputOffFlag = 1;
 				MS_TIME_COUNTER_INIT(forcedPowerOffCounter); // leave 2 ms for switch to react
 			} else if ( MS_TIME_COUNT(forcedPowerOffCounter) >= 2) {
-				POW_5V_DET_LDO_ENABLE(0);
+				PWR_5V_DET_LDO_ENABLE(0);
 				forcedPowerOffFlag = 1;
 				Turn5vBoost(0);
 				wakeupOnCharge = 5; // schedule wake up when power is applied
@@ -239,7 +239,7 @@ void PowerSourceInit(void) {
 		}
 	} else {
 		int16_t batVolt = analog_GetVBatt();
-		if ( (!POW_SOURCE_PRESENT() /*chargerStatus == CHG_NO_VALID_SOURCE*/) && batVolt < vbatPowOffTresh && POW_VSYS_OUTPUT_EN_STATUS()) {
+		if ( (!PWR_SOURCE_PRESENT() /*chargerStatus == CHG_NO_VALID_SOURCE*/) && batVolt < vbatPwrOffTresh && PWR_VSYS_OUTPUT_EN_STATUS()) {
 			TurnVSysOutput(0);
 			forcedVSysOutputOffFlag = 1;
 		}
@@ -247,11 +247,11 @@ void PowerSourceInit(void) {
 }
 
 void PowerSource5vIoDetectionTask(void) {
-	if ( MS_TIME_COUNT(pow5vOnTimeout) < POW_5V_TURN_ON_TIMEOUT ) {
+	if ( MS_TIME_COUNT(pwr5vOnTimeout) < PWR_5V_TURN_ON_TIMEOUT ) {
 		volatile int16_t batVolt;
-		if ( (!POW_SOURCE_PRESENT()) && MS_TIME_COUNT(pow5vOnTimeout) > 0) {
+		if ( (!PWR_SOURCE_PRESENT()) && MS_TIME_COUNT(pwr5vOnTimeout) > 0) {
 			batVolt = analog_GetVBatt();
-			if (batVolt < vbatPowOffTresh) {
+			if (batVolt < vbatPwrOffTresh) {
 				forcedPowerOffFlag = 1;
 				Turn5vBoost(0);
 			}
@@ -266,33 +266,33 @@ void PowerSource5vIoDetectionTask(void) {
 
 	CheckMinimumPower(volt5);
 
-	if ( POW_5V_BOOST_EN_STATUS() ) {
+	if ( PWR_5V_BOOST_EN_STATUS() ) {
 
-		if (POW_5V_DET_LDO_EN_STATUS()) {
-			uint16_t samp = analog_GetRawPOW();
-			if ( samp < POW_5V_IO_DET_ADC_THRESHOLD) {
-				if (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
-					MS_TIME_COUNTER_INIT(pow5vPresentCounter);
+		if (PWR_5V_DET_LDO_EN_STATUS()) {
+			uint16_t samp = analog_GetRawPWR();
+			if ( samp < PWR_5V_IO_DET_ADC_THRESHOLD) {
+				if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
+					MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 					ChargerUsbInCurrentLimitStepDown();
 				}
-				pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_NOT_PRESENT;
-				if (pow5VChgLoadMaximumReached > 1) pow5VChgLoadMaximumReached --;
+				pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT;
+				if (pwr5VChgLoadMaximumReached > 1) pwr5VChgLoadMaximumReached --;
 				ChargerSetUSBLockout(CHG_USB_IN_LOCK);
-				POW_5V_DET_LDO_ENABLE(0);
+				PWR_5V_DET_LDO_ENABLE(0);
 			}
-		} else if (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
-			pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_UNKNOWN;
-			if (pow5VChgLoadMaximumReached > 1) pow5VChgLoadMaximumReached --;
+		} else if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
+			pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_UNKNOWN;
+			if (pwr5VChgLoadMaximumReached > 1) pwr5VChgLoadMaximumReached --;
 			ChargerSetUSBLockout(CHG_USB_IN_LOCK);
 			ChargerUsbInCurrentLimitStepDown();
-			MS_TIME_COUNTER_INIT(pow5vPresentCounter);
+			MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 		}
 
-		if ( pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT && MS_TIME_COUNT(pow5vDetTimeCount) > 95 ) {
-			MS_TIME_COUNTER_INIT(pow5vDetTimeCount);
+		if ( pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_PRESENT && MS_TIME_COUNT(pwr5vDetTimeCount) > 95 ) {
+			MS_TIME_COUNTER_INIT(pwr5vDetTimeCount);
 
-			if (!POW_5V_DET_LDO_EN_STATUS()) {
-				POW_5V_DET_LDO_ENABLE(1);
+			if (!PWR_5V_DET_LDO_EN_STATUS()) {
+				PWR_5V_DET_LDO_ENABLE(1);
 				//Delay(100);
 			}
 
@@ -302,62 +302,62 @@ void PowerSource5vIoDetectionTask(void) {
 			volatile uint32_t sam = 0;
 			while ( i-- && fetActiveCount < 3) {
 				DelayUs(120);//HAL_Delay(2);//
-			    sam = analog_GetRawPOW();
-			    if (sam >= POW_5V_IO_DET_ADC_THRESHOLD) fetCutoffCount ++;
+			    sam = analog_GetRawPWR();
+			    if (sam >= PWR_5V_IO_DET_ADC_THRESHOLD) fetCutoffCount ++;
 			    else fetCutoffCount = 0;
-			    if (sam < POW_5V_IO_DET_ADC_THRESHOLD)	{
+			    if (sam < PWR_5V_IO_DET_ADC_THRESHOLD)	{
 			    	fetActiveCount ++;
 			    }
 			    else fetActiveCount = 0;
 			    CheckMinimumPower(volt5);
 			    //activeSamples[i] = sam;
 			}
-			if ( fetCutoffCount >= 200 ) {//if ( sam >= POW_5V_IO_DET_ADC_THRESHOLD ) {
+			if ( fetCutoffCount >= 200 ) {//if ( sam >= PWR_5V_IO_DET_ADC_THRESHOLD ) {
 				// turn on usb in if pmos is cutoff
-				pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_PRESENT;
+				pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_PRESENT;
 				ChargerSetUSBLockout(CHG_USB_IN_UNLOCK);
-				//pow5vIoLoadCurrent = 0;
-				MS_TIME_COUNTER_INIT(pow5vPresentCounter);
+				//pwr5vIoLoadCurrent = 0;
+				MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 			} else {
 				if (fetActiveCount >= 3) {
-					pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_NOT_PRESENT;
+					pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT;
 				}
-				POW_5V_DET_LDO_ENABLE(0);
+				PWR_5V_DET_LDO_ENABLE(0);
 			}
 		} /*else {
-			pow5vIoLoadCurrent = 0;
+			pwr5vIoLoadCurrent = 0;
 		}*/
 	} else {
 		if (volt5 < 4800) {
-			if (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
-				MS_TIME_COUNTER_INIT(pow5vPresentCounter);
+			if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
+				MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 				ChargerUsbInCurrentLimitStepDown();
 			}
-			pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_NOT_PRESENT;
+			pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT;
 			ChargerSetUSBLockout(CHG_USB_IN_LOCK);
-			if (pow5VChgLoadMaximumReached > 1) pow5VChgLoadMaximumReached --;
-		} else if (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT && MS_TIME_COUNT(pow5vDetTimeCount) > 500) {
-		  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);
-			POW_5V_DET_LDO_ENABLE(1);
-			pow5vInDetStatus = POW_5V_IN_DETECTION_STATUS_PRESENT;
+			if (pwr5VChgLoadMaximumReached > 1) pwr5VChgLoadMaximumReached --;
+		} else if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_PRESENT && MS_TIME_COUNT(pwr5vDetTimeCount) > 500) {
+		  HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_SET);
+			PWR_5V_DET_LDO_ENABLE(1);
+			pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_PRESENT;
 			ChargerSetUSBLockout(CHG_USB_IN_UNLOCK); // turn on charger in
-			MS_TIME_COUNTER_INIT(pow5vPresentCounter);
+			MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 			//wakeupOnCharge = 0xFFFF;
 		}
 	}
 
-	if ( MS_TIME_COUNT(pow5vPresentCounter) > 800 ) {
-		MS_TIME_COUNTER_INIT(pow5vPresentCounter);
-		if (pow5vInDetStatus == POW_5V_IN_DETECTION_STATUS_PRESENT ) {
-			if (pow5VChgLoadMaximumReached > 1) {
+	if ( MS_TIME_COUNT(pwr5vPresentCounter) > 800 ) {
+		MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
+		if (pwr5vInDetStatus == PWR_5V_IN_DETECTION_STATUS_PRESENT ) {
+			if (pwr5VChgLoadMaximumReached > 1) {
 				ChargerUsbInCurrentLimitStepUp();
-				pow5VChgLoadMaximumReached = 2;
-			} else if (pow5VChgLoadMaximumReached == 0) {
-				pow5VChgLoadMaximumReached = 3;
+				pwr5VChgLoadMaximumReached = 2;
+			} else if (pwr5VChgLoadMaximumReached == 0) {
+				pwr5VChgLoadMaximumReached = 3;
 			}
-		} else if (pow5vInDetStatus == POW_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
+		} else if (pwr5vInDetStatus == PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
 			// this means input is disconnected, and flag can be cleared
-			pow5VChgLoadMaximumReached = 0;
+			pwr5VChgLoadMaximumReached = 0;
 			ChargerUsbInCurrentLimitSetMin();
 		}
 	}
@@ -365,49 +365,49 @@ void PowerSource5vIoDetectionTask(void) {
 
 void PowerSourceTask(void) {
 
-	uint8_t powstat = CHARGER_INSTAT();
-	if (powstat == 0x03) {
-		powerInStatus = POW_SOURCE_NOT_PRESENT;
-	} else if (powstat == 0x01 || powstat == 0x02) {
-		powerInStatus = POW_SOURCE_BAD;
+	uint8_t pwrStat = CHARGER_INSTAT();
+	if (pwrStat == 0x03) {
+		powerInStatus = PWR_SOURCE_NOT_PRESENT;
+	} else if (pwrStat == 0x01 || pwrStat == 0x02) {
+		powerInStatus = PWR_SOURCE_BAD;
 	} else if (CHARGER_IS_DPM_MODE_ACTIVE()) {
-		powerInStatus = POW_SOURCE_WEAK;
+		powerInStatus = PWR_SOURCE_WEAK;
 	} else {
-		powerInStatus = POW_SOURCE_NORMAL;
+		powerInStatus = PWR_SOURCE_NORMAL;
 	}
 
 	if (usbInLockoutStatus == CHG_USB_IN_UNLOCK) {
-		powstat = CHARGER_USBSTAT();
-		if (/*!CHARGER_IS_USBIN_LOCKED() ||*/ powstat == 0x03) {
-			power5vIoStatus = POW_SOURCE_NOT_PRESENT;
-		} else if ( powstat == 0x01 || powstat == 0x02) {
-			power5vIoStatus = POW_SOURCE_BAD;
-		} else if (/*CHARGER_IS_DPM_MODE_ACTIVE() &&*/ pow5VChgLoadMaximumReached == 1 ) {
-			power5vIoStatus = POW_SOURCE_WEAK;
+		pwrStat = CHARGER_USBSTAT();
+		if (/*!CHARGER_IS_USBIN_LOCKED() ||*/ pwrStat == 0x03) {
+			power5vIoStatus = PWR_SOURCE_NOT_PRESENT;
+		} else if ( pwrStat == 0x01 || pwrStat == 0x02) {
+			power5vIoStatus = PWR_SOURCE_BAD;
+		} else if (/*CHARGER_IS_DPM_MODE_ACTIVE() &&*/ pwr5VChgLoadMaximumReached == 1 ) {
+			power5vIoStatus = PWR_SOURCE_WEAK;
 		} else {
-			power5vIoStatus = POW_SOURCE_NORMAL;
+			power5vIoStatus = PWR_SOURCE_NORMAL;
 		}
-	} else if (pow5vInDetStatus != POW_5V_IN_DETECTION_STATUS_PRESENT) {
-		power5vIoStatus = POW_SOURCE_NOT_PRESENT;
+	} else if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_PRESENT) {
+		power5vIoStatus = PWR_SOURCE_NOT_PRESENT;
 	} else {
-		power5vIoStatus = POW_SOURCE_NORMAL;
+		power5vIoStatus = PWR_SOURCE_NORMAL;
 	}
 }
 
 void PowerSourceSetBatProfile(const BatteryProfile_T* batProfile) {
-	vbatPowOffTresh =currentBatProfile!=NULL ? (uint16_t)(currentBatProfile->cutoffVoltage)*20+VBAT_TURNOFF_ADC_THRESHOLD : (uint16_t)3000+VBAT_TURNOFF_ADC_THRESHOLD;
-	vbatPowOffTreshAdc = VBAT_MV_TO_ADC(vbatPowOffTresh);
+	vbatPwrOffTresh =currentBatProfile!=NULL ? (uint16_t)(currentBatProfile->cutoffVoltage)*20+VBAT_TURNOFF_ADC_THRESHOLD : (uint16_t)3000+VBAT_TURNOFF_ADC_THRESHOLD;
+	vbatPwrOffTreshAdc = VBAT_MV_TO_ADC(vbatPwrOffTresh);
 }
 
 void PowerSourceSetVSysSwitchState(uint8_t state) {
 	if (state == 5) {
-		HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, GPIO_PIN_SET);
-    if (analog_GetRawBatt() > vbatPowOffTreshAdc || POW_SOURCE_PRESENT())
+		HAL_GPIO_WritePin(PWR_VSYS_ILIM_PORT, PWR_VSYS_ILIM_PIN, GPIO_PIN_SET);
+    if (analog_GetRawBatt() > vbatPwrOffTreshAdc || PWR_SOURCE_PRESENT())
 			TurnVSysOutput(1);
 		vsysSwitchLimit = state;
 	} else if (state == 21) {
-		HAL_GPIO_WritePin(GPIOF, GPIO_PIN_1, GPIO_PIN_RESET);
-		if (analog_GetRawBatt() > vbatPowOffTreshAdc || POW_SOURCE_PRESENT())
+		HAL_GPIO_WritePin(PWR_VSYS_ILIM_PORT, PWR_VSYS_ILIM_PIN, GPIO_PIN_RESET);
+		if (analog_GetRawBatt() > vbatPwrOffTreshAdc || PWR_SOURCE_PRESENT())
 			TurnVSysOutput(1);
 		vsysSwitchLimit = state;
 	} else {
@@ -417,9 +417,9 @@ void PowerSourceSetVSysSwitchState(uint8_t state) {
 }
 
 uint8_t PowerSourceGetVSysSwitchState() {
-	if (POW_VSYS_OUTPUT_EN_STATUS()) {
+	if (PWR_VSYS_OUTPUT_EN_STATUS()) {
 		return vsysSwitchLimit;
-		/*if (HAL_GPIO_ReadPin(GPIOF, GPIO_PIN_1) == GPIO_PIN_SET) {
+		/*if (HAL_GPIO_ReadPin(PWR_VSYS_ILIM_PORT, PWR_VSYS_ILIM_PIN) == GPIO_PIN_SET) {
 			return 5;
 		} else {
 			return 21;
@@ -430,14 +430,14 @@ uint8_t PowerSourceGetVSysSwitchState() {
 }
 
 void SetPowerRegulatorConfigCmd(uint8_t data[], uint8_t len) {
-	if (data[0] >= POW_REGULATOR_MODE_END) return;
+	if (data[0] >= PWR_REGULATOR_MODE_END) return;
 	uint16_t var = 0;
 	EE_WriteVariable(POWER_REGULATOR_CONFIG_NV_ADDR, data[0] | ((uint16_t)(~data[0])<<8));
 
 	EE_ReadVariable(POWER_REGULATOR_CONFIG_NV_ADDR, &var);
 	if (((~var)&0xFF) == (var>>8)) {
 		uint8_t temp = var&0xFF;
-		if (temp < POW_REGULATOR_MODE_END) {
+		if (temp < PWR_REGULATOR_MODE_END) {
 			powerRegulatorConfig = temp;
 		}
 	}

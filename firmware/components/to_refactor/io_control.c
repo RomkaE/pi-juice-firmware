@@ -9,11 +9,13 @@
 #include "stm32f0xx_hal.h"
 #include "nv.h"
 #include "main.h"
+#include "board.h"
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim14;
 TIM_HandleTypeDef *htim;
 static GPIO_InitTypeDef gpioInitStruct;
+static GPIO_TypeDef *ioPort;   // port of the IO selected by the last pin dispatch
 TIM_OC_InitTypeDef sConfigOC;
 
 uint8_t ioConfig[2] __attribute__((section("no_init")));
@@ -142,12 +144,14 @@ void MX_TIM14_Init(void)
 
 void IoConfigure(uint8_t pin) {
 	if (pin == 1) {
-		gpioInitStruct.Pin = GPIO_PIN_7;
-		gpioInitStruct.Alternate = GPIO_AF4_TIM14;
+		gpioInitStruct.Pin = EXT_IO1_PIN;
+		gpioInitStruct.Alternate = EXT_IO1_GPIO_AF;
+		ioPort = EXT_IO1_PORT;
 		htim = &htim14;
 	} else if (pin == 2) {
-		gpioInitStruct.Pin = GPIO_PIN_8;
-		gpioInitStruct.Alternate = GPIO_AF2_TIM1;
+		gpioInitStruct.Pin = EXT_IO2_PIN;
+		gpioInitStruct.Alternate = EXT_IO2_GPIO_AF;
+		ioPort = EXT_IO2_PORT;
 		htim = &htim1;
 	} else {
 		return;
@@ -170,7 +174,7 @@ void IoConfigure(uint8_t pin) {
 		 */
 		//HAL_TIM_PWM_Stop(htim, TIM_CHANNEL_1);
 		gpioInitStruct.Mode = GPIO_MODE_ANALOG;
-	    HAL_GPIO_Init(GPIOA, &gpioInitStruct);
+	    HAL_GPIO_Init(ioPort, &gpioInitStruct);
 	    break;
 	case 2:
 		// digital input
@@ -182,22 +186,22 @@ void IoConfigure(uint8_t pin) {
 		} else {
 			gpioInitStruct.Mode = GPIO_MODE_INPUT;
 		}
-		HAL_GPIO_Init(GPIOA, &gpioInitStruct);
+		HAL_GPIO_Init(ioPort, &gpioInitStruct);
 		break;
 	case 3:
 		// digital output, push-pull
 		//HAL_TIM_PWM_Stop(htim, TIM_CHANNEL_1);
 		gpioInitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 		gpioInitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-		HAL_GPIO_WritePin(GPIOA, gpioInitStruct.Pin, ioParam1[pin-1]&0x01 ? GPIO_PIN_SET : GPIO_PIN_RESET);
-		HAL_GPIO_Init(GPIOA, &gpioInitStruct);
+		HAL_GPIO_WritePin(ioPort, gpioInitStruct.Pin, ioParam1[pin-1]&0x01 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+		HAL_GPIO_Init(ioPort, &gpioInitStruct);
 		break;
 	case 4:
 		// digital output, open drain
 		gpioInitStruct.Mode = GPIO_MODE_OUTPUT_OD;
 		gpioInitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-		HAL_GPIO_WritePin(GPIOA, gpioInitStruct.Pin, ioParam1[pin-1]&0x01 ? GPIO_PIN_SET : GPIO_PIN_RESET);
-		HAL_GPIO_Init(GPIOA, &gpioInitStruct);
+		HAL_GPIO_WritePin(ioPort, gpioInitStruct.Pin, ioParam1[pin-1]&0x01 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+		HAL_GPIO_Init(ioPort, &gpioInitStruct);
 		break;
 	case 5:
 		// pus = arr*psc/8, arr = 65535, pus = 8192*psc, psc = pus/8192, arr = pus*8/psc
@@ -210,10 +214,10 @@ void IoConfigure(uint8_t pin) {
 		gpioInitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
 		// push-pull
 		gpioInitStruct.Mode = GPIO_MODE_AF_PP;
-		HAL_GPIO_Init(GPIOA, &gpioInitStruct);
-		//gpioInitStruct.Pin = GPIO_PIN_7;
-		//gpioInitStruct.Alternate = GPIO_AF2_TIM1;
-		//HAL_GPIO_Init(GPIOA, &gpioInitStruct);
+		HAL_GPIO_Init(ioPort, &gpioInitStruct);
+		//gpioInitStruct.Pin = EXT_IO1_PIN;
+		//gpioInitStruct.Alternate = EXT_IO2_GPIO_AF;
+		//HAL_GPIO_Init(ioPort, &gpioInitStruct);
 		HAL_TIM_PWM_Start(htim, TIM_CHANNEL_1); // Start channel 1
 		//HAL_TIMEx_PWMN_Start(htim, TIM_CHANNEL_1);
 		break;
@@ -227,16 +231,16 @@ void IoConfigure(uint8_t pin) {
 		gpioInitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
 		// push-pull
 		gpioInitStruct.Mode = GPIO_MODE_AF_OD;
-		HAL_GPIO_Init(GPIOA, &gpioInitStruct);
-		//gpioInitStruct.Pin = GPIO_PIN_7;
-		//gpioInitStruct.Alternate = GPIO_AF2_TIM1;
-		//HAL_GPIO_Init(GPIOA, &gpioInitStruct);
+		HAL_GPIO_Init(ioPort, &gpioInitStruct);
+		//gpioInitStruct.Pin = EXT_IO1_PIN;
+		//gpioInitStruct.Alternate = EXT_IO2_GPIO_AF;
+		//HAL_GPIO_Init(ioPort, &gpioInitStruct);
 		HAL_TIM_PWM_Start(htim, TIM_CHANNEL_1); // Start channel 1
 		break;
 	default:
 		//HAL_TIM_PWM_Stop(htim, TIM_CHANNEL_1);
 		gpioInitStruct.Mode = GPIO_MODE_ANALOG;
-	    HAL_GPIO_Init(GPIOA, &gpioInitStruct);
+	    HAL_GPIO_Init(ioPort, &gpioInitStruct);
 	}
 }
 
@@ -296,10 +300,12 @@ void IoWrite(uint8_t pin, uint8_t data[], uint8_t len)
 {
 	uint16_t val;
 	if (pin == 1) {
-		gpioInitStruct.Pin = GPIO_PIN_7;
+		gpioInitStruct.Pin = EXT_IO1_PIN;
+		ioPort = EXT_IO1_PORT;
 		htim = &htim14;
 	} else if (pin == 2) {
-		gpioInitStruct.Pin = GPIO_PIN_8;
+		gpioInitStruct.Pin = EXT_IO2_PIN;
+		ioPort = EXT_IO2_PORT;
 		htim = &htim1;
 	} else {
 		return;
@@ -307,7 +313,7 @@ void IoWrite(uint8_t pin, uint8_t data[], uint8_t len)
 
 	switch (ioConfig[pin-1]&0x0F) {
 	case 3: case 4:
-		HAL_GPIO_WritePin(GPIOA, gpioInitStruct.Pin, data[1]&0x01 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(ioPort, gpioInitStruct.Pin, data[1]&0x01 ? GPIO_PIN_SET : GPIO_PIN_RESET);
 		break;
 	case 5: case 6:
 		val = data[1];
@@ -323,10 +329,12 @@ void IoWrite(uint8_t pin, uint8_t data[], uint8_t len)
 void IoRead(uint8_t pin, uint8_t data[], uint16_t *len)
 {
 	if (pin == 1) {
-		gpioInitStruct.Pin = GPIO_PIN_7;
+		gpioInitStruct.Pin = EXT_IO1_PIN;
+		ioPort = EXT_IO1_PORT;
 		htim = &htim14;
 	} else if (pin == 2) {
-		gpioInitStruct.Pin = GPIO_PIN_8;
+		gpioInitStruct.Pin = EXT_IO2_PIN;
+		ioPort = EXT_IO2_PORT;
 		htim = &htim1;
 	} else {
 		return;
@@ -342,11 +350,11 @@ void IoRead(uint8_t pin, uint8_t data[], uint16_t *len)
 			data[1] = 0;
 			break;
 		case 2:
-			data[0] = HAL_GPIO_ReadPin(GPIOA, gpioInitStruct.Pin);
+			data[0] = HAL_GPIO_ReadPin(ioPort, gpioInitStruct.Pin);
 			break;
 		case 3: case 4:
-			data[0] = HAL_GPIO_ReadPin(GPIOA, gpioInitStruct.Pin);
-			data[1] = (GPIOA->ODR & (uint32_t)gpioInitStruct.Pin) == (uint32_t)gpioInitStruct.Pin;
+			data[0] = HAL_GPIO_ReadPin(ioPort, gpioInitStruct.Pin);
+			data[1] = (ioPort->ODR & (uint32_t)gpioInitStruct.Pin) == (uint32_t)gpioInitStruct.Pin;
 			break;
 		case 5: case 6:
 			//val = htim->Instance->CCR1 == 65535 ? 65535 : (uint32_t)htim->Instance->CCR1 * 65535 / htim->Instance->ARR;

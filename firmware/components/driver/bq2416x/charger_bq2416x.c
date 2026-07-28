@@ -5,6 +5,7 @@
 #include <to_refactor/time_count.h>
 #include "charger_bq2416x.h"
 #include "stm32f0xx_hal.h"
+#include "board.h"
 #include "driver/i2c/i2c_master.h"
 #include "nv.h"
 #include "eeprom.h"
@@ -329,7 +330,7 @@ int8_t ChargerUpdateControlStatus() {
 int8_t ChargerUpdateUSBInLockout() {
 
 	regsw[1] = noBatteryOperationEnabled != 0;
-	if ( usbInEnabled && pow5vInDetStatus == POW_5V_IN_DETECTION_STATUS_PRESENT && (regs[1] & 0x06) == 0x00 ) {
+	if ( usbInEnabled && pwr5vInDetStatus == PWR_5V_IN_DETECTION_STATUS_PRESENT && (regs[1] & 0x06) == 0x00 ) {
 		regsw[1] &= ~BQ2416X_OTG_LOCK_BIT;
 	} else {
 		regsw[1] |= BQ2416X_OTG_LOCK_BIT;
@@ -553,20 +554,20 @@ void ChargerTask(void) {
 void ChargerTriggerNTCMonitor(NTC_MonitorTemperature_T temp) {
 	switch (temp) {
 	case COLD:
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(CHG_NTC_CTRL1_PORT, CHG_NTC_CTRL1_PIN, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(CHG_NTC_CTRL2_PORT, CHG_NTC_CTRL2_PIN, GPIO_PIN_SET);
 		break;
 	case COOL:
 		break;
 	case WARM:
 		break;
 	case HOT:
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(CHG_NTC_CTRL1_PORT, CHG_NTC_CTRL1_PIN, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(CHG_NTC_CTRL2_PORT, CHG_NTC_CTRL2_PIN, GPIO_PIN_RESET);
 		break;
 	case NORMAL: default:
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(CHG_NTC_CTRL1_PORT, CHG_NTC_CTRL1_PIN, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(CHG_NTC_CTRL2_PORT, CHG_NTC_CTRL2_PIN, GPIO_PIN_RESET);
 		break;
 	}
 }

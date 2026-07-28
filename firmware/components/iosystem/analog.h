@@ -65,7 +65,7 @@ uint16_t analog_GetVBattAvg(void);
 
 uint16_t analog_Get5vPi(void);
 
-uint16_t analog_GetRawPOW(void);
+uint16_t analog_GetRawPWR(void);
 
 uint32_t analog_GetErrMask(bool _clear);
 

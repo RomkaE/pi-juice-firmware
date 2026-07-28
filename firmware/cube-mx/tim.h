@@ -39,8 +39,6 @@ void MX_TIM3_Init(void);
 
 void MX_TIM15_Init(void);
 
-void MX_TIM17_Init(void);
-
 /* USER CODE BEGIN Prototypes */
 
 /* USER CODE END Prototypes */
