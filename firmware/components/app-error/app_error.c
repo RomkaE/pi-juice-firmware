@@ -1,3 +1,9 @@
+/*
+ * app_error.c
+ *
+ *  Created on:
+ *      Author: Roman Egoshin
+ */
 
 /*============================ INCLUDES ======================================*/
 

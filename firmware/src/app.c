@@ -47,9 +47,13 @@
 #include "charger_bq2416x.h"
 #include "led.h"
 
+#include "app-error/app_assert.h"
+
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
 #include "cube-mx/i2c.h"
+#include "driver/i2c/i2c_slave.h"
+#include "driver/i2c/i2c_master.h"
 #include "cube-mx/iwdg.h"
 #include "cube-mx/tim.h"
 #include "cube-mx/rtc.h"
@@ -148,7 +152,7 @@ static void main_init(void)
 	 * through to the cold-boot path and every retained value is re-read from NV.
 	 */
 	if (!RetainedMemoryCheck()) {
-		executionState = 0;
+		executionState = EXECUTION_STATE_POWER_ON;
 	}
 
 	if (executionState != EXECUTION_STATE_NORMAL && executionState != EXECUTION_STATE_UPDATE && executionState != EXECUTION_STATE_CONFIG_RESET) {
@@ -179,9 +183,7 @@ static void main_init(void)
 		executionState = EXECUTION_STATE_POWER_ON;
 	}
 
-	// TOD:
-	MX_I2C1_Init();
-	MX_I2C2_Init();
+	// TODO:
 	MX_RTC_Init();
 	MX_TIM3_Init();
 	MX_TIM17_Init();
@@ -201,18 +203,12 @@ static void main_init(void)
 	// TODO - move to bsp/drivers
 	MX_IWDG_Init();
 
-	BatteryInit();
-	if (executionState == EXECUTION_STATE_POWER_ON) {
-		HAL_Delay(100);  // after power-on, charger and fuel gauge requires initialization time
-		FuelGaugeIcPreInit();
-	}
-	ChargerInit();
 	PowerSourceInit();
 	FuelGaugeInit();
 	PowerManagementInit();
 	LedInit();
 	ButtonInit();
-	RtcInit();
+
 	IoControlInit();
 
 	NvSetDataInitialized();
@@ -237,7 +233,23 @@ static void main_init(void)
 
 	state = STATE_NORMAL;
 
-	HAL_I2C_EnableListen_IT(&hi2c1);
+	// I2C master and 2 devices init:
+  {
+    i2c_master_Init();
+    BatteryInit();
+    // TODO - WTF?
+    if (executionState == EXECUTION_STATE_POWER_ON) {
+      HAL_Delay(100);  // after power-on, charger and fuel gauge requires initialization time
+      FuelGaugeIcPreInit();
+    }
+    ChargerInit();
+  }
+
+  // I2C slave and device init:
+  {
+    i2c_slave_Init();
+    RtcInit();
+  }
 
 	executionState = EXECUTION_STATE_NORMAL; // after initialization indicate it for future wd resets
 
@@ -248,7 +260,7 @@ static void main_poll(void)
   // Do not disturb i2c transfer if this is i2c interrupt wakeup
   if ( MS_TIME_COUNT(mainPollMsCounter) >= TICK_PERIOD_MS || NEED_EVENT_POLL())
   {
-     PowerSource5vIoDetectionTask();
+    PowerSource5vIoDetectionTask();
     ChargerTask();
     FuelGaugeTask();
     BatteryTask();
@@ -268,21 +280,6 @@ static void main_poll(void)
     ButtonTask();
     PowerManagementTask();
     //}
-    if ((hi2c2.ErrorCode
-        & (HAL_I2C_ERROR_TIMEOUT | HAL_I2C_ERROR_BERR | HAL_I2C_ERROR_ARLO))
-        || hi2c2.State != HAL_I2C_STATE_READY || hi2c2.XferCount)
-    {
-      HAL_I2C_DeInit(&hi2c2);
-      MX_I2C2_Init();
-      chargerI2cErrorCounter = 1;
-    }
-    if (chargerI2cErrorCounter > 10)
-    {
-      HAL_I2C_DeInit(&hi2c2);
-      MX_I2C2_Init();
-      chargerI2cErrorCounter = 1;
-    }
-
     if (NEED_EVENT_POLL())
     {
       state = STATE_RUN;

@@ -391,7 +391,6 @@
 #if configGENERATE_RUN_TIME_STATS
 #define configCLEAR_RUN_TIME_STATS              1
 #define configRUN_TIME_COUNTER_TYPE             uint32_t
-#include "bsp_rtmon.h"
 extern void bsp_rtmon_InitRunTimer(void);
 extern configRUN_TIME_COUNTER_TYPE                bsp_rtmon_GetRunTimer(void);
 #define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()  bsp_rtmon_InitRunTimer()
@@ -428,13 +427,8 @@ extern configRUN_TIME_COUNTER_TYPE                bsp_rtmon_GetRunTimer(void);
  * execution on the failing line for viewing in a debugger. */
 
 /* *INDENT-OFF* */
-#define configASSERT( x )         \
-    if( ( x ) == 0 )              \
-    {                             \
-        taskDISABLE_INTERRUPTS(); \
-        for( ; ; )                \
-        ;                         \
-    }
+#include "app-error/app_assert.h"
+#define configASSERT( x )           ASSERT(x)
 /* *INDENT-ON* */
 
 /******************************************************************************/

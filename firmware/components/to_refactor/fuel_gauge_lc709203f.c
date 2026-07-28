@@ -12,6 +12,7 @@
 #include <to_refactor/power_source.h>
 #include <to_refactor/time_count.h>
 #include "stm32f0xx_hal.h"
+#include "driver/i2c/i2c_master.h"
 #include "charger_bq2416x.h"
 #include "nv.h"
 
@@ -81,10 +82,12 @@ int32_t soc __attribute__((section("no_init")));
 int8_t FuelGaugeReadWord(uint8_t cmd, uint16_t *word) {
 	uint8_t readData[10] = {0x16, cmd, 0x17, 0, 0, 0};
 
-	HAL_StatusTypeDef succ = HAL_I2C_Mem_Read(&hi2c2, 0x16, cmd, 1, readData+3, 3, 1);
-	if (succ != HAL_OK ) {
+	int rc = i2c_master_ReadMem(0x16, cmd, readData+3, 3);
+	if (rc != I2C_OK) {
 		FG_COUNT_SATURATING(fuelGaugeHalErrorCount);
-		return (int8_t)succ;
+		/* Positive = transport error (device absent / bus). SocEvaluate uses
+		 * the sign to tell this from a CRC mismatch (-1, device present). */
+		return 1;
 	}
 	/*HAL_Delay(2);
 	HAL_I2C_Mem_Read_IT(&hi2c2, 0x16, cmd, 1, readData+3, 3);
@@ -104,9 +107,9 @@ int8_t FuelGaugeWriteWord(uint8_t cmd, uint16_t word) {
 	uint8_t writeData[5] = {0x16, cmd, word, word>>8, 0};
 	writeData[4] = Crc8Block(0, writeData, 4);
 	//HAL_Delay(2);
-	HAL_StatusTypeDef succ = HAL_I2C_Mem_Write(&hi2c2, 0x16, cmd, 1, (uint8_t*)&writeData[2], 3, 1);
-	if (succ != HAL_OK) FG_COUNT_SATURATING(fuelGaugeHalErrorCount);
-	return (int8_t)succ;
+	int rc = i2c_master_WriteMem(0x16, cmd, (uint8_t*)&writeData[2], 3);
+	if (rc != I2C_OK) FG_COUNT_SATURATING(fuelGaugeHalErrorCount);
+	return (rc == I2C_OK) ? 0 : 1;
 	//if ( succ != 0 ) return 1;
 	//uint32_t timeout = HAL_GetTick() + 2;
 	//while (HAL_I2C_GetState(&hi2c2) != HAL_I2C_STATE_READY && timeout > HAL_GetTick());

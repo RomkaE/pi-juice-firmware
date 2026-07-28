@@ -5,6 +5,7 @@
 #include <to_refactor/time_count.h>
 #include "charger_bq2416x.h"
 #include "stm32f0xx_hal.h"
+#include "driver/i2c/i2c_master.h"
 #include "nv.h"
 #include "eeprom.h"
 #include "stddef.h"
@@ -76,11 +77,11 @@ HAL_StatusTypeDef ChargerRegRead( uint8_t regAddress ) {
 	HAL_StatusTypeDef rStatus;
 	uint8_t regVal1, regVal2;
 	regsStatusRW[regAddress] |= 0x01;
-	rStatus = HAL_I2C_Mem_Read(&hi2c2, 0xD6, regAddress, 1, &regVal1, 1, 1);
+	rStatus = (i2c_master_ReadMem(0xD6, regAddress, &regVal1, 1) == I2C_OK) ? HAL_OK : HAL_ERROR;
 	if (rStatus == HAL_OK) {
 		// read once more to confirm
 		regVal2 = ~regVal1;
-		rStatus = HAL_I2C_Mem_Read(&hi2c2, 0xD6, regAddress, 1, &regVal2, 1, 1);
+		rStatus = (i2c_master_ReadMem(0xD6, regAddress, &regVal2, 1) == I2C_OK) ? HAL_OK : HAL_ERROR;
 		if (rStatus == HAL_OK) {
 			if (regVal2 == regVal1) {
 				regs[regAddress] = regVal2;
@@ -93,6 +94,12 @@ HAL_StatusTypeDef ChargerRegRead( uint8_t regAddress ) {
 
 	if (rStatus != HAL_OK) {
 		chargerI2cErrorCounter ++;
+		/* Escalation moved out of app main_poll: many soft failures (transport
+		 * or persistent readback mismatch) -> kick the bus once, then resume. */
+		if (chargerI2cErrorCounter > 10) {
+			i2c_master_ReInit();
+			chargerI2cErrorCounter = 1;
+		}
 	} else {
 		chargerI2cErrorCounter = 0;
 	}
@@ -102,7 +109,7 @@ HAL_StatusTypeDef ChargerRegRead( uint8_t regAddress ) {
 
 HAL_StatusTypeDef ChargerRegWrite( uint8_t regAddress ) {
 	regsStatusRW[regAddress] |= 0x03;
-	HAL_StatusTypeDef status = HAL_I2C_Mem_Write(&hi2c2, 0xD6, regAddress, 1, &regsw[regAddress], 1, 1);
+	HAL_StatusTypeDef status = (i2c_master_WriteMem(0xD6, regAddress, &regsw[regAddress], 1) == I2C_OK) ? HAL_OK : HAL_ERROR;
 	if (status != HAL_OK) return status;
 	// verify reading back from charger register
 	status = ChargerRegRead(regAddress);
@@ -387,13 +394,13 @@ void ChargerInit() {
 	MS_TIME_COUNTER_INIT(wdTimeCounter);
 
 	regsw[1] |= 0x08; // lockout usbin
-	HAL_I2C_Mem_Write(&hi2c2, 0xD6, 1, 1, &regsw[1], 1, 1);
+	i2c_master_WriteMem(0xD6, 1, &regsw[1], 1);
 
 	// NOTE: do not place in high impedance mode, it will disable VSys mosfet, and no power to mcu
 	regsw[2] |= 0x02; // set control register, disable charging initially
 	//regsw[2] &= ~0x04; // disable termination
 	regsw[2] |= 0x20; // Set USB limit 500mA
-	HAL_I2C_Mem_Write(&hi2c2, 0xD6, 2, 1, &regsw[2], 1, 1);
+	i2c_master_WriteMem(0xD6, 2, &regsw[2], 1);
 
 	// reset timer
 	//regsw[0] = chargerInputsPrecedence << 3;
@@ -403,7 +410,7 @@ void ChargerInit() {
 	DelayUs(500);
 
 	// read states
-	HAL_I2C_Mem_Read(&hi2c2, 0xD6, 0, 1, regs, 8, 1000);
+	i2c_master_ReadMem(0xD6, 0, regs, 8);
 
 	ChargerUpdateUSBInLockout();
 	ChargerUpdateTempRegulationControlStatus();
@@ -468,7 +475,7 @@ void ChargerTask(void) {
 		// NOTE: reset bit must be 0 in write register image to prevent resets for other write access
 		regsw[0] = chargerInputsPrecedence << 3;
 		uint8_t resetVal = regsw[0] | 0x80;
-		if ( HAL_I2C_Mem_Write(&hi2c2, 0xD6, 0, 1, &resetVal, 1, 1) == HAL_OK )  {
+		if ( i2c_master_WriteMem(0xD6, 0, &resetVal, 1) == I2C_OK )  {
 			MS_TIME_COUNTER_INIT(wdTimeCounter);
 		}
 		//while (HAL_I2C_GetState(&hi2c2) != HAL_I2C_STATE_READY);

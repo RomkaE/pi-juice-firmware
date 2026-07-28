@@ -1,3 +1,9 @@
+/*
+ * app_assert.h
+ *
+ *  Created on:
+ *      Author: Roman Egoshin
+ */
 
 #ifndef APP_ASSERT_H_
 #define APP_ASSERT_H_

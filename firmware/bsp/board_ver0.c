@@ -1,4 +1,9 @@
-
+/*
+ * board_ver0.c
+ *
+ *  Created on:
+ *      Author: Roman Egoshin
+ */
 
 #include "board.h"
 

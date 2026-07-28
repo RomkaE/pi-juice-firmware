@@ -1,3 +1,9 @@
+/*
+ * app_assert.c
+ *
+ *  Created on:
+ *      Author: Roman Egoshin
+ */
 
 /*============================ INCLUDES ======================================*/
 

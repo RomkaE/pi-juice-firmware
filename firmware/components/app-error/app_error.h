@@ -1,3 +1,9 @@
+/*
+ * app_error.h
+ *
+ *  Created on:
+ *      Author: Roman Egoshin
+ */
 
 #ifndef APP_ERROR_H_
 #define APP_ERROR_H_

@@ -6,12 +6,14 @@
  */
 
 #include <stdint.h>
+#include "i2c_slave.h"
 #include "to_refactor/rtc_ds1339_emu.h"
 #include "to_refactor/command_server.h"
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
 #include  "cube-mx/main.h"
+#include  "cube-mx/i2c.h"
 
 static uint8_t commandReceivedFlag = 0;
 static uint16_t i2cAddrMatchCode = 0;
@@ -23,7 +25,7 @@ static uint32_t uwTransferDirection = 0;
 static uint8_t tstFlagi2c = 0;
 static uint16_t dataLen;
 
-void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c)
+void i2c_slave_OnTxCplt(I2C_HandleTypeDef *hi2c)
 {
   tstFlagi2c = 9;
   dataLen = 1;
@@ -44,7 +46,7 @@ void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c)
   }
 }
 
-void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c1)
+void i2c_slave_OnRxCplt(I2C_HandleTypeDef *hi2c1)
 {
   ubSlaveReceiveIndex++;
   tstFlagi2c = 1;
@@ -57,7 +59,7 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c1)
   tstFlagi2c = 2;
 }
 
-void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
+void i2c_slave_OnAddr(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
     uint16_t AddrMatchCode)
 {
   i2cAddrMatchCode = AddrMatchCode;
@@ -124,7 +126,7 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 //  MS_TIME_COUNTER_INIT(lastHostCommandTimer);
 }
 
-void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c)
+void i2c_slave_OnListenCplt(I2C_HandleTypeDef *hi2c)
 {
   tstFlagi2c = 7;
   //uwTransferEnded = 1;
@@ -174,9 +176,21 @@ void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c)
   tstFlagi2c = 8;
 }
 
-void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
+/* Slave-side of the shared error path (dispatched by i2c_common for I2C1):
+ * clear the AF flag left by a master NACKing the end of a read. */
+void i2c_slave_OnError(I2C_HandleTypeDef *hi2c)
 {
-  // TODO - add I2C bus error processing!
-  // Clear OVR flag
   __HAL_I2C_CLEAR_FLAG(hi2c, I2C_FLAG_AF);
+}
+
+void i2c_slave_Init(void)
+{
+  MX_I2C1_Init();
+  HAL_I2C_EnableListen_IT(&hi2c1);
+}
+
+void i2c_slave_ReInit(void)
+{
+  HAL_I2C_DeInit(&hi2c1);
+  i2c_slave_Init();
 }

@@ -1,5 +1,5 @@
 /*
- * app.h
+ * board.h
  *
  *  Created on: 2026
  *      Author: Roman Egoshin
