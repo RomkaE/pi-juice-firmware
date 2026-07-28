@@ -324,7 +324,7 @@ static void TaskApp(void *parameters)
 {
   (void)parameters;
 
-  LOG_INIT(LOG_LEVEL_VERBOSE);
+  LOG_INIT(LOG_LEVEL_DEBUG);
   LOG_INFO("APP task started");
 
   // TODO - move/remove
