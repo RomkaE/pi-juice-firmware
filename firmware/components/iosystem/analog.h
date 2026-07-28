@@ -9,6 +9,7 @@
 #define ANALOG_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 // Board hardware revision, detected at runtime from the CS1/CS2 analog signals.
 #define HARD_REV_UNKNOWN          0xFF
@@ -43,6 +44,10 @@
 #define VBAT_MV_TO_ADC(mV)  ((uint16_t)((uint32_t)(mV) * 4096U / VBAT_DIVIDER_NUM \
           * VBAT_DIVIDER_DEN / ADC_VREF_NOMINAL_MV))
 
+// Mask errors:
+#define ANALOG_ERR_NO_STREAM      (1UL << 0)  // no DMA events within the watchdog timeout
+#define ANALOG_ERR_PROC_OVERRUN   (1UL << 1)  // processing task fell behind, half-buffers dropped
+#define ANALOG_ERR_HW_OVERRUN     (1UL << 2)  // ADC hardware OVR: a conversion was overwritten in DR
 
 void analog_Init(void);
 
@@ -61,5 +66,7 @@ uint16_t analog_GetVBattAvg(void);
 uint16_t analog_Get5vPi(void);
 
 uint16_t analog_GetRawPOW(void);
+
+uint32_t analog_GetErrMask(bool _clear);
 
 #endif /* ANALOG_H_ */

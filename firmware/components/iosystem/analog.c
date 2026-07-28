@@ -6,6 +6,7 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "analog.h"
 #include <to_refactor/config_switch_resistor.h>
 #include <to_refactor/time_count.h>
@@ -30,9 +31,6 @@
 /* mcuTemperature sensor calibration value address */
 #define TEMP30_CAL_ADDR           TEMPSENSOR_CAL1_ADDR
 
-// TODO -remove
-//#define ADC_SEQUENCE_TIMEOUT_MS		5
-
 // Frame layout = CHSELR order, ascending by channel number (SCANDIR forward):
 // CH0, CH2, CH4, CH16, CH17.
 #define ADC_5VPI_CHN_IDX          0
@@ -42,7 +40,7 @@
 #define ADC_VREF_INT_CHN_IDX      4
 
 #define ADC_SCAN_CHANNELS         5
-#define ADC_FRAMES                64
+#define ADC_FRAMES                128
 #define ADC_BUFFER_LENGTH         (ADC_FRAMES * ADC_SCAN_CHANNELS)
 
 /*
@@ -50,7 +48,14 @@
  * per-channel average is a shift, not a divide - update ADC_HALF_SHIFT together with it.
  */
 #define ADC_HALF_FRAMES           (ADC_FRAMES / 2)
-#define ADC_HALF_SHIFT            5   // log2(ADC_HALF_FRAMES)
+#define ADC_HALF_SHIFT            6   // log2(ADC_HALF_FRAMES)
+
+/* Frames averaged by GetAverageBatteryVoltage(). Power of two - see the shift below. */
+#define VBAT_AVERAGE_FRAMES 8
+#define VBAT_AVERAGE_SHIFT  15  // 12 (ADC bits) + 3 (log2 VBAT_AVERAGE_FRAMES)
+
+/* mV at the divider tap -> mV at the battery. */
+#define VBAT_FROM_PIN_MV(v) ((uint16_t)((v) * VBAT_DIVIDER_NUM / VBAT_DIVIDER_DEN))
 
 typedef enum
 {
@@ -107,8 +112,12 @@ static EventWrapper_t s_QueBuf[10];   // TODO - remove magic number
 extern ADC_HandleTypeDef hadc;
 extern TIM_HandleTypeDef htim15;
 
-// Half of the ring the DMA has just finished:
-static const uint16_t *volatile s_pReadyHalfBuf;
+// Half of the ring the DMA has just finished. The notification count (see ulTaskNotifyTake in
+// Task) is the overrun detector: >1 pending means DMA produced more halves than we consumed.
+static const uint16_t *s_pReadyHalfBuf;
+static bool s_fAdcOverrun;          // ADC hardware OVR: a conversion in DR was overwritten before DMA read it
+static uint32_t s_LostEvents;       // running total of half-buffers dropped because the task fell behind
+static uint32_t s_ErrMask;          // ANALOG_ERR_* fault bits for external reporting (written only from Task)
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc_)
 {
@@ -136,6 +145,16 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc_)
   portYIELD_FROM_ISR(woken);
 }
 
+void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc_)
+{
+  if (hadc_->Instance != ADC1)
+    return;
+
+  // ADC overrun: DR was overwritten before DMA fetched it (Overrun = OVERWRITTEN keeps the stream running).
+  if (hadc_->ErrorCode & HAL_ADC_ERROR_OVR)
+    s_fAdcOverrun = true;
+}
+
 static void adc_Start(void)
 {
   // Start conversion in DMA mode:
@@ -153,21 +172,16 @@ static void updateAVDD(uint32_t _raw_vrefint)
   {
     rcnt_raw_vrefint = _raw_vrefint;
     s_AVDD = ((uint32_t)VREFINT_CAL_VREF * (uint32_t)*VREFINT_CAL_ADDR) / _raw_vrefint;
-    LOG_INFO("Update AVDD: vref_cal = %u, raw_vref=%u, avdd=%u", *VREFINT_CAL_ADDR, _raw_vrefint, s_AVDD);
+    LOG_VERBOSE("Update AVDD: vref_cal = %u, raw_vref=%u, avdd=%u", *VREFINT_CAL_ADDR, _raw_vrefint, s_AVDD);
+    if (s_AVDD < 3250)
+      LOG_WARNING("Low AVDD value: %umV", s_AVDD);
   }
 }
 
+// TODO
 /*
- * One-shot board-revision probe. PA1 (ADC_CS2_CHN_IDX) carries the NCS213 current-sense amp
- * output on >=2.3 hardware (idles near 1570 counts while PA0/5V-sense sits ~3100) and a
- * plain shunt tap that tracks PA0 within a few counts on <2.3. A single comparison with a
- * wide margin (3x the largest shunt drop, 3x below the NCS idle offset) separates the two.
- * Needs the 5V rail up so both taps are energised; retries every task tick until then.
- */
 static void DetectHardwareRev(void)
 {
-  // TODO
-  /*
   if (s_HwRev != HARD_REV_UNKNOWN)
     return;
   if (!AnalogSamplesReady() || analog_Get5vPi() <= 4500)
@@ -176,30 +190,8 @@ static void DetectHardwareRev(void)
   int32_t d = (int32_t) GetSample(ADC_CS1_CHN_IDX)
       - (int32_t) GetSample(ADC_CS2_CHN_IDX);
   s_HwRev = (d > 500) ? HARD_REV_2_3_AND_ABOVE : HARD_REV_BELOW_2_3;
-  */
 }
-
-/*
- * Index of the freshest complete sample of `channel` in the DMA ring.
- *
- * The DMA counter runs down, so ADC_BUFFER_LENGTH - counter - 1 is the last cell written.
- * Truncating that to a frame boundary gives the frame in progress; if the requested channel
- * has not been converted in it yet, step back one frame.
- */
-
-/*
- * GetSampleVoltage() lived here: a ratiometric channel-to-mV conversion that took VREFINT
- * from the same frame instead of the AnalogTask-refreshed AVDD. Its last caller was the IO1
- * analog read; removed with it. Worth restoring if a measurement ever needs to be immune to
- * AVDD moving between frames.
- */
-
-/* Frames averaged by GetAverageBatteryVoltage(). Power of two - see the shift below. */
-#define VBAT_AVERAGE_FRAMES	8
-#define VBAT_AVERAGE_SHIFT	15	// 12 (ADC bits) + 3 (log2 VBAT_AVERAGE_FRAMES)
-
-/* mV at the divider tap -> mV at the battery. */
-#define VBAT_FROM_PIN_MV(v)	((uint16_t)((v) * VBAT_DIVIDER_NUM / VBAT_DIVIDER_DEN))
+*/
 
 /*
  * Average one half of the ring (ADC_HALF_FRAMES frames) into the published values.
@@ -207,9 +199,6 @@ static void DetectHardwareRev(void)
  *
  * VREFINT is turned into AVDD first, and every other channel is scaled against that fresh
  * AVDD, so a supply that drifts between halves does not skew the readings.
- *
- * TODO(review): channel-to-mV scaling below is carried over from the pre-DMA code
- * (Get5vIoVoltage / GetBatteryVoltage / the temperature block). Confirm against the board.
  */
 static void ProcessHalf(const uint16_t *half)
 {
@@ -270,19 +259,47 @@ static void Task(void *parameters)
 
   while(1)
   {
-    // Wake on a DMA half/full-transfer event; the timeout is a stall watchdog.
-    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)) == 0)
+    // Wake on a DMA half/full-transfer event. Return value is the pending notification count:
+    //   0  -> timeout, no DMA events
+    //   1  -> one half ready, normal
+    //  >1  -> we fell behind; only the latest half survives, (n-1) halves were lost.
+    uint32_t n_events = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
+    if (n_events == 0)
     {
-      // TODO error logs and error processing! measurement system stopped (no DMA events).
+      LOG_ERROR("[ADC] No ADC data stream");
+      taskENTER_CRITICAL();
+      s_ErrMask |= ANALOG_ERR_NO_STREAM;   
+      taskEXIT_CRITICAL();
       continue;
     }
 
+    if (--n_events)
+    {
+      s_LostEvents += n_events;
+      LOG_ERROR("[ADC] Data processing overrun: lost events cnt=%lu", s_LostEvents);
+      taskENTER_CRITICAL();
+      s_ErrMask |= ANALOG_ERR_PROC_OVERRUN;
+      taskEXIT_CRITICAL();
+    }
+
+    if (s_fAdcOverrun)
+    {
+      LOG_ERROR("[ADC] Hardware overrun");
+      s_fAdcOverrun = false;
+      taskENTER_CRITICAL();
+      s_ErrMask |= ANALOG_ERR_HW_OVERRUN;
+      taskEXIT_CRITICAL();
+    }
+
+    // Capture and clear the ready-half pointer atomically w.r.t. the DMA ISR so a callback
+    // firing during the swap can't have its fresh pointer clobbered by the unconditional NULL.
+    HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
     const uint16_t *half = s_pReadyHalfBuf;
+    s_pReadyHalfBuf = NULL;
+    HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+
     if (half != NULL)
       ProcessHalf(half);
-
-    // TODO - one-shot HW revision probe once the 5V rail is up.
-    // DetectHardwareRev();
   }
 }
 
@@ -321,34 +338,30 @@ uint16_t analog_GetRawBatt(void)
 
 uint16_t analog_GetVBatt(void)
 {
-  // TODO
-  /*
-  uint32_t pinMv = ((uint32_t)GetSample(ADC_VBAT_CHN_IDX) * analog_GetAvdd()) >> 12;
-  return VBAT_FROM_PIN_MV(pinMv);
-  */
   return s_VBatt;
 }
 
 uint16_t analog_GetVBattAvg(void)
 {
-  // TODO
-  /*
-  uint32_t sum = GetSampleSum(ADC_VBAT_CHN_IDX, VBAT_AVERAGE_FRAMES);
-  uint32_t pinMv = (sum * analog_GetAvdd()) >> VBAT_AVERAGE_SHIFT;
-  return VBAT_FROM_PIN_MV(pinMv);
-  */
   return s_VBattAvg;
 }
 
 uint16_t analog_Get5vPi()
 {
   return s_5VPI;
-  // TODO
-//  int16_t adcAvg = GetSampleSum( , 4) >> 2;
-//  return (s_AVDD > 3200 && s_AVDD < 3400) ? (adcAvg * s_AVDD) >> 11 : (adcAvg * 3300) >> 11;//adcAvg * s_AVDD / 4096 * 2;
 }
 
 uint16_t analog_GetRawPOW(void)
 {
   return s_RawPOW;
+}
+
+uint32_t analog_GetErrMask(bool _clear)
+{
+  taskENTER_CRITICAL();
+  uint32_t mask = s_ErrMask;
+  if (_clear)
+    s_ErrMask &= ~mask;
+  taskEXIT_CRITICAL();
+  return mask;
 }
