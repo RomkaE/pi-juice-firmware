@@ -8,7 +8,7 @@
 #ifndef RETAINED_MEMORY_H_
 #define RETAINED_MEMORY_H_
 
-#include "stdint.h"
+#include <stdbool.h>
 
 /*
  * Decides whether the current contents of the no_init section were left there by *this*
@@ -20,6 +20,8 @@
  * Must be called before any no_init variable is read - it is the first thing main_init()
  * does, ahead of the executionState test.
  */
-uint8_t RetainedMemoryCheck(void);
+bool retained_mem_Check(void);
+
+bool retained_mem_GetStatus(void);
 
 #endif /* RETAINED_MEMORY_H_ */

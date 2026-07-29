@@ -34,43 +34,53 @@
  * from NV. The cost is losing retained state across a firmware update that changes .bss.
  */
 
+#include <stdint.h>
+#include <stdbool.h>
 #include "retained_memory.h"
 
 /* Section bounds, from the linker script. */
 extern uint32_t _snoinit;
 extern uint32_t _enoinit;
 
-#define RETAINED_TOKEN_MAGIC	((uint32_t)0x6E496552)	/* "ReIn" */
-#define RETAINED_MIX		((uint32_t)0x9E3779B9)	/* odd, so it does not lose bits */
+#define RETAINED_TOKEN_MAGIC    ((uint32_t)0x6E496552)	/* "ReIn" */
+#define RETAINED_MIX            ((uint32_t)0x9E3779B9)	/* odd, so it does not lose bits */
 
-typedef struct {
+typedef struct
+{
 	uint32_t magic;
 	uint32_t base;
 	uint32_t size;
 	uint32_t check;
 } RetainedToken_T;
 
+static bool s_Status = true;
+
 static RetainedToken_T retainedToken __attribute__((section("no_init")));
 
-uint8_t RetainedMemoryCheck(void) {
-	uint32_t base = (uint32_t)&_snoinit;
-	uint32_t size = (uint32_t)&_enoinit - base;
-	/*
-	 * Ties the three fields together and to the token's own placement, so a stale token
-	 * that happens to carry the right magic still has to sit at the right address.
-	 */
-	uint32_t check = RETAINED_TOKEN_MAGIC ^ (base * RETAINED_MIX) ^ (size * RETAINED_MIX)
-			^ (uint32_t)&retainedToken;
+bool retained_mem_Check(void)
+{
+  uint32_t base = (uint32_t) &_snoinit;
+  uint32_t size = (uint32_t) &_enoinit - base;
+  /*
+   * Ties the three fields together and to the token's own placement, so a stale token
+   * that happens to carry the right magic still has to sit at the right address.
+   */
+  uint32_t check = RETAINED_TOKEN_MAGIC ^ (base * RETAINED_MIX)
+      ^ (size * RETAINED_MIX) ^ (uint32_t) &retainedToken;
 
-	uint8_t valid = (retainedToken.magic == RETAINED_TOKEN_MAGIC)
-			&& (retainedToken.base == base)
-			&& (retainedToken.size == size)
-			&& (retainedToken.check == check);
+  s_Status = (retainedToken.magic == RETAINED_TOKEN_MAGIC)
+      && (retainedToken.base == base) && (retainedToken.size == size)
+      && (retainedToken.check == check);
 
-	retainedToken.magic = RETAINED_TOKEN_MAGIC;
-	retainedToken.base = base;
-	retainedToken.size = size;
-	retainedToken.check = check;
+  retainedToken.magic = RETAINED_TOKEN_MAGIC;
+  retainedToken.base = base;
+  retainedToken.size = size;
+  retainedToken.check = check;
 
-	return valid;
+  return s_Status;
+}
+
+bool retained_mem_GetStatus(void)
+{
+  return s_Status;
 }

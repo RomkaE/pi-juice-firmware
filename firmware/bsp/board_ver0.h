@@ -13,18 +13,18 @@
 /*============================ I2C ===========================================*/
 
 // I2C1 slave (host / Raspberry Pi bus):
-#define I2C1_SCL_PORT   GPIOB           // PB6
-#define I2C1_SCL_PIN    GPIO_PIN_6
-#define I2C1_SDA_PORT   GPIOB           // PB7
-#define I2C1_SDA_PIN    GPIO_PIN_7
-#define I2C1_GPIO_AF    GPIO_AF1_I2C1
+#define I2C1_SCL_PORT         GPIOB           // PB6
+#define I2C1_SCL_PIN          GPIO_PIN_6
+#define I2C1_SDA_PORT         GPIOB           // PB7
+#define I2C1_SDA_PIN          GPIO_PIN_7
+#define I2C1_GPIO_AF          GPIO_AF1_I2C1
 
 // I2C2 master (on-board charger / fuel gauge / ID EEPROM):
-#define I2C2_SCL_PORT   GPIOB           // PB10
-#define I2C2_SCL_PIN    GPIO_PIN_10
-#define I2C2_SDA_PORT   GPIOB           // PB11
-#define I2C2_SDA_PIN    GPIO_PIN_11
-#define I2C2_GPIO_AF    GPIO_AF1_I2C2
+#define I2C2_SCL_PORT         GPIOB           // PB10
+#define I2C2_SCL_PIN          GPIO_PIN_10
+#define I2C2_SDA_PORT         GPIOB           // PB11
+#define I2C2_SDA_PIN          GPIO_PIN_11
+#define I2C2_GPIO_AF          GPIO_AF1_I2C2
 
 /*============================ CHARGER (BQ2416x) =============================*/
 
@@ -49,16 +49,12 @@
 #define PWR_5V_LDO_EN_PIN     GPIO_PIN_11
 
 // VSYS output switch enable, active LOW:
-/*
 #define PWR_VSYS_EN_PORT      GPIOA     // PA12
 #define PWR_VSYS_EN_PIN       GPIO_PIN_12
-*/
 
 // VSYS switch current limit select: SET = 0.5A, RESET = 2.1A:
-/*
 #define PWR_VSYS_ILIM_PORT    GPIOF     // PF1
 #define PWR_VSYS_ILIM_PIN     GPIO_PIN_1
-*/
 
 /*
  * Shared line, its meaning depends on the board revision. Configured as an open drain
@@ -119,37 +115,35 @@
 // LED1 (D2 on circuit and in pijuice_cli tools) - RGB on TIM15 CH1/CH2 and TIM17 CH1:
 /* Unused. TIM15 is used for ADC */
 /*
-#define LED_D2_R_PORT           GPIOB     // PB14, TIM15_CH1
-#define LED_D2_R_PIN            GPIO_PIN_14
-#define LED_D2_G_PORT           GPIOB     // PB15, TIM15_CH2
-#define LED_D2_G_PIN            GPIO_PIN_15
-#define LED_D2_RG_GPIO_AF       GPIO_AF1_TIM15
-#define LED_D2_B_PORT           GPIOB     // PB9, TIM17_CH1
-#define LED_D2_B_PIN            GPIO_PIN_9
-#define LED_D2_B_GPIO_AF        GPIO_AF2_TIM17
+#define LED_D2_R_PORT         GPIOB     // PB14, TIM15_CH1
+#define LED_D2_R_PIN          GPIO_PIN_14
+#define LED_D2_G_PORT         GPIOB     // PB15, TIM15_CH2
+#define LED_D2_G_PIN          GPIO_PIN_15
+#define LED_D2_RG_GPIO_AF     GPIO_AF1_TIM15
+#define LED_D2_B_PORT         GPIOB     // PB9, TIM17_CH1
+#define LED_D2_B_PIN          GPIO_PIN_9
+#define LED_D2_B_GPIO_AF      GPIO_AF2_TIM17
 */
 
 // LED2 (D1 in the schematic and pijuice_cli tools)- RGB on TIM3 CH1/CH2/CH3:
-#define LED_D1_R_PORT           GPIOB     // PB4, TIM3_CH1
-#define LED_D1_R_PIN            GPIO_PIN_4
-#define LED_D1_G_PORT           GPIOB     // PB5, TIM3_CH2
-#define LED_D1_G_PIN            GPIO_PIN_5
-#define LED_D1_B_PORT           GPIOB     // PB0, TIM3_CH3
-#define LED_D1_B_PIN            GPIO_PIN_0
-#define LED_D1_GPIO_AF          GPIO_AF1_TIM3
+#define LED_D1_R_PORT         GPIOB     // PB4, TIM3_CH1
+#define LED_D1_R_PIN          GPIO_PIN_4
+#define LED_D1_G_PORT         GPIOB     // PB5, TIM3_CH2
+#define LED_D1_G_PIN          GPIO_PIN_5
+#define LED_D1_B_PORT         GPIOB     // PB0, TIM3_CH3
+#define LED_D1_B_PIN          GPIO_PIN_0
+#define LED_D1_GPIO_AF        GPIO_AF1_TIM3
 
 /*============================ USER IO =======================================*/
 
 // IO1 - GPIO / analog / PWM on TIM14_CH1:
-#define EXT_IO1_PORT              GPIOA     // PA7
-#define EXT_IO1_PIN               GPIO_PIN_7
-#define EXT_IO1_GPIO_AF           GPIO_AF4_TIM14
+#define EXT_IO1_PORT          GPIOA     // PA7
+#define EXT_IO1_PIN           GPIO_PIN_7
+#define EXT_IO1_GPIO_AF       GPIO_AF4_TIM14
 
 // IO2 - GPIO / PWM on TIM1_CH1, also EXTI wakeup source:
-#define EXT_IO2_PORT              GPIOA     // PA8
-#define EXT_IO2_PIN               GPIO_PIN_8
-#define EXT_IO2_GPIO_AF           GPIO_AF2_TIM1
-
-void SystemClock_Config(void);
+#define EXT_IO2_PORT          GPIOA     // PA8
+#define EXT_IO2_PIN           GPIO_PIN_8
+#define EXT_IO2_GPIO_AF       GPIO_AF2_TIM1
 
 #endif /* BOARD_VER0_H_ */

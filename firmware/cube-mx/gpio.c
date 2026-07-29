@@ -57,17 +57,17 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(CHG_INT_PORT, &GPIO_InitStruct);
 
   /*Configure VSYS switch current limit select */
-//  GPIO_InitStruct.Pin = PWR_VSYS_ILIM_PIN;
-//  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
-//  GPIO_InitStruct.Pull = GPIO_NOPULL;
-//  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-//  HAL_GPIO_Init(PWR_VSYS_ILIM_PORT, &GPIO_InitStruct);
+  GPIO_InitStruct.Pin = PWR_VSYS_ILIM_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(PWR_VSYS_ILIM_PORT, &GPIO_InitStruct);
 
-  // Boost and vsys switch enable configure as inputs to capture state before reset
-//  GPIO_InitStruct.Pin = PWR_5V_BOOST_EN_PIN|PWR_VSYS_EN_PIN;
-//  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-//  GPIO_InitStruct.Pull = GPIO_NOPULL;
-//  HAL_GPIO_Init(PWR_5V_BOOST_EN_PORT, &GPIO_InitStruct);
+  // vsys switch enable configure as inputs to capture state before reset
+  GPIO_InitStruct.Pin = PWR_VSYS_EN_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(PWR_5V_BOOST_EN_PORT, &GPIO_InitStruct);
 
   /*Configure 5V detection LDO enable and charger NTC control outputs */
   GPIO_InitStruct.Pin = PWR_5V_LDO_EN_PIN|CHG_NTC_CTRL1_PIN|CHG_NTC_CTRL2_PIN;
@@ -114,20 +114,23 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(CHG_NTC_CTRL1_PORT, CHG_NTC_CTRL1_PIN|PWR_5V_LDO_EN_PIN|CHG_NTC_CTRL2_PIN, GPIO_PIN_RESET);
 
-  // deactivate RUN signal
-  HAL_GPIO_WritePin(HOST_RUN_PORT, HOST_RUN_PIN, GPIO_PIN_SET);
+  /* RUN is already released above - the level is written before HAL_GPIO_Init()
+   * so the pin never drives low on the way to open drain. */
 
-  /* Enable and set EXTI line 12,13 Interrupt to the lowest priority */
-  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 2, 0);
-  HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
+  // TODO: Move IRQ management to the corresponding driver/component:
+  {
+    /* Enable and set EXTI line 12,13 Interrupt to the lowest priority */
+    HAL_NVIC_SetPriority(EXTI4_15_IRQn, 2, 0);
+    HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
-  /* Enable and set EXTI line charger interrupt to the lowest priority */
-  HAL_NVIC_SetPriority(EXTI0_1_IRQn, 2, 0);
-  HAL_NVIC_EnableIRQ(EXTI0_1_IRQn);
+    /* Enable and set EXTI line charger interrupt to the lowest priority */
+    HAL_NVIC_SetPriority(EXTI0_1_IRQn, 2, 0);
+    HAL_NVIC_EnableIRQ(EXTI0_1_IRQn);
 
-  /* Enable and set EXTI line 2, SW2 Interrupt to the lowest priority */
-  HAL_NVIC_SetPriority(EXTI2_3_IRQn, 2, 0);
-  HAL_NVIC_EnableIRQ(EXTI2_3_IRQn);
+    /* Enable and set EXTI line 2, SW2 Interrupt to the lowest priority */
+    HAL_NVIC_SetPriority(EXTI2_3_IRQn, 2, 0);
+    HAL_NVIC_EnableIRQ(EXTI2_3_IRQn);
+  }
 }
 
 /* USER CODE BEGIN 2 */

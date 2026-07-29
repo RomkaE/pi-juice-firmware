@@ -6,7 +6,6 @@
  */
 
 #include "iosystem/analog.h"
-#include <to_refactor/execution.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/power_source.h>
 #include <to_refactor/time_count.h>
@@ -17,7 +16,7 @@
 #define PWR_5V_IO_DET_ADC_THRESHOLD		2950
 #define VBAT_TURNOFF_ADC_THRESHOLD		0 // mV unit
 #define PWR_5V_DET_LDO_EN_STATUS()		(HAL_GPIO_ReadPin(PWR_5V_LDO_EN_PORT, PWR_5V_LDO_EN_PIN) == GPIO_PIN_SET)
-#define PWR_SOURCE_PRESENT()			(powerInStatus==PWR_SOURCE_NORMAL || powerInStatus==PWR_SOURCE_WEAK || power5vIoStatus==PWR_SOURCE_NORMAL || power5vIoStatus==PWR_SOURCE_WEAK)
+#define PWR_SOURCE_PRESENT()			    (powerInStatus==PWR_SOURCE_NORMAL || powerInStatus==PWR_SOURCE_WEAK || power5vIoStatus==PWR_SOURCE_NORMAL || power5vIoStatus==PWR_SOURCE_WEAK)
 #define PWR_SOURCE_5VREG_IS_PWR_BAD() ((analog_GetHwRev() == HARD_REV_2_3_AND_ABOVE) && (HAL_GPIO_ReadPin(PWR_5V_PG_PORT, PWR_5V_PG_PIN) == GPIO_PIN_RESET))
 
 
@@ -262,20 +261,24 @@ void PowerSourceInit(bool _reset)
 	}
 }
 
-void PowerSource5vIoDetectionTask(void) {
-	if ( MS_TIME_COUNT(pwr5vOnTimeout) < PWR_5V_TURN_ON_TIMEOUT ) {
-		volatile int16_t batVolt;
-		if ( (!PWR_SOURCE_PRESENT()) && MS_TIME_COUNT(pwr5vOnTimeout) > 0) {
-			batVolt = analog_GetVBatt();
-			if (batVolt < vbatPwrOffTresh) {
-				forcedPowerOffFlag = 1;
-				Turn5vBoost(0);
-			}
-		}
+void PowerSource5vIoDetectionTask(void)
+{
+  if ( MS_TIME_COUNT(pwr5vOnTimeout) < PWR_5V_TURN_ON_TIMEOUT)
+  {
+    int16_t batVolt;
+    if ((!PWR_SOURCE_PRESENT()) && MS_TIME_COUNT(pwr5vOnTimeout) > 0)
+    {
+      batVolt = analog_GetVBatt();
+      if (batVolt < vbatPwrOffTresh)
+      {
+        forcedPowerOffFlag = 1;
+        Turn5vBoost(0);
+      }
+    }
 
-		// Wait for 5V to become stable after turn on timeout
-		return;
-	}
+    // Wait for 5V to become stable after turn on timeout
+    return;
+  }
 
 
 	int16_t volt5 = analog_Get5vPi();

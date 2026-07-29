@@ -8,9 +8,6 @@
 #ifndef BOARD_H_
 #define BOARD_H_
 
-#include <stdbool.h>
-#include "stm32f0xx_hal.h"
-
 #if !defined(BOARD_VER)
   #error "Not defined BOARD_VER"
 #endif
@@ -23,10 +20,14 @@
   #error Wrong version board!
 #endif
 
-/*============================ PROTOTYPES ====================================*/
+#include <stdbool.h>
 
 void bsp_Init(void);
 
-void bsp_DeInit(void);
+void bsp_ClockConfig(void);
+
+void bsp_Pwr5V_SetState(bool _state);
+
+void bsp_Pwr5V_Restore(void);
 
 #endif /* BOARD_H_ */

@@ -7,7 +7,6 @@
 
 #include "iosystem/analog.h"
 #include <to_refactor/crc8_atm.h>
-#include <to_refactor/execution.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/power_source.h>
 #include <to_refactor/time_count.h>
@@ -254,7 +253,7 @@ int8_t FuelGaugeIcInit(void) {
 	}
 }
 
-void FuelGaugeInit(void) {
+void FuelGaugeInit(bool _reset) {
 	//volatile int8_t succ;
 
 	uint8_t config;
@@ -263,7 +262,8 @@ void FuelGaugeInit(void) {
 		rsocMeasurementConfig = (config>>4)&0x03;
 	}
 
-	if (executionState!=EXECUTION_STATE_NORMAL) {
+	if (_reset)
+	{
 		FuelGaugeDvInit();
 	}
 
@@ -272,7 +272,7 @@ void FuelGaugeInit(void) {
 		if (soc < 0 || soc>2139095040)
 			soc = GetSocFromOCV(batVolt);
 
-		if (executionState!=EXECUTION_STATE_NORMAL && executionState!=EXECUTION_STATE_CONFIG_RESET) {
+		if (_reset) {
 //			fgIcId = 0xFFFF;
 			ntcFaultFlag = 0;
 		}

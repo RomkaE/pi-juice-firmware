@@ -5,44 +5,68 @@
  *      Author: Roman Egoshin
  */
 
-/*============================ INCLUDES ======================================*/
-
 #include "config.h"
 #include "board.h"
-#include "app-error/app_error.h"
+#include "retained_memory.h"
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
 #include "cube-mx/gpio.h"
 #include "cube-mx/dma.h"
 
-/*============================ TYPES =========================================*/
+// LOG:
+#include "log/log.h"
 
-typedef void (*pFunction)(void);
-
-/*============================ VARIABLES =====================================*/
-
-
-/*============================ PRIVATE DEFINITIONS ===========================*/
-
-
-/*============================ PRIVATE PROTOTYPES ============================*/
-
-
-/*============================ IMPLEMENTATION (PRIVATE FUNCTIONS) ============*/
-
-/*============================ IMPLEMENTATION (PUBLIC FUNCTIONS) =============*/
+static bool s_StatePwr5V __attribute__((section("no_init")));
 
 void bsp_Init(void)
 {
   HAL_Init();
   HAL_SetTickFreq(HAL_TICK_FREQ_100HZ);
-  SystemClock_Config();
 
   MX_GPIO_Init();
   MX_DMA_Init();
 }
 
-void bsp_DeInit(void)
+void bsp_Pwr5V_SetState(bool _state)
 {
+  static bool gpio_inited = false;
+  if (_state)
+  {
+    HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_SET);
+    s_StatePwr5V = true;
+    LOG_INFO("[BSP] 5V DC-DC ENABLED");
+  }
+  else
+  {
+    HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_RESET);
+    s_StatePwr5V = false;
+    LOG_INFO("[BSP] 5V DC-DC DISABLED");
+  }
+
+  // Configure the pin as an output only after setting
+  // its value to prevent an incorrect output state:
+  if (!gpio_inited)
+  {
+    GPIO_InitTypeDef GPIO_InitStruct = { 0 };
+    GPIO_InitStruct.Pin = PWR_5V_BOOST_EN_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(PWR_5V_BOOST_EN_PORT, &GPIO_InitStruct);
+    gpio_inited = true;
+  }
 }
+
+void bsp_Pwr5V_Restore(void)
+{
+  if (retained_mem_GetStatus())
+    bsp_Pwr5V_SetState(s_StatePwr5V);
+  else
+  {
+    // TODO - get default state
+    bool def_state = true;
+    bsp_Pwr5V_SetState(def_state);
+  }
+}
+

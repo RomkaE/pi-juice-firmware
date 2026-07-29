@@ -28,17 +28,9 @@
 
 /* External variables --------------------------------------------------------*/
 extern ADC_HandleTypeDef hadc;
-
-
 extern I2C_HandleTypeDef hi2c1;
 extern I2C_HandleTypeDef hi2c2;
-//extern SMBUS_HandleTypeDef hsmbus;
-extern void I2C_EV_IRQHandler(I2C_HandleTypeDef *hi2c);
-
 extern RTC_HandleTypeDef hrtc;
-extern ADC_HandleTypeDef hadc;
-//extern WWDG_HandleTypeDef hwwdg;
-extern TIM_HandleTypeDef htim6;
 /******************************************************************************/
 /*            Cortex-M0 Processor Interruption and Exception Handlers         */
 /******************************************************************************/
@@ -111,26 +103,6 @@ void DMA1_Channel1_IRQHandler(void)
 }
 
 /**
-  * @brief  This function handles DMA interrupt request.
-  * @param  None
-  * @retval None
-  * @Note   This function is redefined in "main.h" and related to DMA Channel
-  *         used for I2C data transmission
-  */
-void DMA1_Channel2_3_IRQHandler(void)
-{
-  HAL_DMA_IRQHandler(hi2c1.hdmarx);
-  HAL_DMA_IRQHandler(hi2c1.hdmatx);
-}
-
-void DMA1_Channel4_5_IRQHandler(void)
-{
-  HAL_DMA_IRQHandler(hi2c2.hdmarx);
-  HAL_DMA_IRQHandler(hi2c2.hdmatx);
-}
-
-
-/**
   * @brief  This function handles RTC Alarm interrupt request.
   * @param  None
   * @retval None
@@ -168,12 +140,6 @@ void EXTI2_3_IRQHandler(void)
 {
   HAL_GPIO_EXTI_IRQHandler(BTN_SW3_PIN);
 }
-
-/*void WWDG_IRQHandler(void)
-{
-	HAL_WWDG_IRQHandler(&hwwdg);
-}*/
-
 
 /* USER CODE END 1 */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

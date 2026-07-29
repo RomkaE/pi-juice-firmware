@@ -146,9 +146,13 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* htim_base)
 }
 
 /**
-  * @brief  Enables the clocks of the PWM timers. Also lost in the split - note
+  * @brief  Enables the clock of TIM3. Also lost in the split - note
   *         HAL_TIM_MspPostInit() below only configures the output pins, so
-  *         without this the timers have no clock at all.
+  *         without this the timer has no clock at all.
+  * @note   Only TIM3 is handled here, because it is the only timer brought up
+  *         with HAL_TIM_PWM_Init() alone. TIM1 and TIM14 also drive PWM, but
+  *         io_control.c calls HAL_TIM_Base_Init() on them first, so their
+  *         clocks are enabled from HAL_TIM_Base_MspInit() above.
   */
 void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* htim_pwm)
 {
@@ -177,18 +181,6 @@ void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* htim_pwm)
 
   /* USER CODE END TIM3_MspInit 1 */
   }
-  else if(htim_pwm->Instance==TIM15)
-  {
-  /* USER CODE BEGIN TIM15_MspInit 0 */
-
-  /* USER CODE END TIM15_MspInit 0 */
-    /* Peripheral clock enable */
-    __HAL_RCC_TIM15_CLK_ENABLE();
-  /* USER CODE BEGIN TIM15_MspInit 1 */
-
-  /* USER CODE END TIM15_MspInit 1 */
-  }
-
 }
 /**
   * @brief  Configures the GPIO pins driven by the timer compare outputs.

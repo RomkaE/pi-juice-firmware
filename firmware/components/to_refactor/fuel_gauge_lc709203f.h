@@ -8,8 +8,10 @@
 #ifndef FUEL_GAUGE_LC709203F_H_
 #define FUEL_GAUGE_LC709203F_H_
 
-#include <to_refactor/battery.h>
-#include "stdint.h"
+#include <stdint.h>
+#include <stdbool.h>
+
+#include "to_refactor/battery.h"
 
 #define FUEL_GAUGE_TEMP_MODE_THERMISTOR 	1
 #define FUEL_GAUGE_TEMP_MODE_I2C		 	0
@@ -49,7 +51,7 @@ extern uint16_t fgIcId;
 extern int8_t ntcFaultFlag;
 extern RsocMeasurementConfig_T rsocMeasurementConfig;
 
-void FuelGaugeInit(void);
+void FuelGaugeInit(bool _reset);
 void FuelGaugeTask(void);
 void FuelGaugeSetBatProfile(const BatteryProfile_T *batProfile);
 int8_t FuelGaugeSetConfig(uint8_t *data, uint16_t len);

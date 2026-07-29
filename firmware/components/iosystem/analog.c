@@ -305,6 +305,8 @@ static void Task(void *parameters)
 
 void analog_Init(void)
 {
+  LOG_INFO("analog_Init...");
+
   // Create task:
   s_TaskHandle = xTaskCreateStatic(Task, "ANALOG", sizeof(TaskStack)/sizeof(StackType_t),
                             NULL, 8, TaskStack, &TaskTCB);

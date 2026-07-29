@@ -27,7 +27,6 @@
 IWDG_HandleTypeDef hiwdg;
 
 /* IWDG init function */
-/* IWDG init function */
 void MX_IWDG_Init(void)
 {
 
@@ -43,35 +42,12 @@ void MX_IWDG_Init(void)
   hiwdg.Init.Reload    = 1300;//LSI_VALUE / 4; // 8 seconds
   hiwdg.Init.Window    = IWDG_WINDOW_DISABLE;
 
-  // TODO - !?
-//  DelayUs(100);
+  /* HAL_IWDG_Init() also starts the counter - there is no separate start. */
   if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
   {
     // Initialization Error
     Error_Handler();
   }
-/*
-  IWDG->KR = 0x0000CCCC; // (1)
-  DelayUs(100);
-  IWDG->KR = 0x00005555; // (2)
-  DelayUs(100);
-  IWDG->PR = IWDG_PRESCALER_256; // (3)
-  //DelayUs(100);
-  IWDG->RLR = 1300; // (4)
-  //DelayUs(100);
-  while (IWDG->SR) // (5)
-  {
-   // add time out here for a robust application
-  }
-  IWDG->KR = 0x0000AAAA; // (6)
-  //DelayUs(100);
-
-  //##-4- Start the IWDG #####################################################
-  if (__HAL_IWDG_START(&hiwdg) != HAL_OK)
-  {
-    Error_Handler();
-  }
-*/
 }
 
 /* USER CODE BEGIN 1 */

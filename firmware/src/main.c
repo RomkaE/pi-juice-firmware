@@ -9,9 +9,10 @@
 #include <stdbool.h>
 #include <errno.h>
 #include "app.h"
-#include "app-error/app_error.h"
-#include "app-error/app_assert.h"
+#include "retained_memory.h"
 #include "board.h"
+#include "app-error/app_error.h"
+//#include "app-error/app_assert.h"
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
@@ -23,11 +24,17 @@
 // RealTime monitor:
 #include "rtmon.h"
 
+// LOG:
+#include "log/log.h"
+
 int main(void)
 {
   bsp_Init();
+  retained_mem_Check();
+  LOG_INIT(LOG_LEVEL_DEBUG);
 
-  // TODO - restore the pin PWR_5V_BOOST_EN_PIN state
+  // CRITICAL: Restore the 5V DC-DC converter state:
+  bsp_Pwr5V_Restore();
 
   #if RTMON_ENABLED
     rtmon_Init();

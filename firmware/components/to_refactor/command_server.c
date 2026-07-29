@@ -10,7 +10,6 @@
 #include <to_refactor/battery.h>
 #include <to_refactor/button.h>
 #include <to_refactor/command_server.h>
-#include <to_refactor/execution.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/io_control.h>
 #include <to_refactor/power_management.h>
@@ -24,6 +23,7 @@
 
 #define REGISTERS_NUM	((uint16_t)256)
 
+// TODO - move
 #define SYS_MEM_ADDRESS		0x1FFFD800 // for STM32F030x8 0x1FFFEC00
 
 static int8_t reg[REGISTERS_NUM]; // registers used for i2c master access

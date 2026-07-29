@@ -27,14 +27,8 @@
 RTC_HandleTypeDef hrtc;
 
 /* RTC init function */
-/* RTC init function */
 void MX_RTC_Init(void)
 {
-
-//  RTC_TimeTypeDef sTime;
-//  RTC_DateTypeDef sDate;
-//  RTC_AlarmTypeDef sAlarm;
-
     /**Initialize RTC Only
     */
   hrtc.Instance = RTC;
@@ -49,49 +43,13 @@ void MX_RTC_Init(void)
     Error_Handler();
   }
 
-// for testing/debug only
-#if 0
-  /* (1) Write access for RTC registers */
-  /* (2) Disable wake up timerto modify it */
-  /* (3) Wait until it is allow to modify wake up reload value */
-  /* (4) Modify wake up value reload counter to have a wake up each 1Hz */
-  /* (5) Enable wake up counter and wake up interrupt */
-  /* (6) Disable write access */
-  RTC->WPR = 0xCA; /* (1) */
-  RTC->WPR = 0x53; /* (1) */
-  RTC->CR &= ~RTC_CR_WUTE; /* (2) */
-  while ((RTC->ISR & RTC_ISR_WUTWF) != RTC_ISR_WUTWF) /* (3) */
-  {
-   /* add time out here for a robust application */
-  }
-  RTC->WUTR = 0x9C0; /* (4) */
-  RTC->CR = RTC_CR_WUTE | RTC_CR_WUTIE | 0x00000000; /* (5) */
-  RTC->WPR = 0xFE; /* (6) */
-  volatile uint32_rtccr = RTC->CR;
-  RTC->WPR = 0x64; /* (6) */
-#endif
-  /*if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 2000, RTC_WAKEUPCLOCK_RTCCLK_DIV16) != HAL_OK)
-  {
-    Error_Handler();
-  }*/
-
-    /**Enable the Alarm A
-    */
-  /*sAlarm.Alarm = RTC_ALARM_A;
-  sAlarm.AlarmDateWeekDay = RTC_WEEKDAY_MONDAY;
-  sAlarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
-  sAlarm.AlarmMask = RTC_ALARMMASK_DATEWEEKDAY;
-  sAlarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_NONE;
-  sAlarm.AlarmTime.TimeFormat = RTC_HOURFORMAT12_AM;
-  sAlarm.AlarmTime.Hours = 0x02;
-  sAlarm.AlarmTime.Minutes = 0x20;
-  sAlarm.AlarmTime.Seconds = 0x04;
-  sAlarm.AlarmTime.SubSeconds = 0x56;
-  if (HAL_RTC_SetAlarm_IT(&hrtc, &sAlarm, RTC_FORMAT_BCD) != HAL_OK)
-  {
-    Error_Handler();
-  }*/
-
+  /*
+   * No alarm and no wake-up timer are armed here. Alarm A is programmed at
+   * runtime, by rtc_ds1339_emu.c and by the host wake-up register in
+   * command_server.c. The hardware wake-up timer is not used at all - the
+   * periodic wake-up power management acts on (rtcWakeupEventFlag) is a
+   * software flag raised by the DS1339 emulation.
+   */
 }
 
 

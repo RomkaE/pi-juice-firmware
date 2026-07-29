@@ -37,7 +37,6 @@
 #include "iosystem/analog.h"
 #include <to_refactor/button.h>
 #include <to_refactor/command_server.h>
-#include <to_refactor/execution.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/io_control.h>
 #include <to_refactor/power_management.h>
@@ -94,10 +93,7 @@
 static uint32_t lowPowerDealyTimer;
 static uint32_t mainPollMsCounter;
 
-PowerState_T state = STATE_INIT;
-
-uint32_t executionState __attribute__((section("no_init"))); // used to indicate if there was unpredictable reset like watchdog expired
-
+// TODO !!??
 uint32_t lastHostCommandTimer;
 
 uint8_t i2cErrorCounter = 0;
@@ -115,7 +111,7 @@ void ButtonDualLongPressEventCb(void) {
 	// Reset to default
 	NvEreaseAllVariables();
 
-	executionState = EXECUTION_STATE_CONFIG_RESET;
+//	executionState = EXECUTION_STATE_CONFIG_RESET;
 	while(1) {
 	  LedSetRGB(LED_D1, 150, 0, 0);
 	  HAL_Delay(500);
@@ -124,6 +120,7 @@ void ButtonDualLongPressEventCb(void) {
 	}
 }
 
+// TODO
 uint8_t extiFlag = 0;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
   if (GPIO_Pin == CHG_INT_PIN)
@@ -146,33 +143,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 static void main_init(void)
 {
-  LOG_INFO("1. executionState=0x%08X", executionState);
-
-	if (!RetainedMemoryCheck()) {
-	  LOG_WARNING("Retained Memory is INVALID!");
-		executionState = EXECUTION_STATE_COLD_START;
-	}
-	else
+	if (retained_mem_GetStatus())
 	  LOG_INFO("Retained Memory is VALID!");
+	else
+    LOG_WARNING("Retained Memory is INVALID!");
 
-	if (executionState != EXECUTION_STATE_NORMAL && executionState != EXECUTION_STATE_CONFIG_RESET)
-	{
-		if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))
-			executionState = EXECUTION_STATE_POR_RESET;
-	}
-	__HAL_RCC_CLEAR_RESET_FLAGS();
-
-	// TODO - check/remove:
-	bool reset_init = false;
-	if ( executionState != EXECUTION_STATE_NORMAL )
-	  reset_init = true;
-
-  // Cold start detection:
-  if (HAL_GPIO_ReadPin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN) == GPIO_PIN_RESET && executionState == EXECUTION_STATE_POR_RESET)
-  {
-    executionState = EXECUTION_STATE_COLD_START;
-  }
-  LOG_INFO("2. executionState=0x%08X", executionState);
+	// Reset reason:
+  bool reset_init = false;        // TODO - check/remove
+  // TODO add logs and processing all reset reasons:
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))
+    reset_init = true;
+  __HAL_RCC_CLEAR_RESET_FLAGS();
 
 	NvInit();
 
@@ -196,13 +177,14 @@ static void main_init(void)
 	MX_IWDG_Init();
 
 	PowerSourceInit(reset_init);
-	FuelGaugeInit();
+	FuelGaugeInit(reset_init);
 	PowerManagementInit(reset_init);
 	LedInit();
 	ButtonInit();
 
 	IoControlInit();
 
+	// EEPROM IC management:
 	HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, GPIO_PIN_SET); // ee write protect
 	uint16_t var = 0;
 	EE_ReadVariable(ID_EEPROM_ADR_NV_ADDR, &var);
@@ -212,18 +194,18 @@ static void main_init(void)
 		HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN, GPIO_PIN_RESET); // default ee Adr
 	}
 
-	state = STATE_NORMAL;
-
 	// I2C master and 2 devices init:
   {
     i2c_master_Init();
     BatteryInit();
 
-    // TODO - WTF?
-    if (executionState == EXECUTION_STATE_COLD_START) {
+
+//    if (executionState == EXECUTION_STATE_COLD_START)
+    {
       HAL_Delay(100);  // after power-on, charger and fuel gauge requires initialization time
-      FuelGaugeIcPreInit();
+      FuelGaugeIcPreInit(); // // TODO - check
     }
+
     ChargerInit(reset_init);
   }
 
@@ -232,9 +214,6 @@ static void main_init(void)
     i2c_slave_Init();
     RtcInit(reset_init);
   }
-
-	executionState = EXECUTION_STATE_NORMAL; // after initialization indicate it for future wd resets
-
 }
 
 static void main_poll(void)
@@ -258,29 +237,10 @@ static void main_poll(void)
       __HAL_RTC_ALARM_CLEAR_FLAG(&hrtc, RTC_FLAG_ALRAF);
     }
     LedTask();
-    //if (MS_TIME_COUNT(mainPollMsCounter) > 98) {
     ButtonTask();
     PowerManagementTask();
-    //}
-    if (NEED_EVENT_POLL())
-    {
-      state = STATE_RUN;
-    }
-    // Load-current gating removed with the current-sensing feature; the 5V-rail-low test
-    // below is the remaining low-power entry condition.
-    else if ((analog_Get5vPi() < 4600 /*&& !PWR_VSYS_OUTPUT_EN_STATUS()*/)
-        && MS_TIME_COUNT(lastHostCommandTimer) > 5000
-        && MS_TIME_COUNT(lowPowerDealyTimer) >= 22
-        && MS_TIME_COUNT(lastWakeupTimer) > 20000
-        && chargerStatus == CHG_NO_VALID_SOURCE && !IsButtonActive())
-    {
-      state = STATE_LOWPOWER;
-    }
-    else
-    {
-      state = STATE_NORMAL;
-    }
 
+    // TODO -!?
     if (extiFlag == 2)
     {
       MS_TIME_COUNTER_INIT(lastHostCommandTimer);
@@ -303,7 +263,10 @@ static void TaskApp(void *parameters)
 {
   (void)parameters;
 
-  LOG_INIT(LOG_LEVEL_DEBUG);
+  // Configure the system clock after SysTick initialization
+  // because the HAL tick and delay functions depend on the FreeRTOS tick:
+  bsp_ClockConfig();
+
   LOG_INFO("APP task started");
 
   // TODO - move/remove

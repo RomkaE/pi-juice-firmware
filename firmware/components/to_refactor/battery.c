@@ -19,9 +19,6 @@
 #define PACK_CAPACITY_U16(c) 	((c==0xFFFFFFFF) ? 0xFFFF : (c >> ((c>=0x8000)*7)) | (c>=0x8000)*0x8000)
 #define UNPACK_CAPACITY_U16(v) 	((v==0xFFFF) ? 0xFFFFFFFF : (uint32_t)(v&0x7FFF) << (((v&0x8000) >> 15)*7))
 
-
-extern PowerState_T state;
-
 static int16_t setProfileReq = -1;
 
 static int8_t writeCustomProfileReq = 0;
@@ -556,10 +553,7 @@ void BatteryTask(void) {
 			b = 0;
 		}
 
-		if (state == STATE_LOWPOWER)
-			LedFunctionSetRGB(LED_CHARGE_STATUS, r>>2, g>>2, b);
-		else
-			LedFunctionSetRGB(LED_CHARGE_STATUS, r, g, b);
+		LedFunctionSetRGB(LED_CHARGE_STATUS, r, g, b);
 	}
 }
 

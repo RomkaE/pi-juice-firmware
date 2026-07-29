@@ -6,10 +6,11 @@
  * Free-running counter backing the FreeRTOS run-time statistics
  * (portGET_RUN_TIME_COUNTER_VALUE, see config/FreeRTOSConfig.h).
  *
- * TIM7 is the natural pick on STM32F030CC. Of the two unused timers left
- * (TIM7 and TIM16) it is the basic one - no compare channels, no GPIO pins,
- * it exists purely as a time base. TIM6 is left alone because the excluded
- * cube-mx/stm32f0xx_hal_timebase_tim.c is written around it.
+ * TIM7 is the natural pick on STM32F030CC. Of the unused timers left
+ * (TIM6, TIM7 and TIM16) it is a basic one - no compare channels, no GPIO
+ * pins, it exists purely as a time base. TIM6 would do just as well: the
+ * CubeMX HAL time base built around it is gone, the HAL tick is delegated to
+ * FreeRTOS in src/main.c.
  *
  * The previous version of this file drove TIM2, carried over from another
  * board: STM32F030CC has no TIM2 at all, so it could never have worked.

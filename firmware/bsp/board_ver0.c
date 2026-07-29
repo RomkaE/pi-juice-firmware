@@ -12,7 +12,7 @@
 #include "cube-mx/main.h"
 
 
-void SystemClock_Config(void)
+void bsp_ClockConfig(void)
 {
 
   RCC_OscInitTypeDef RCC_OscInitStruct;
