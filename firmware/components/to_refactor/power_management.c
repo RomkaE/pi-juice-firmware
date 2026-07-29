@@ -43,18 +43,17 @@ uint8_t powerOffBtnEventFlag __attribute__((section("no_init")));
 
 uint8_t ioWakeupEvent = 0;
 
-extern uint8_t resetStatus;
-
 extern uint8_t noBatteryTurnOn;
 
-void PowerManagementInit(void) {
+void PowerManagementInit(bool _reset) {
 	uint16_t var = 0;
 	EE_ReadVariable(NV_RUN_PIN_CONFIG, &var);
 	if (((~var)&0xFF) == (var>>8)) {
 		runPinInstallationStatus = var&0xFF;
 	}
 
-	if (!resetStatus) { // on mcu power up
+	// TODO - check
+	if (_reset) { // on mcu power up
 
 		wakeupOnCharge = 0xFFFF;
 		wakeupOnChargeConfig = 0x7F;
@@ -73,9 +72,9 @@ void PowerManagementInit(void) {
 		if (wakeupOnChargeConfig&0x80)
 			wakeupOnCharge = (wakeupOnChargeConfig&0x7F) <= 100 ? (wakeupOnChargeConfig&0x7F) * 10 : 0xFFFF;
 
-		if (	   NvReadVariableU8(WATCHDOG_CONFIGL_NV_ADDR, (uint8_t*)&watchdogConfig) != NV_READ_VARIABLE_SUCCESS
-				|| NvReadVariableU8(WATCHDOG_CONFIGH_NV_ADDR, (uint8_t*)&watchdogConfig+1) != NV_READ_VARIABLE_SUCCESS
-		 	 ) {
+		if (NvReadVariableU8(WATCHDOG_CONFIGL_NV_ADDR, (uint8_t*) &watchdogConfig) != NV_READ_VARIABLE_SUCCESS ||
+		    NvReadVariableU8(WATCHDOG_CONFIGH_NV_ADDR, (uint8_t*)&watchdogConfig+1) != NV_READ_VARIABLE_SUCCESS)
+    {
 			watchdogConfig  = 0;
 		}
 

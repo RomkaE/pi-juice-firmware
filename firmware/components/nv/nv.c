@@ -23,7 +23,7 @@ void NvInit(void){
 void NvEreaseAllVariables(void) {
 	int32_t i;
 
-  // TODO - format EEPROM
+  // TODO - format EEPROM?!
 	for (i=NV_START_ID;i<NV_VAR_NUM;i++) {
 		EE_WriteVariable(i, 0xFFFF);
 	}
@@ -33,14 +33,7 @@ void NvEreaseAllVariables(void) {
 	//EE_Init();
 }
 
-void NvSetDataInitialized(void) {
-	if (!NV_IS_DATA_INITIALIZED) {
-		EE_WriteVariable(NV_START_ID, 0);
-	}
-}
-
 void NvTask(void) {
-
 	if (nvSaveParmeterReq >= 0) {
 		EE_WriteVariable(BAT_PROFILE_NV_ADDR, nvSaveParmeterValue);
 		nvSaveParmeterReq = -1;

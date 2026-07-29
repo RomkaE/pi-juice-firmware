@@ -57,17 +57,17 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(CHG_INT_PORT, &GPIO_InitStruct);
 
   /*Configure VSYS switch current limit select */
-  GPIO_InitStruct.Pin = PWR_VSYS_ILIM_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(PWR_VSYS_ILIM_PORT, &GPIO_InitStruct);
+//  GPIO_InitStruct.Pin = PWR_VSYS_ILIM_PIN;
+//  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+//  GPIO_InitStruct.Pull = GPIO_NOPULL;
+//  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+//  HAL_GPIO_Init(PWR_VSYS_ILIM_PORT, &GPIO_InitStruct);
 
   // Boost and vsys switch enable configure as inputs to capture state before reset
-  GPIO_InitStruct.Pin = PWR_5V_BOOST_EN_PIN|PWR_VSYS_EN_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(PWR_5V_BOOST_EN_PORT, &GPIO_InitStruct);
+//  GPIO_InitStruct.Pin = PWR_5V_BOOST_EN_PIN|PWR_VSYS_EN_PIN;
+//  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+//  GPIO_InitStruct.Pull = GPIO_NOPULL;
+//  HAL_GPIO_Init(PWR_5V_BOOST_EN_PORT, &GPIO_InitStruct);
 
   /*Configure 5V detection LDO enable and charger NTC control outputs */
   GPIO_InitStruct.Pin = PWR_5V_LDO_EN_PIN|CHG_NTC_CTRL1_PIN|CHG_NTC_CTRL2_PIN;

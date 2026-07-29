@@ -21,8 +21,6 @@
 //#define CHARGER_VIN_DPM_IN		0X00
 #define CHARGER_VIN_DPM_USB		6//0X07
 
-extern uint8_t resetStatus;
-
 uint8_t chargerNeedPoll = 0;
 
 extern I2C_HandleTypeDef hi2c2;
@@ -358,10 +356,13 @@ int8_t ChargerUpdateUSBInLockout() {
 	return 0;
 }
 
-void ChargerInit() {
+void ChargerInit(bool _reset)
+{
 	uint16_t var = 0;
 
-	if (!resetStatus) {
+	// TODO - check!
+	if (_reset)
+	{
 		EE_ReadVariable(CHARGER_INPUTS_CONFIG_NV_ADDR, &var);
 		if (((~var)&0xFF) == (var>>8)) {
 			chargerInputsConfig = var&0xFF;

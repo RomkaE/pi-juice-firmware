@@ -1013,12 +1013,13 @@ void CmdServerReadWriteTestAndCalibration(uint8_t dir, uint8_t *pData, uint16_t 
 	}
 }
 
+
 void CmdServerRunBootloader(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
   // Execute bootloader by jumping to system memory
 
 	if ( pData[1] != 0x01 || dir == MASTER_CMD_DIR_READ ) return;
 
-	executionState = EXECUTION_STATE_UPDATE;
+//	executionState = EXECUTION_STATE_UPDATE;
 
 	// TODO
 	/*

@@ -31,6 +31,9 @@
   ******************************************************************************
   */
 /* Includes ------------------------------------------------------------------*/
+#include <stdint.h>
+#include <stdbool.h>
+
 #include "iosystem/analog.h"
 #include <to_refactor/button.h>
 #include <to_refactor/command_server.h>
@@ -80,9 +83,7 @@
 /* Owned by cube-mx/i2c.c, cube-mx/rtc.c and cube-mx/iwdg.c since the split.
  * hi2c1/hi2c2 are declared by cube-mx/i2c.h. */
 
-
-
-uint8_t resetStatus = 0;
+//bool resetStatus = 0;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
@@ -97,7 +98,7 @@ PowerState_T state = STATE_INIT;
 
 uint32_t executionState __attribute__((section("no_init"))); // used to indicate if there was unpredictable reset like watchdog expired
 
-uint32_t lastHostCommandTimer __attribute__((section("no_init")));
+uint32_t lastHostCommandTimer;
 
 uint8_t i2cErrorCounter = 0;
 
@@ -145,80 +146,62 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 static void main_init(void)
 {
-	/*
-	 * Before touching any no_init variable: decide whether the retained section belongs to
-	 * this image at all. If it does not, drop executionState so the tests below fall
-	 * through to the cold-boot path and every retained value is re-read from NV.
-	 */
-	if (!RetainedMemoryCheck()) {
-		executionState = EXECUTION_STATE_POWER_ON;
-	}
+  LOG_INFO("1. executionState=0x%08X", executionState);
 
-	if (executionState != EXECUTION_STATE_NORMAL && executionState != EXECUTION_STATE_UPDATE && executionState != EXECUTION_STATE_CONFIG_RESET) {
-		if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST)) {
-			executionState = EXECUTION_STATE_POWER_RESET;
-		} else {//if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST)){
-			// updating from old firmware without executionState defined
-			executionState = EXECUTION_STATE_UPDATE;
-		} // else if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST) {
+	if (!RetainedMemoryCheck()) {
+	  LOG_WARNING("Retained Memory is INVALID!");
+		executionState = EXECUTION_STATE_COLD_START;
+	}
+	else
+	  LOG_INFO("Retained Memory is VALID!");
+
+	if (executionState != EXECUTION_STATE_NORMAL && executionState != EXECUTION_STATE_CONFIG_RESET)
+	{
+		if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))
+			executionState = EXECUTION_STATE_POR_RESET;
 	}
 	__HAL_RCC_CLEAR_RESET_FLAGS();
 
-	if ( executionState == EXECUTION_STATE_NORMAL ) {
-		resetStatus = 1;
-	} else {
-		// initialize globals
-		resetStatus = 0;
-	}
+	// TODO - check/remove:
+	bool reset_init = false;
+	if ( executionState != EXECUTION_STATE_NORMAL )
+	  reset_init = true;
 
-	__HAL_FLASH_PREFETCH_BUFFER_ENABLE();
+  // Cold start detection:
+  if (HAL_GPIO_ReadPin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN) == GPIO_PIN_RESET && executionState == EXECUTION_STATE_POR_RESET)
+  {
+    executionState = EXECUTION_STATE_COLD_START;
+  }
+  LOG_INFO("2. executionState=0x%08X", executionState);
 
 	NvInit();
 
 	// Initialize all configured peripherals
-	// 
-	if (HAL_GPIO_ReadPin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN) == GPIO_PIN_RESET && executionState == EXECUTION_STATE_POWER_RESET)
-	{
-		executionState = EXECUTION_STATE_POWER_ON;
-	}
-
-	// TODO:
+  // TODO:
 	MX_RTC_Init();
 	MX_TIM3_Init();
 	MX_TIM1_Init();
 
-	// TODO - fix
+	// TODO - move/remove
 	extern void MX_TIM14_Init(void);
 	MX_TIM14_Init();
 
 	HAL_InitTick(TICK_INT_PRIORITY);
 
-	if (!resetStatus) MS_TIME_COUNTER_INIT(lastHostCommandTimer);
-
+	MS_TIME_COUNTER_INIT(lastHostCommandTimer);
 	MS_TIME_COUNTER_INIT(mainPollMsCounter);
 	MS_TIME_COUNTER_INIT(lowPowerDealyTimer);
 
 	// TODO - move to bsp/drivers
 	MX_IWDG_Init();
 
-	PowerSourceInit();
+	PowerSourceInit(reset_init);
 	FuelGaugeInit();
-	PowerManagementInit();
+	PowerManagementInit(reset_init);
 	LedInit();
 	ButtonInit();
 
 	IoControlInit();
-
-	NvSetDataInitialized();
-	/*if ( executionState == EXECUTION_STATE_CONFIG_RESET ) {
-		LedSetRGB(1, 0, 255, 0);
-	} else if (executionState == EXECUTION_STATE_POWER_RESET) {
-		LedSetRGB(1, 255, 0, 0);
-	} else if (executionState == EXECUTION_STATE_UPDATE) {
-		LedSetRGB(1, 0, 0, 255);
-	} else {
-		LedSetRGB(1, 0, 0, 0);
-	}*/
 
 	HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, GPIO_PIN_SET); // ee write protect
 	uint16_t var = 0;
@@ -235,18 +218,19 @@ static void main_init(void)
   {
     i2c_master_Init();
     BatteryInit();
+
     // TODO - WTF?
-    if (executionState == EXECUTION_STATE_POWER_ON) {
+    if (executionState == EXECUTION_STATE_COLD_START) {
       HAL_Delay(100);  // after power-on, charger and fuel gauge requires initialization time
       FuelGaugeIcPreInit();
     }
-    ChargerInit();
+    ChargerInit(reset_init);
   }
 
   // I2C slave and device init:
   {
     i2c_slave_Init();
-    RtcInit();
+    RtcInit(reset_init);
   }
 
 	executionState = EXECUTION_STATE_NORMAL; // after initialization indicate it for future wd resets
@@ -284,7 +268,7 @@ static void main_poll(void)
     }
     // Load-current gating removed with the current-sensing feature; the 5V-rail-low test
     // below is the remaining low-power entry condition.
-    else if ((analog_Get5vPi() < 4600 && !PWR_VSYS_OUTPUT_EN_STATUS())
+    else if ((analog_Get5vPi() < 4600 /*&& !PWR_VSYS_OUTPUT_EN_STATUS()*/)
         && MS_TIME_COUNT(lastHostCommandTimer) > 5000
         && MS_TIME_COUNT(lowPowerDealyTimer) >= 22
         && MS_TIME_COUNT(lastWakeupTimer) > 20000

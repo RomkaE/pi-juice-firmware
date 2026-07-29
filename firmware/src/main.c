@@ -27,6 +27,8 @@ int main(void)
 {
   bsp_Init();
 
+  // TODO - restore the pin PWR_5V_BOOST_EN_PIN state
+
   #if RTMON_ENABLED
     rtmon_Init();
   #endif

@@ -8,7 +8,8 @@
 #ifndef RTC_DS1339_EMU_H_
 #define RTC_DS1339_EMU_H_
 
-#include "stdint.h"
+#include <stdint.h>
+#include <stdbool.h>
 
 typedef void (*RtcCommand_T)(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 
@@ -16,7 +17,7 @@ void RtcDs1339ProcessRequest(uint8_t dir, uint8_t command, uint8_t *pData, uint1
 uint8_t RtcGetPointer();
 void RtcSetPointer(uint8_t val);
 
-void RtcInit(void);
+void RtcInit(bool _reset);
 void EvaluateAlarm(void);
 void RtcReadAlarm1(uint8_t *buffer, uint8_t extended);
 void RtcWriteAlarm1(uint8_t *buffer, uint8_t extended);

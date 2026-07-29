@@ -8,8 +8,10 @@
 #ifndef CHARGER_BQ2416X_H_
 #define CHARGER_BQ2416X_H_
 
-#include <to_refactor/battery.h>
-#include "stdint.h"
+#include <stdint.h>
+#include <stdbool.h>
+
+#include "to_refactor/battery.h"
 
 #define BAT_REG_VOLTAGE	(regs[3] >> 2)
 #define CHARGE_CURRENT	((((int16_t)(regs[5] >> 3) * 75 + 550) / 5 + 1) >> 1)
@@ -78,7 +80,7 @@ extern ChargerUSBInLockoutStatus_T usbInLockoutStatus;
 extern uint8_t chargerI2cErrorCounter;
 extern uint8_t chargerInterruptFlag;
 
-void ChargerInit();
+void ChargerInit(bool _reset);
 void ChargerTask(void);
 void ChargerTriggerNTCMonitor(NTC_MonitorTemperature_T temp);
 void ChargerSetUSBLockout(ChargerUSBInLockoutStatus_T status);

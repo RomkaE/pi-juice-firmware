@@ -16,11 +16,13 @@
 #include "charger_bq2416x.h"
 #include "nv.h"
 
+// LOG:
+#include "log/log.h"
+
 #define FUEL_GAUGE_METHOD_DV	0
 
 
 extern I2C_HandleTypeDef hi2c2;
-extern uint8_t resetStatus;
 extern uint32_t executionState;
 
 uint16_t batteryVoltage = 0xFFFF;
@@ -67,7 +69,7 @@ BatteryTempSenseConfig_T tempSensorConfig = BAT_TEMP_SENSE_CONFIG_AUTO_DETECT;
 RsocMeasurementConfig_T rsocMeasurementConfig = RSOC_MEASUREMENT_AUTO_DETECT;
 
 int8_t ntcFaultFlag __attribute__((section("no_init")));
-uint16_t fgIcId __attribute__((section("no_init")));
+//uint16_t fgIcId __attribute__((section("no_init")));
 volatile uint8_t fuelGaugeTempMode = FUEL_GAUGE_TEMP_MODE_THERMISTOR;
 
 const int16_t logTbl[256]={-24562, -21803, -19743, -18097, -16728, -15554, -14528, -13616, -12795, -12050, -11366, -10735, -10149, -9602, -9090, -8607, -8151, -7720, -7310, -6919, -6547, -6190, -5848, -5520, -5205, -4901, -4608, -4326, -4052, -3788, -3532, -3283, -3042, -2808, -2580, -2358, -2142, -1932, -1727, -1527, -1332, -1141, -955, -773, -595, -420, -249, -82, 81, 242, 400, 554, 706, 855, 1002, 1145, 1287, 1426, 1562, 1697, 1829, 1959, 2087, 2213, 2338, 2460, 2581, 2700, 2817, 2932, 3046, 3158, 3269, 3378, 3486, 3593, 3698, 3802, 3904, 4005, 4105, 4204, 4302, 4398, 4494, 4588, 4681, 4773, 4864, 4954, 5043, 5132, 5219, 5305, 5391, 5475, 5559, 5642, 5724, 5805, 5885, 5965, 6044, 6122, 6199, 6276, 6352, 6427, 6501, 6575, 6648, 6721, 6793, 6864, 6935, 7005, 7074, 7143, 7212, 7279, 7347, 7413, 7479, 7545, 7610, 7675, 7739, 7802, 6487, 7188, 7834, 8432, 8990, 9513, 10004, 10467, 10905, 11322, 11718, 12096, 12457, 12803, 13135, 13454, 13761, 14057, 14343, 14619, 14886, 15144, 15395, 15638, 15875, 16104, 16328, 16545, 16757, 16964, 17165, 17362, 17554, 17741, 17925, 18104, 18280, 18451, 18620, 18785, 18947, 19105, 19261, 19413, 19563, 19710, 19855, 19997, 20137, 20274, 20409, 20542, 20673, 20802, 20928, 21053, 21176, 21297, 21416, 21534, 21650, 21764, 21877, 21988, 22098, 22207, 22313, 22419, 22523, 22626, 22728, 22828, 22927, 23025, 23122, 23217, 23312, 23406, 23498, 23589, 23680, 23769, 23858, 23945, 24032, 24117, 24202, 24286, 24369, 24451, 24533, 24613, 24693, 24772, 24851, 24928, 25005, 25081, 25157, 25231, 25305, 25379, 25452, 25524, 25595, 25666, 25736, 25806, 25875, 25944, 26011, 26079, 26146, 26212, 26278, 26343, 26408, 26472, 26536, 26599, 26661, 26724, 26785, 26847, 26908, 26968, 27028, 27088};
@@ -198,10 +200,14 @@ int8_t FuelGaugeIcPreInit(void) {
 }
 
 int8_t FuelGaugeIcInit(void) {
-	volatile int8_t succ;
+	int8_t succ;
 
-	if (FuelGaugeReadWord(0x11, &fgIcId) == 0) {
-
+	LOG_INFO("[FG] FuelGaugeIcInit...");
+	uint16_t fgIcId;
+	int8_t res = FuelGaugeReadWord(0x11, &fgIcId);
+	if (res == 0)
+	{
+	  LOG_INFO("[FG] IC Version: 0x%04X", fgIcId);
 		// Set operational mode
 		succ = FuelGaugeWriteWord(0x15, 0x0001); //3.7V
 		if (succ != 0) return 1;
@@ -240,8 +246,10 @@ int8_t FuelGaugeIcInit(void) {
 
 		batteryTemp = analog_GetTempMCU();
 
+	  LOG_INFO("[FG] FuelGaugeIcInit...DONE");
 		return 0;
 	} else {
+	  LOG_WARNING("[FG] Failed to read IC version");
 		return -1;
 	}
 }
@@ -265,7 +273,7 @@ void FuelGaugeInit(void) {
 			soc = GetSocFromOCV(batVolt);
 
 		if (executionState!=EXECUTION_STATE_NORMAL && executionState!=EXECUTION_STATE_CONFIG_RESET) {
-			fgIcId = 0xFFFF;
+//			fgIcId = 0xFFFF;
 			ntcFaultFlag = 0;
 		}
 		if (FuelGaugeIcInit() != 0) {

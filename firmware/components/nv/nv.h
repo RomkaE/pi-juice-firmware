@@ -15,7 +15,7 @@
 #define NV_READ_VARIABLE_SUCCESS   ((uint16_t)0)
 #define NV_VARIABLE_NON_STORED       ((uint16_t)0xffffffff)
 
-#define NV_IS_DATA_INITIALIZED	(nvInitFlag != 0Xffff)
+//#define NV_IS_DATA_INITIALIZED	(nvInitFlag != 0Xffff)
 #define NV_IS_VARIABLE_VALID(var)	(((~var)&0xFF) == (var>>8))
 
 typedef enum
@@ -37,7 +37,9 @@ typedef enum
 	NV_STATIC_ADDR_RESERVED10, \
 	NV_STATIC_ADDR_RESERVED11, \
 	NV_STATIC_ADDR_RESERVED12, \
+
 	NV_START_ID,  /* starting id of variables */ \
+
 	NV_ADDR_RESERVED0, \
 	BAT_PROFILE_NV_ADDR, \
 	BAT_CAPACITY_NV_ADDR, \
@@ -140,7 +142,6 @@ typedef enum
 extern uint16_t nvInitFlag;
 
 void NvInit(void);
-void NvSetDataInitialized(void);
 void NvTask(void);
 void NvSaveParameterReq(NvVarId_T id, uint16_t value);
 void NvEreaseAllVariables(void);

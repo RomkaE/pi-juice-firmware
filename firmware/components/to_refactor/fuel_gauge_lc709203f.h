@@ -15,7 +15,9 @@
 #define FUEL_GAUGE_TEMP_MODE_I2C		 	0
 
 #define FUEL_GAUGE_TEMP_SENSE_FAULT_STATUS()	(ntcFaultFlag)
-#define FUEL_GAUGE_IC_FAULT_STATUS()			( rsocMeasurementConfig==RSOC_MEASUREMENT_AUTO_DETECT && fgIcId>0 && fgIcId<0xFFFF && (fuelGaugeI2cErrorCounter <= -5 || fuelGaugeI2cErrorCounter >= 5) )
+
+// TODO - fix and move to API
+#define FUEL_GAUGE_IC_FAULT_STATUS()			( rsocMeasurementConfig==RSOC_MEASUREMENT_AUTO_DETECT /* fgIcId>0 && fgIcId<0xFFFF - // TODO always TRUE*/ && (fuelGaugeI2cErrorCounter <= -5 || fuelGaugeI2cErrorCounter >= 5) )
 
 typedef enum BatteryTempSenseConfig_T {
 	BAT_TEMP_SENSE_CONFIG_NOT_USED = 0,

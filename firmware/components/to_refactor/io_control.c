@@ -23,7 +23,6 @@ uint16_t ioParam1[2] __attribute__((section("no_init")));
 uint16_t ioParam2[2] __attribute__((section("no_init")));
 uint16_t pwmLevel[2] __attribute__((section("no_init")));
 
-extern uint8_t resetStatus;
 
 /* TIM1 init function */
 void MX_TIM1_Init(void)
@@ -258,10 +257,8 @@ void IoNvReadConfig(uint8_t pin) {
 }
 
 void IoControlInit() {
-	if (!resetStatus) { // on mcu power up
-		IoNvReadConfig(1);
-		IoNvReadConfig(2);
-	}
+  IoNvReadConfig(1);
+	IoNvReadConfig(2);
 	IoConfigure(1);
 	IoConfigure(2);
 }

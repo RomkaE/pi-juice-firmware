@@ -30,22 +30,25 @@ static uint32_t hoursSelection __attribute__((section("no_init")));
 static uint8_t minutesStep __attribute__((section("no_init")));
 uint8_t alarmEventFlag __attribute__((section("no_init")));
 
-extern uint8_t resetStatus;
+//extern uint8_t resetStatus;
 
 RtcCommand_T rtcCommands[] =
 {
 		//RtcReadWriteTime
 };
 
-void RtcInit(void) {
-	//static  uint8_t rtcBufferInit[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-	if (!resetStatus) {
+void RtcInit(bool _reset)
+{
+	if (_reset)
+	{
 		weekDaysSelection = 0xFF;
 		hoursSelection = 0xFFFFFFFF;
 		minutesStep = 0;
 		alarmEventFlag = 0;
 		int i;
-		for (i = 0; i < 17; i++) rtc_buffer[i] = 0;//rtcBufferInit[i];
+		// TODO - 17!?
+		for (i = 0; i < 17; i++)
+		  rtc_buffer[i] = 0;
 	}
 }
 

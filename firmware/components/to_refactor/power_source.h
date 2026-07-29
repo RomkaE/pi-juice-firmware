@@ -8,8 +8,10 @@
 #ifndef POWER_SOURCE_H_
 #define POWER_SOURCE_H_
 
-#include <to_refactor/battery.h>
-#include <to_refactor/time_count.h>   /* PWR_SOURCE_NEED_POLL() below expands MS_TIME_COUNT() */
+#include <stdbool.h>
+
+#include "to_refactor/battery.h"
+#include "to_refactor/time_count.h"   /* PWR_SOURCE_NEED_POLL() below expands MS_TIME_COUNT() */
 #include "board.h"
 
 #define PWR_5V_IN_DETECTION_STATUS_UNKNOWN		0
@@ -19,7 +21,7 @@
 
 #define PWR_5V_BOOST_EN_STATUS()	 	(HAL_GPIO_ReadPin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN) == GPIO_PIN_SET)
 #define PWR_SOURCE_NEED_POLL() 	(pwr5vInDetStatus == PWR_5V_IN_DETECTION_STATUS_PRESENT || MS_TIME_COUNT(pwr5vOnTimeout) <= PWR_5V_TURN_ON_TIMEOUT)
-#define PWR_VSYS_OUTPUT_EN_STATUS()	 	(HAL_GPIO_ReadPin(PWR_VSYS_EN_PORT, PWR_VSYS_EN_PIN) == GPIO_PIN_RESET)
+//#define PWR_VSYS_OUTPUT_EN_STATUS()	 	(HAL_GPIO_ReadPin(PWR_VSYS_EN_PORT, PWR_VSYS_EN_PIN) == GPIO_PIN_RESET)
 
 #define REGULATOR_5V_SWITCHING_STATUS_SUCCESS		0
 #define REGULATOR_5V_SWITCHING_STATUS_NO_ENERGY		1
@@ -47,7 +49,7 @@ extern uint8_t delayedPowerOff;
 extern uint8_t forcedPowerOffFlag;
 extern uint8_t forcedVSysOutputOffFlag;
 
-void PowerSourceInit(void);
+void PowerSourceInit(bool _reset);
 void PowerSourceTask(void);
 void PowerSource5vIoDetectionTask(void);
 void PowerSourceExitLowPower(void);

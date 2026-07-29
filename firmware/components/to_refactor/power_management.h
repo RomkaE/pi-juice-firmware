@@ -9,6 +9,7 @@
 #define POWER_MANAGEMENT_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef enum RunPinInstallationStatus_T {
 	RUN_PIN_NOT_INSTALLED = 0,
@@ -20,7 +21,7 @@ extern uint8_t watchdogExpiredFlag;
 extern uint8_t rtcWakeupEventFlag;
 extern uint8_t ioWakeupEvent;
 
-void PowerManagementInit(void);
+void PowerManagementInit(bool _reset);
 void PowerManagementTask(void);
 void RunPinInstallationStatusSetConfigCmd(uint8_t data[], uint8_t len);
 void RunPinInstallationStatusGetConfigCmd(uint8_t data[], uint16_t *len);

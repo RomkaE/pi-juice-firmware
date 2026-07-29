@@ -49,12 +49,16 @@
 #define PWR_5V_LDO_EN_PIN     GPIO_PIN_11
 
 // VSYS output switch enable, active LOW:
+/*
 #define PWR_VSYS_EN_PORT      GPIOA     // PA12
 #define PWR_VSYS_EN_PIN       GPIO_PIN_12
+*/
 
 // VSYS switch current limit select: SET = 0.5A, RESET = 2.1A:
+/*
 #define PWR_VSYS_ILIM_PORT    GPIOF     // PF1
 #define PWR_VSYS_ILIM_PIN     GPIO_PIN_1
+*/
 
 /*
  * Shared line, its meaning depends on the board revision. Configured as an open drain
