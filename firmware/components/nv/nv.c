@@ -5,58 +5,75 @@
  *      Author: milan
  */
 #include "nv.h"
+#include "eeprom.h"
 
-static int16_t nvSaveParmeterReq = -1;
-static uint16_t nvSaveParmeterValue = 0xFFFF;
-uint16_t nvInitFlag = 0xFFFF;
+// LOG:
+#include "log/log.h"
 
-void NvInit(void){
-	/* Unlock the Flash Program Erase controller */
+#define NV_IS_VARIABLE_VALID(var)       (((~var) & 0x00FF) == (var >> 8))
+
+uint8_t nv_Init(void)
+{
+  uint8_t res = NV_ERR;
 	FLASH_Unlock();
-
-	/* EEPROM Init */
-	EE_Init();
-
-	EE_ReadVariable(NV_START_ID, &nvInitFlag);
+	if (EE_Init() == HAL_OK)
+	  res = NV_OK;
+	return res;
 }
 
-void NvEreaseAllVariables(void) {
-	int32_t i;
-
-  // TODO - format EEPROM?!
-	for (i=NV_START_ID;i<NV_VAR_NUM;i++) {
-		EE_WriteVariable(i, 0xFFFF);
-	}
-
-	//FLASH_ErasePage(PAGE0_BASE_ADDRESS);
-	//FLASH_ErasePage(PAGE1_BASE_ADDRESS);
-	//EE_Init();
+uint8_t nv_Erase(void)
+{
+  uint8_t res = NV_OK;
+  for (uint16_t addr = NV_ADDR_START; addr < NV_ADDR_NUM; addr++)
+  {
+    if (EE_WriteVariable(addr, 0xFFFF) != 0)
+      res = NV_ERR;
+  }
+  return res;
 }
 
-void NvTask(void) {
-	if (nvSaveParmeterReq >= 0) {
-		EE_WriteVariable(BAT_PROFILE_NV_ADDR, nvSaveParmeterValue);
-		nvSaveParmeterReq = -1;
-	}
+uint8_t nv_write_U8(uint16_t _addr, uint8_t _var)
+{
+  LOG_DEBUG("nv_write_U8: addr=%u, var=%u", _addr, _var);
+  uint16_t ee_data = (uint16_t)_var | (((uint16_t)(~_var)) << 8);
+  if (EE_WriteVariable(_addr, ee_data) == 0)
+    return NV_OK;
+  else
+    return NV_ERR;
 }
 
-void NvSaveParameterReq(NvVarId_T id, uint16_t value) {
-	nvSaveParmeterReq = id;
-	nvSaveParmeterValue = value;
+uint8_t nv_read_U8(uint16_t _addr, uint8_t *_p_var)
+{
+  uint8_t res = NV_ERR;
+  uint16_t ee_data = 0;
+  if (EE_ReadVariable(_addr, &ee_data) == 0 &&
+      NV_IS_VARIABLE_VALID(ee_data))
+  {
+    *_p_var = (uint8_t) (ee_data & 0x00FF);
+    res = NV_OK;
+  }
+
+  return res;
 }
 
-uint16_t NvReadVariableU8(uint16_t VirtAddress, uint8_t *pVar) {
-	uint16_t var = 0;
-	uint16_t succ = EE_ReadVariable(VirtAddress, &var);
-	if (succ==0) {
-		if (NV_IS_VARIABLE_VALID(var)) {
-			*pVar = var&0xFF;
-			return NV_READ_VARIABLE_SUCCESS;
-		} else if ((var&0xFF) == (var>>8)) {
-			return NV_VARIABLE_NON_STORED;
-		} else
-			return NV_INVALID_VARIABLE;
-	} else {
-		return succ;
-	}
+uint8_t nv_write_U16(uint16_t _addr, uint16_t _var)
+{
+  LOG_DEBUG("nv_write_U16: addr=%u, var=%u", _addr, _var);
+  if (EE_WriteVariable(_addr, _var) == 0)
+    return NV_OK;
+  else
+    return NV_ERR;
+}
+
+uint8_t nv_read_U16(uint16_t _addr, uint16_t *_p_var)
+{
+  uint8_t res = NV_ERR;
+  uint16_t ee_data = 0;
+  if (EE_ReadVariable(_addr, &ee_data) == 0)
+  {
+    *_p_var = ee_data;
+    res = NV_OK;
+  }
+
+  return res;
 }

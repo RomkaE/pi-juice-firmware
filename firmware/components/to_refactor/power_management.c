@@ -46,10 +46,9 @@ uint8_t ioWakeupEvent = 0;
 extern uint8_t noBatteryTurnOn;
 
 void PowerManagementInit(bool _reset) {
-	uint16_t var = 0;
-	EE_ReadVariable(NV_RUN_PIN_CONFIG, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		runPinInstallationStatus = var&0xFF;
+	uint8_t var8 = 0;
+	if (nv_read_U8(NV_ADDR_RUN_PIN_CONFIG, &var8) == NV_OK) {
+		runPinInstallationStatus = var8;
 	}
 
 	// TODO - check
@@ -57,7 +56,7 @@ void PowerManagementInit(bool _reset) {
 
 		wakeupOnCharge = 0xFFFF;
 		wakeupOnChargeConfig = 0x7F;
-		if (NvReadVariableU8(WAKEUPONCHARGE_CONFIG_NV_ADDR, (uint8_t*)&wakeupOnChargeConfig) == NV_READ_VARIABLE_SUCCESS) {
+		if (nv_read_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, (uint8_t*)&wakeupOnChargeConfig) == NV_OK) {
 			if (wakeupOnChargeConfig<=100) {
 				wakeupOnChargeConfig |= 0x80;
 			}
@@ -72,8 +71,8 @@ void PowerManagementInit(bool _reset) {
 		if (wakeupOnChargeConfig&0x80)
 			wakeupOnCharge = (wakeupOnChargeConfig&0x7F) <= 100 ? (wakeupOnChargeConfig&0x7F) * 10 : 0xFFFF;
 
-		if (NvReadVariableU8(WATCHDOG_CONFIGL_NV_ADDR, (uint8_t*) &watchdogConfig) != NV_READ_VARIABLE_SUCCESS ||
-		    NvReadVariableU8(WATCHDOG_CONFIGH_NV_ADDR, (uint8_t*)&watchdogConfig+1) != NV_READ_VARIABLE_SUCCESS)
+		if (nv_read_U8(NV_ADDR_WATCHDOG_CONFIGL, (uint8_t*)&watchdogConfig) != NV_OK ||
+		    nv_read_U8(NV_ADDR_WATCHDOG_CONFIGH, (uint8_t*)&watchdogConfig+1) != NV_OK)
     {
 			watchdogConfig  = 0;
 		}
@@ -281,12 +280,11 @@ uint8_t PowerMngmtGetPowerOffCounter(void) {
 void RunPinInstallationStatusSetConfigCmd(uint8_t data[], uint8_t len) {
 	if (data[0] > 1) return;
 
-	EE_WriteVariable(NV_RUN_PIN_CONFIG, data[0] | ((uint16_t)(~data[0])<<8));
+	nv_write_U8(NV_ADDR_RUN_PIN_CONFIG, data[0]);
 
-	uint16_t var = 0;
-	EE_ReadVariable(NV_RUN_PIN_CONFIG, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		runPinInstallationStatus = var&0xFF;
+	uint8_t var8 = 0;
+	if (nv_read_U8(NV_ADDR_RUN_PIN_CONFIG, &var8) == NV_OK) {
+		runPinInstallationStatus = var8;
 	} else {
 		runPinInstallationStatus = RUN_PIN_NOT_INSTALLED;
 	}
@@ -310,11 +308,11 @@ void PowerMngmtConfigureWatchdogCmd(uint8_t data[], uint16_t len) {
 
 	if (data[1]&0x80) {
 		watchdogConfig = d;
-		NvWriteVariableU8(WATCHDOG_CONFIGL_NV_ADDR, watchdogConfig);
-		NvWriteVariableU8(WATCHDOG_CONFIGH_NV_ADDR, watchdogConfig>>8);
+		nv_write_U8(NV_ADDR_WATCHDOG_CONFIGL, watchdogConfig);
+		nv_write_U8(NV_ADDR_WATCHDOG_CONFIGH, watchdogConfig>>8);
 
-		if (NvReadVariableU8(WATCHDOG_CONFIGL_NV_ADDR, (uint8_t*)&watchdogConfig) != NV_READ_VARIABLE_SUCCESS
-		 || NvReadVariableU8(WATCHDOG_CONFIGH_NV_ADDR, (uint8_t*)&watchdogConfig+1) != NV_READ_VARIABLE_SUCCESS
+		if (nv_read_U8(NV_ADDR_WATCHDOG_CONFIGL, (uint8_t*)&watchdogConfig) != NV_OK
+		 || nv_read_U8(NV_ADDR_WATCHDOG_CONFIGH, (uint8_t*)&watchdogConfig+1) != NV_OK
 		 ) {
 			watchdogConfig = 0;
 		}
@@ -351,8 +349,8 @@ void PowerMngmtSetWakeupOnChargeCmd(uint8_t data[], uint16_t len) {
 
 	if (data[0]&0x80) {
 		wakeupOnChargeConfig = (data[0]&0x7F) <= 100 ? data[0] : 0x7F;
-		NvWriteVariableU8(WAKEUPONCHARGE_CONFIG_NV_ADDR, wakeupOnChargeConfig);
-		if (NvReadVariableU8(WAKEUPONCHARGE_CONFIG_NV_ADDR, (uint8_t*)&wakeupOnChargeConfig) != NV_READ_VARIABLE_SUCCESS ) {
+		nv_write_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, wakeupOnChargeConfig);
+		if (nv_read_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, (uint8_t*)&wakeupOnChargeConfig) != NV_OK ) {
 			wakeupOnChargeConfig = 0x7F;
 		}
 

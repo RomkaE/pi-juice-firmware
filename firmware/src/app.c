@@ -44,7 +44,7 @@
 #include <to_refactor/rtc_ds1339_emu.h>
 #include <to_refactor/time_count.h>
 #include "main.h"
-#include "eeprom.h"
+#include "nv.h"
 #include "retained_memory.h"
 #include "charger_bq2416x.h"
 #include "led.h"
@@ -109,13 +109,16 @@ static StackType_t TaskStackApp[1024 * 1];
 
 void ButtonDualLongPressEventCb(void) {
 	// Reset to default
-	NvEreaseAllVariables();
+	nv_Erase();
 
 //	executionState = EXECUTION_STATE_CONFIG_RESET;
+	/* Terminal indication: never returns, and HAL_Delay() spins at the APP task priority, so
+	 * the IWDG is no longer refreshed and resets the board after ~8 s. Pre-existing - TODO.
+	 * led_SetRGB() only queues, but the LED task outranks APP and applies it right away. */
 	while(1) {
-	  LedSetRGB(LED_D1, 150, 0, 0);
+	  led_SetRGB(LED_D1, 150, 0, 0);
 	  HAL_Delay(500);
-	  LedSetRGB(LED_D1, 0, 0, 150);
+	  led_SetRGB(LED_D1, 0, 0, 150);
 	  HAL_Delay(500);
 	}
 }
@@ -155,12 +158,15 @@ static void main_init(void)
     reset_init = true;
   __HAL_RCC_CLEAR_RESET_FLAGS();
 
-	NvInit();
+	/* Not fatal, but worth shouting about: with no usable emulated EEPROM every nv_read_U8()
+	 * fails and the whole configuration silently falls back to its compile time default -
+	 * including the I2C own addresses, which makes the board look dead to the host. */
+	if (nv_Init() != NV_OK)
+	  LOG_ERROR("[NV] Init failed, configuration falls back to defaults");
 
 	// Initialize all configured peripherals
   // TODO:
 	MX_RTC_Init();
-	MX_TIM3_Init();
 	MX_TIM1_Init();
 
 	// TODO - move/remove
@@ -179,20 +185,16 @@ static void main_init(void)
 	PowerSourceInit(reset_init);
 	FuelGaugeInit(reset_init);
 	PowerManagementInit(reset_init);
-	LedInit();
 	ButtonInit();
 
 	IoControlInit();
 
 	// EEPROM IC management:
 	HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, GPIO_PIN_SET); // ee write protect
-	uint16_t var = 0;
-	EE_ReadVariable(ID_EEPROM_ADR_NV_ADDR, &var);
-	if ( (((~var)&0xFF) == (var>>8)) ) {
-		HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN, (var&0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-	} else {
-		HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN, GPIO_PIN_RESET); // default ee Adr
-	}
+	uint8_t eeAddr = 0;   // nothing valid stored -> 0, which selects the default ee address
+	(void)nv_read_U8(NV_ADDR_ID_EEPROM_ADR, &eeAddr);
+	HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN,
+	                  (eeAddr & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
 	// I2C master and 2 devices init:
   {
@@ -236,7 +238,6 @@ static void main_poll(void)
       alarmEventFlag = 0;
       __HAL_RTC_ALARM_CLEAR_FLAG(&hrtc, RTC_FLAG_ALRAF);
     }
-    LedTask();
     ButtonTask();
     PowerManagementTask();
 
@@ -274,6 +275,7 @@ static void TaskApp(void *parameters)
 
   // Subsystems initialization:
   analog_Init();
+  led_Init();   // after main_init(): the task needs nv_Init() and bsp_ClockConfig() done
 
   while(1)
   {

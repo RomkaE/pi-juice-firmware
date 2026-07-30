@@ -174,52 +174,34 @@ static ButtonFunction_T GetFuncOfEvent(uint8_t b) {
 	}
 }
 
+/* NV offsets of the ten configuration bytes within one button's block, relative to its
+ * BUTTON_PRESS_FUNC_SWx entry. The gaps are the reserved *_CONFIG slots of the press and
+ * release events, which are never stored. Shared by the read and the write path below. */
+static const uint8_t buttonNvOffsets[10] = { 0, 2, 4, 5, 6, 7, 8, 9, 10, 11 };
+
 static uint8_t ButtonReadConfigurationNv(uint8_t b) {
-	uint8_t nvOffset = b * (BUTTON_PRESS_FUNC_SW2 - BUTTON_PRESS_FUNC_SW1) + BUTTON_PRESS_FUNC_SW1;
-	uint8_t dataValid = 1;
-	uint16_t var;
+	uint8_t nvOffset = b * (NV_ADDR_BUTTON_PRESS_FUNC_SW2 - NV_ADDR_BUTTON_PRESS_FUNC_SW1) + NV_ADDR_BUTTON_PRESS_FUNC_SW1;
+	uint8_t val[10];
 
-	EE_ReadVariable(nvOffset, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	buttonConfigData.pressFunc = var&0xFF;
+	/* Nothing is applied unless the whole block reads back valid, so bail out on the first
+	 * failure - the caller discards buttonConfigData on a non zero result anyway. */
+	for (uint8_t i = 0; i < 10; i++) {
+		if (nv_read_U8(nvOffset + buttonNvOffsets[i], &val[i]) != NV_OK)
+			return 1;
+	}
 
-	EE_ReadVariable(nvOffset + 2, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	buttonConfigData.releaseFunc = var&0xFF;
+	buttonConfigData.pressFunc       = val[0];
+	buttonConfigData.releaseFunc     = val[1];
+	buttonConfigData.singlePressFunc = val[2];
+	buttonConfigData.singlePressTime = val[3];
+	buttonConfigData.doublePressFunc = val[4];
+	buttonConfigData.doublePressTime = val[5];
+	buttonConfigData.longPressFunc1  = val[6];
+	buttonConfigData.longPressTime1  = val[7];
+	buttonConfigData.longPressFunc2  = val[8];
+	buttonConfigData.longPressTime2  = val[9];
 
-	EE_ReadVariable(nvOffset + 4, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	buttonConfigData.singlePressFunc = var&0xFF;
-
-	EE_ReadVariable(nvOffset + 5, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	buttonConfigData.singlePressTime = var&0xFF;
-
-	EE_ReadVariable(nvOffset + 6, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	buttonConfigData.doublePressFunc = var&0xFF;
-
-	EE_ReadVariable(nvOffset + 7, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	buttonConfigData.doublePressTime = var&0xFF;
-
-	EE_ReadVariable(nvOffset + 8, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	buttonConfigData.longPressFunc1 = var&0xFF;
-
-	EE_ReadVariable(nvOffset + 9, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	buttonConfigData.longPressTime1 = var&0xFF;
-
-	EE_ReadVariable(nvOffset + 10, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	buttonConfigData.longPressFunc2 = var&0xFF;
-
-	EE_ReadVariable(nvOffset + 11, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	buttonConfigData.longPressTime2 = var&0xFF;
-
-	return !dataValid;
+	return 0;
 }
 
 static void ButtonSetConfigData(uint8_t b) {
@@ -278,17 +260,16 @@ void ButtonTask(void) {
 	if ((buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent) > oldDualLongPressStatus) ButtonDualLongPressEventCb();
 
 	if (writebuttonConfigData >= 0) {
-		uint8_t nvOffset = writebuttonConfigData * (BUTTON_PRESS_FUNC_SW2 - BUTTON_PRESS_FUNC_SW1) + BUTTON_PRESS_FUNC_SW1;
-		EE_WriteVariable(nvOffset, buttonConfigData.pressFunc | ((uint16_t)(~buttonConfigData.pressFunc)<<8));
-		EE_WriteVariable(nvOffset + 2, buttonConfigData.releaseFunc | ((uint16_t)(~buttonConfigData.releaseFunc)<<8));
-		EE_WriteVariable(nvOffset + 4, buttonConfigData.singlePressFunc | ((uint16_t)(~buttonConfigData.singlePressFunc)<<8));
-		EE_WriteVariable(nvOffset + 5, buttonConfigData.singlePressTime | ((uint16_t)(~buttonConfigData.singlePressTime)<<8));
-		EE_WriteVariable(nvOffset + 6, buttonConfigData.doublePressFunc | ((uint16_t)(~buttonConfigData.doublePressFunc)<<8));
-		EE_WriteVariable(nvOffset + 7, buttonConfigData.doublePressTime | ((uint16_t)(~buttonConfigData.doublePressTime)<<8));
-		EE_WriteVariable(nvOffset + 8, buttonConfigData.longPressFunc1 | ((uint16_t)(~buttonConfigData.longPressFunc1)<<8));
-		EE_WriteVariable(nvOffset + 9, buttonConfigData.longPressTime1 | ((uint16_t)(~buttonConfigData.longPressTime1)<<8));
-		EE_WriteVariable(nvOffset + 10, buttonConfigData.longPressFunc2 | ((uint16_t)(~buttonConfigData.longPressFunc2)<<8));
-		EE_WriteVariable(nvOffset + 11, buttonConfigData.longPressTime2 | ((uint16_t)(~buttonConfigData.longPressTime2)<<8));
+		uint8_t nvOffset = writebuttonConfigData * (NV_ADDR_BUTTON_PRESS_FUNC_SW2 - NV_ADDR_BUTTON_PRESS_FUNC_SW1) + NV_ADDR_BUTTON_PRESS_FUNC_SW1;
+		const uint8_t val[10] = {
+			buttonConfigData.pressFunc,       buttonConfigData.releaseFunc,
+			buttonConfigData.singlePressFunc, buttonConfigData.singlePressTime,
+			buttonConfigData.doublePressFunc, buttonConfigData.doublePressTime,
+			buttonConfigData.longPressFunc1,  buttonConfigData.longPressTime1,
+			buttonConfigData.longPressFunc2,  buttonConfigData.longPressTime2
+		};
+		for (uint8_t i = 0; i < 10; i++)
+			nv_write_U8(nvOffset + buttonNvOffsets[i], val[i]);
 
 		if ( ButtonReadConfigurationNv(writebuttonConfigData) == 0 ) {
 			ButtonSetConfigData(writebuttonConfigData);

@@ -583,7 +583,7 @@ void CmdServerReadWriteChargeCurrent(uint8_t dir, uint8_t *pData, uint16_t *data
 		if (batProfileId == BATTERY_CUSTOM_PROFILE_ID) {
 			SetChargeCurrentReq(pData[1]);
 			currentBatProfile.chargeCurrent = pData[1];
-			NvSaveParameterReq(CHARGE_CURRENT_NV_ADDR, pData[1]);
+			NvSaveParameterReq(NV_ADDR_CHARGE_CURRENT, pData[1]);
 		}
 	} else {
 		pData[0] = BatteryGetProfile()->chargeCurrent;//CHARGE_CURRENT;
@@ -596,7 +596,7 @@ void CmdServerReadWriteTerminationCurrent(uint8_t dir, uint8_t *pData, uint16_t 
 		if (batProfileId == BATTERY_CUSTOM_PROFILE_ID) {
 			SetChargeTerminationCurrentReq(pData[1]);
 			currentBatProfile.terminationCurr = pData[1];
-			NvSaveParameterReq(CHARGE_TERM_CURRENT_NV_ADDR, pData[1]);
+			NvSaveParameterReq(NV_ADDR_CHARGE_TERM_CURRENT, pData[1]);
 		}
 	} else {
 		pData[0] = BatteryGetProfile()->terminationCurr;//CHARGE_TERMINATION_CURRENT;
@@ -609,7 +609,7 @@ void CmdServerReadWriteBatRegVoltage(uint8_t dir, uint8_t *pData, uint16_t *data
 		if (batProfileId == BATTERY_CUSTOM_PROFILE_ID) {
 			SetBatRegulationVoltageReq(pData[1]);
 			currentBatProfile.regulationVoltage = pData[1];
-			NvSaveParameterReq(BAT_REG_VOLTAGE_NV_ADDR, pData[1]);
+			NvSaveParameterReq(NV_ADDR_BAT_REG_VOLTAGE, pData[1]);
 		}
 	} else {
 		pData[0] = BatteryGetProfile()->regulationVoltage;//BAT_REG_VOLTAGE;
@@ -854,49 +854,49 @@ void CmdServerReadWriteButtonConfigurationSw3(uint8_t dir, uint8_t *pData, uint1
 
 void CmdServerReadWriteLedState1(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		LedCmdSetState(0, pData+1, *dataLen - 1);
+		led_CmdSetState(0, pData+1, *dataLen - 1);
 	} else {
-		LedCmdGetState(0, pData, dataLen);
+		led_CmdGetState(0, pData, dataLen);
 	}
 }
 
 void CmdServerReadWriteLedState2(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		LedCmdSetState(1, pData+1, *dataLen - 1);
+		led_CmdSetState(1, pData+1, *dataLen - 1);
 	} else {
-		LedCmdGetState(1, pData, dataLen);
+		led_CmdGetState(1, pData, dataLen);
 	}
 }
 
 void CmdServerReadWriteLedBlink1(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		LedCmdSetBlink(0, pData+1, *dataLen - 1);
+		led_CmdSetBlink(0, pData+1, *dataLen - 1);
 	} else {
-		LedCmdGetBlink(0, pData, dataLen);
+		led_CmdGetBlink(0, pData, dataLen);
 	}
 }
 
 void CmdServerReadWriteLedBlink2(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		LedCmdSetBlink(1, pData+1, *dataLen - 1);
+		led_CmdSetBlink(1, pData+1, *dataLen - 1);
 	} else {
-		LedCmdGetBlink(1, pData, dataLen);
+		led_CmdGetBlink(1, pData, dataLen);
 	}
 }
 
 void CmdServerReadWriteLedConfigurationLED1(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		LedSetConfiguarion(0, pData+1, *dataLen - 1);
+		led_CmdSetConfig(0, pData+1, *dataLen - 1);
 	} else {
-		LedGetConfiguarion(0, pData, dataLen);
+		led_CmdGetConfig(0, pData, dataLen);
 	}
 }
 
 void CmdServerReadWriteLedConfigurationLED2(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		LedSetConfiguarion(1, pData+1, *dataLen - 1);
+		led_CmdSetConfig(1, pData+1, *dataLen - 1);
 	} else {
-		LedGetConfiguarion(1, pData, dataLen);
+		led_CmdGetConfig(1, pData, dataLen);
 	}
 }
 
@@ -928,10 +928,9 @@ void CmdServerReadWriteOwnAddress1(uint8_t dir, uint8_t *pData, uint16_t *dataLe
 	if (dir == MASTER_CMD_DIR_WRITE) {
 		uint8_t adr = pData[1]*2;
 		if (pData[1] > 0 && pData[1] < 128 && hi2c1.Init.OwnAddress1 != adr ){
-			EE_WriteVariable(OWN_ADDRESS1_NV_ADDR, adr | ((uint16_t)~adr<<8));
-			uint16_t var = 0;
-			EE_ReadVariable(OWN_ADDRESS1_NV_ADDR, &var);
-			if ( (var&0xFF) == adr && (((~var)&0xFF) == (var>>8)) ) {
+			nv_write_U8(NV_ADDR_OWN_ADDRESS1, adr);
+			uint8_t stored = 0;
+			if ( nv_read_U8(NV_ADDR_OWN_ADDRESS1, &stored) == NV_OK && stored == adr ) {
 				// if successfully saved reinitialize I2C with new address
 				hi2c1.Init.OwnAddress1 = adr;
 				if (HAL_I2C_DeInit(&hi2c1) != HAL_OK)
@@ -954,10 +953,9 @@ void CmdServerReadWriteOwnAddress2(uint8_t dir, uint8_t *pData, uint16_t *dataLe
 	if (dir == MASTER_CMD_DIR_WRITE) {
 		uint8_t adr = pData[1]*2;
 		if (pData[1] > 0 && pData[1] < 128 && hi2c1.Init.OwnAddress2 != adr ){
-			EE_WriteVariable(OWN_ADDRESS2_NV_ADDR, adr | ((uint16_t)~adr<<8));
-			uint16_t var = 0;
-			EE_ReadVariable(OWN_ADDRESS2_NV_ADDR, &var);
-			if ( (var&0xFF) == adr && (((~var)&0xFF) == (var>>8)) ) {
+			nv_write_U8(NV_ADDR_OWN_ADDRESS2, adr);
+			uint8_t stored = 0;
+			if ( nv_read_U8(NV_ADDR_OWN_ADDRESS2, &stored) == NV_OK && stored == adr ) {
 				// if successfully saved reinitialize I2C with new address
 				hi2c1.Init.OwnAddress2 = adr;
 				if (HAL_I2C_DeInit(&hi2c1) != HAL_OK)
@@ -989,10 +987,9 @@ void CmdServerReadWriteEEPROM_WriteAddress(uint8_t dir, uint8_t *pData, uint16_t
 	if (dir == MASTER_CMD_DIR_WRITE) {
 		uint8_t adrState = HAL_GPIO_ReadPin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN) == GPIO_PIN_SET ? 0x52 : 0x50;
 		if ( (pData[1] == 0x50 || pData[1] == 0x52) && adrState != pData[1] ){
-			EE_WriteVariable(ID_EEPROM_ADR_NV_ADDR, pData[1] | ((uint16_t)~(pData[1])<<8));
-			uint16_t var = 0;
-			EE_ReadVariable(ID_EEPROM_ADR_NV_ADDR, &var);
-			if ( (var&0xFF) == pData[1] && (((~var)&0xFF) == (var>>8)) ) {
+			nv_write_U8(NV_ADDR_ID_EEPROM_ADR, pData[1]);
+			uint8_t stored = 0;
+			if ( nv_read_U8(NV_ADDR_ID_EEPROM_ADR, &stored) == NV_OK && stored == pData[1] ) {
 				HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN, (pData[1]&0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 			}
 		}

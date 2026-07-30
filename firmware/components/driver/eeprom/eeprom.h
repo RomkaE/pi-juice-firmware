@@ -70,7 +70,7 @@
 #define PAGE_FULL             ((uint8_t)0x80)
 
 /* Variables' number */
-#define NB_OF_VAR             NV_VAR_NUM//((uint8_t)0x04)
+#define NB_OF_VAR             NV_ADDR_NUM//((uint8_t)0x04)
 
 /** @defgroup FLASH_Timeout_definition 
   * @{

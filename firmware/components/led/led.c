@@ -5,322 +5,742 @@
  *      Author: milan
  */
 
-#include <to_refactor/time_count.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include "led.h"
-#include "stm32f0xx_hal.h"
 #include "nv.h"
-#include "main.h"
+#include "app-error/app_error.h"
+#include "app-error/app_assert.h"
 
+// ST HAL/CubeMX:
+#include "stm32f0xx_hal.h"
+#include "cube-mx/tim.h"
 
-extern TIM_HandleTypeDef htim3;
-//GPIO_InitTypeDef GPIO_InitStruct;
+// FreeRTOS:
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+
+// LOG:
+#include "log/log.h"
+
+/*
+ * Host blink period unit: registers 104/105 carry the two phase durations in steps of 10 ms.
+ * At configTICK_RATE_HZ 100 that is exactly one tick, so the whole blink engine works in ticks
+ * and the task can sleep until the next phase boundary instead of being polled.
+ */
+#define LED_BLINK_UNIT_MS         10U
+#define LED_BLINK_UNIT_TICKS      (pdMS_TO_TICKS(LED_BLINK_UNIT_MS))
+
+/* Command types carried by the task queue. */
+typedef enum
+{
+  LED_CMD_SET_RGB = 1,    // led_SetRGB()      - raw PWM override
+  LED_CMD_SET_FUNC_RGB,   // led_SetFuncRGB()  - base colour of the assigned function
+  LED_CMD_STATE,          // host register 102
+  LED_CMD_BLINK,          // host register 104
+  LED_CMD_CONFIG,         // host register 106 - the only command that touches the flash
+  LED_CMD_STOP,           // led_Stop()
+  LED_CMD_START           // led_Start()
+} LedCmdType_T;
 
 typedef struct
 {
-	LedFunction_T func;
-	uint8_t paramR;
-	uint8_t paramG;
-	uint8_t paramB;
+  uint8_t r, g, b;
+} LedRgb_T;
 
-	uint8_t r;
-	uint8_t g;
-	uint8_t b;
+typedef struct
+{
+  uint8_t func;
+  uint8_t r, g, b;
+} LedFuncRgb_T;
 
-	uint8_t blinkRepeat;
+typedef struct
+{
+  uint8_t func;
+  uint8_t paramR, paramG, paramB;
+} LedCfg_T;
 
-	uint8_t blinkR1;
-	uint8_t blinkG1;
-	uint8_t blinkB1;
-	uint16_t blinkPeriod1;
+/* Blink request exactly as the host sends it: periods still in LED_BLINK_UNIT_MS steps. */
+typedef struct
+{
+  uint8_t repeat;
+  uint8_t r1, g1, b1, period1;
+  uint8_t r2, g2, b2, period2;
+} LedBlink_T;
 
-	uint8_t blinkR2;
-	uint8_t blinkG2;
-	uint8_t blinkB2;
-	uint16_t blinkPeriod2;
+/*
+ * Queue item. `type` is kept as uint8_t rather than LedCmdType_T on purpose: an enum member
+ * would force 4-byte alignment and grow the item from 11 to 16 bytes.
+ * `seq` is only meaningful for the three host register commands - see the request mirror below.
+ */
+typedef struct
+{
+  uint8_t type;
+  uint8_t seq;
+  union
+  {
+    LedRgb_T     rgb;
+    LedFuncRgb_T funcRgb;
+    LedBlink_T   blink;
+    LedCfg_T     cfg;
+  } data;
+} LedCmd_T;
 
-	uint16_t blinkCount;
-	uint32_t blinkTimer;
+/* Runtime state of the LED, owned by the task. */
+typedef struct
+{
+  uint8_t r, g, b;          // base colour
 
+  uint8_t blinkRepeat;
+  uint8_t blinkR1, blinkG1, blinkB1;
+  uint8_t blinkR2, blinkG2, blinkB2;
+  TickType_t blinkTicks1;   // phase 1 duration, at least 1 tick
+  TickType_t blinkTicks2;   // phase 2 duration, at least 1 tick
+  uint16_t blinkCount;      // remaining phases, 0 - no blink running
+  TickType_t blinkDeadline; // tick at which the current phase ends
 } Led_T;
 
-static Led_T s_LED = { LED_CHARGE_STATUS, 60, 60, 100};
+// Applied state, written only by the task:
+static Led_T s_Led;
+static LedCfg_T s_Cfg = { LED_CHARGE_STATUS, 60, 60, 100 };
 
+/*
+ * Request mirror. A host register write is applied asynchronously by the task, but the host
+ * routinely reads the same register back in the next I2C transaction to verify the write, and
+ * that read is served from the I2C1 interrupt. Reporting the applied state there would answer
+ * with stale data - for register 106 by tens of milliseconds, because applying it can trigger
+ * an emulated EEPROM page transfer (~130 variable copies plus a page erase).
+ *
+ * So each of the three register writes keeps its requested values plus a sequence number that
+ * is bumped only after the command has been queued; the task copies the sequence number out of
+ * the command it applied. A getter answers from the mirror while req != applied, and from the
+ * applied state otherwise. Every one of these variables has exactly one writer, so no locking
+ * is needed on either side.
+ */
+static LedRgb_T s_ReqState;
+static LedBlink_T s_ReqBlink;
+static LedCfg_T s_ReqCfg;
+static volatile uint8_t s_ReqStateSeq, s_ReqBlinkSeq, s_ReqCfgSeq;
+static volatile uint8_t s_AppliedStateSeq, s_AppliedBlinkSeq, s_AppliedCfgSeq;
+
+static uint32_t s_ErrMask;  // LED_ERR_* bits, set from the task and from the I2C1 interrupt
+
+// FreeRTOS task:
+static TaskHandle_t s_TaskHandle;
+static StaticTask_t TaskTCB;
+static StackType_t TaskStack[512];   // TODO - remove magic number
+
+// Command queue:
+static QueueHandle_t s_QueHandle;
+static StaticQueue_t s_Que;
+static LedCmd_T s_QueBuf[8];         // TODO - remove magic number
+
+// HAL instances:
+extern TIM_HandleTypeDef htim3;
+
+/* Gamma corrected duty per 8-bit intensity, stored inverted - see setRGB(). */
 static const uint16_t pwm_table[] = {
-     65535,    65508,    65479,    65451,    65422,    65394,    65365,    65337,
-     65308,    65280,    65251,    65223,    65195,    65166,    65138,    65109,
-     65081,    65052,    65024,    64995,    64967,    64938,    64909,    64878,
-     64847,    64815,    64781,    64747,    64711,    64675,    64637,    64599,
-     64559,    64518,    64476,    64433,    64389,    64344,    64297,    64249,
-     64200,    64150,    64099,    64046,    63992,    63937,    63880,    63822,
-     63763,    63702,    63640,    63577,    63512,    63446,    63379,    63310,
-     63239,    63167,    63094,    63019,    62943,    62865,    62785,    62704,
-     62621,    62537,    62451,    62364,    62275,    62184,    62092,    61998,
-     61902,    61804,    61705,    61604,    61501,    61397,    61290,    61182,
-     61072,    60961,    60847,    60732,    60614,    60495,    60374,    60251,
-     60126,    59999,    59870,    59739,    59606,    59471,    59334,    59195,
-     59053,    58910,    58765,    58618,    58468,    58316,    58163,    58007,
-     57848,    57688,    57525,    57361,    57194,    57024,    56853,    56679,
-     56503,    56324,    56143,    55960,    55774,    55586,    55396,    55203,
-     55008,    54810,    54610,    54408,    54203,    53995,    53785,    53572,
-     53357,    53140,    52919,    52696,    52471,    52243,    52012,    51778,
-     51542,    51304,    51062,    50818,    50571,    50321,    50069,    49813,
-     49555,    49295,    49031,    48764,    48495,    48223,    47948,    47670,
-     47389,    47105,    46818,    46529,    46236,    45940,    45641,    45340,
-     45035,    44727,    44416,    44102,    43785,    43465,    43142,    42815,
-     42486,    42153,    41817,    41478,    41135,    40790,    40441,    40089,
-     39733,    39375,    39013,    38647,    38279,    37907,    37531,    37153,
-     36770,    36385,    35996,    35603,    35207,    34808,    34405,    33999,
-     33589,    33175,    32758,    32338,    31913,    31486,    31054,    30619,
-     30181,    29738,    29292,    28843,    28389,    27932,    27471,    27007,
-     26539,    26066,    25590,    25111,    24627,    24140,    23649,    23153,
-     22654,    22152,    21645,    21134,    20619,    20101,    19578,    19051,
-     18521,    17986,    17447,    16905,    16358,    15807,    15252,    14693,
-     14129,    13562,    12990,    12415,    11835,    11251,    10662,    10070,
-     9473,    8872,    8266,    7657,    7043,    6424,    5802,    5175,
-     4543,    3908,    3267,    2623,    1974,    1320,    662,    0
+    0,     27,    56,    84,    113,   141,   170,   198,
+    227,   255,   284,   312,   340,   369,   397,   426,
+    454,   483,   511,   540,   568,   597,   626,   657,
+    688,   720,   754,   788,   824,   860,   898,   936,
+    976,   1017,  1059,  1102,  1146,  1191,  1238,  1286,
+    1335,  1385,  1436,  1489,  1543,  1598,  1655,  1713,
+    1772,  1833,  1895,  1958,  2023,  2089,  2156,  2225,
+    2296,  2368,  2441,  2516,  2592,  2670,  2750,  2831,
+    2914,  2998,  3084,  3171,  3260,  3351,  3443,  3537,
+    3633,  3731,  3830,  3931,  4034,  4138,  4245,  4353,
+    4463,  4574,  4688,  4803,  4921,  5040,  5161,  5284,
+    5409,  5536,  5665,  5796,  5929,  6064,  6201,  6340,
+    6482,  6625,  6770,  6917,  7067,  7219,  7372,  7528,
+    7687,  7847,  8010,  8174,  8341,  8511,  8682,  8856,
+    9032,  9211,  9392,  9575,  9761,  9949,  10139, 10332,
+    10527, 10725, 10925, 11127, 11332, 11540, 11750, 11963,
+    12178, 12395, 12616, 12839, 13064, 13292, 13523, 13757,
+    13993, 14231, 14473, 14717, 14964, 15214, 15466, 15722,
+    15980, 16240, 16504, 16771, 17040, 17312, 17587, 17865,
+    18146, 18430, 18717, 19006, 19299, 19595, 19894, 20195,
+    20500, 20808, 21119, 21433, 21750, 22070, 22393, 22720,
+    23049, 23382, 23718, 24057, 24400, 24745, 25094, 25446,
+    25802, 26160, 26522, 26888, 27256, 27628, 28004, 28382,
+    28765, 29150, 29539, 29932, 30328, 30727, 31130, 31536,
+    31946, 32360, 32777, 33197, 33622, 34049, 34481, 34916,
+    35354, 35797, 36243, 36692, 37146, 37603, 38064, 38528,
+    38996, 39469, 39945, 40424, 40908, 41395, 41886, 42382,
+    42881, 43383, 43890, 44401, 44916, 45434, 45957, 46484,
+    47014, 47549, 48088, 48630, 49177, 49728, 50283, 50842,
+    51406, 51973, 52545, 53120, 53700, 54284, 54873, 55465,
+    56062, 56663, 57269, 57878, 58492, 59111, 59733, 60360,
+    60992, 61627, 62268, 62912, 63561, 64215, 64873, 65535
  };
 
-void LedInit(void)
+/*============================ TASK PRIVATE ==================================*/
+
+/* TIM3 CH1/CH2/CH3 duty. Called from the task only, so the three channels never tear. */
+static void setRGB(uint8_t _r, uint8_t _g, uint8_t _b)
 {
-  // Start LED_D1 red (TIM3_CH1)
-  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1) != HAL_OK)
+  TIM3->CCR1 = pwm_table[_r];
+  TIM3->CCR2 = pwm_table[_g];
+  TIM3->CCR3 = pwm_table[_b];
+}
+
+/* Applies the colour that belongs to the current configuration. */
+static void applyCfgColour(void)
+{
+  if (s_Cfg.func == LED_USER_LED)
   {
-    // PWM generation Error
-    Error_Handler();
-  }
-
-  // Start LED_D1 green (TIM3_CH2)
-  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2) != HAL_OK)
-  {
-    // PWM generation Error
-    Error_Handler();
-  }
-
-  // Start LED_D1 blue (TIM3_CH3)
-  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3) != HAL_OK)
-  {
-    // PWM generation Error
-    Error_Handler();
-  }
-
-	uint16_t var = 0;
-	EE_ReadVariable(NV_LED_D1_FUNC, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		s_LED.func = var&0xFF;
-	}
-	EE_ReadVariable(NV_LED_D1_PARAM_R, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		s_LED.paramR = var&0xFF;
-	}
-	EE_ReadVariable(NV_LED_D1_PARAM_G, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		s_LED.paramG = var&0xFF;
-	}
-	EE_ReadVariable(NV_LED_D1_PARAM_B, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		s_LED.paramB = var&0xFF;
-	}
-	if (s_LED.func == LED_USER_LED) {
-		LedSetRGB(LED_D1, s_LED.paramR, s_LED.paramG, s_LED.paramB);
-	}else {
-		LedSetRGB(LED_D1, 0, 0, 0);
-	}
-}
-
-uint8_t LedGetParamR(uint8_t func) {
-	if (s_LED.func == func)
-		return s_LED.paramR;
-	return 0;
-}
-uint8_t LedGetParamG(uint8_t func) {
-	if (s_LED.func == func)
-		return s_LED.paramG;
-	return 0;
-}
-uint8_t LedGetParamB(uint8_t func) {
-	if (s_LED.func == func)
-		return s_LED.paramB;
-	return 0;
-}
-
-static void ProcessBlink(void) {
-	if (s_LED.blinkCount) {
-		if ( (s_LED.blinkCount & 0x1) ) {
-			// odd count for off color
-			if (MS_TIME_COUNT(s_LED.blinkTimer) >= s_LED.blinkPeriod2) {
-				MS_TIME_COUNTER_INIT(s_LED.blinkTimer);
-				s_LED.blinkCount --;
-				if (s_LED.blinkCount == 0) {
-					if (s_LED.blinkRepeat == 0xFF) {
-						s_LED.blinkCount = 256;
-					} else {
-						LedSetRGB(LED_D1, s_LED.r, s_LED.g, s_LED.b);
-					}
-				} else
-					LedSetRGB(LED_D1, s_LED.blinkR1, s_LED.blinkG1, s_LED.blinkB1);
-			}
-		} else {
-			// even count for on color
-			if (MS_TIME_COUNT(s_LED.blinkTimer) >= s_LED.blinkPeriod1) {
-				LedSetRGB(LED_D1, s_LED.blinkR2, s_LED.blinkG2, s_LED.blinkB2);
-				MS_TIME_COUNTER_INIT(s_LED.blinkTimer);
-				s_LED.blinkCount --;
-			}
-		}
-	}
-}
-
-void LedTask(void) {
-	ProcessBlink();
-}
-void LedSetRGB(uint8_t led, uint8_t r, uint8_t g, uint8_t b) {
-  if (led == LED_D1)
-  {
-    TIM3->CCR1 = 65535 - pwm_table[r];
-    TIM3->CCR2 = 65535 - pwm_table[g];
-    TIM3->CCR3 = 65535 - pwm_table[b];
+    taskENTER_CRITICAL();
+    s_Led.r = s_Cfg.paramR;
+    s_Led.g = s_Cfg.paramG;
+    s_Led.b = s_Cfg.paramB;
+    taskEXIT_CRITICAL();
+    setRGB(s_Led.r, s_Led.g, s_Led.b);
   }
   else
   {
-    // TODO - error logs
+    setRGB(0, 0, 0);
   }
 }
 
-void LedFunctionSetRGB(LedFunction_T func, uint8_t r, uint8_t g, uint8_t b) {
-	if (s_LED.func == func) {
-		s_LED.r = r;
-		s_LED.g = g;
-		s_LED.b = b;
-		s_LED.blinkRepeat = 0;
-		s_LED.blinkCount = 0;
-		LedSetRGB(LED_D1, r, g, b);
-	}
-}
+/*
+ * Reads the configuration from the emulated EEPROM. A variable that is missing or fails its
+ * complement check keeps the compiled in default in s_Cfg.
+ */
+static void loadConfig(void)
+{
+  LedCfg_T cfg = s_Cfg;
 
-void LedStop(void) {
-	if ((htim3.Instance->CR1 & TIM_CR1_CEN) == TIM_CR1_CEN) {
-		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
-		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
-		HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_3);
-	}
-}
+  (void)nv_read_U8(NV_ADDR_LED_D1_FUNC, &cfg.func);
+  (void)nv_read_U8(NV_ADDR_LED_D1_PARAM_R, &cfg.paramR);
+  (void)nv_read_U8(NV_ADDR_LED_D1_PARAM_G, &cfg.paramG);
+  (void)nv_read_U8(NV_ADDR_LED_D1_PARAM_B, &cfg.paramB);
 
-void LedStart(void) {
-	if ((htim3.Instance->CR1 & TIM_CR1_CEN) == 0)
-		LedInit();
-}
+  taskENTER_CRITICAL();
+  s_Cfg = cfg;                  // func and the three params must become visible together
+  taskEXIT_CRITICAL();
 
-void LedSetConfiguarion(uint8_t led, uint8_t data[], uint8_t len) {
-	uint16_t var = 0;
-	if (led == LED_D1) {
-		NvWriteVariableU8(NV_LED_D1_FUNC, data[0]);
-		NvWriteVariableU8(NV_LED_D1_PARAM_R, data[1]);
-		NvWriteVariableU8(NV_LED_D1_PARAM_G, data[2]);
-		NvWriteVariableU8(NV_LED_D1_PARAM_B, data[3]);
-
-		EE_ReadVariable(NV_LED_D1_FUNC, &var);
-		if (((~var)&0xFF) == (var>>8)) {
-			s_LED.func = var&0xFF;
-		}
-		EE_ReadVariable(NV_LED_D1_PARAM_R, &var);
-		if (((~var)&0xFF) == (var>>8)) {
-			s_LED.paramR = var&0xFF;
-		}
-		EE_ReadVariable(NV_LED_D1_PARAM_G, &var);
-		if (((~var)&0xFF) == (var>>8)) {
-			s_LED.paramG = var&0xFF;
-		}
-		EE_ReadVariable(NV_LED_D1_PARAM_B, &var);
-		if (((~var)&0xFF) == (var>>8)) {
-			s_LED.paramB = var&0xFF;
-		}
-		if (s_LED.func == LED_USER_LED) {
-			LedSetRGB(LED_D1, s_LED.paramR, s_LED.paramG, s_LED.paramB);
-		}else {
-			LedSetRGB(LED_D1, 0, 0, 0);
-		}
-	}
-	else
-	{
-	  // TODO - error logs
-	}
+  applyCfgColour();
 }
 
 /*
- * Only D1 is populated, so the second LED's registers (0x103, 0x105, 0x107) answer with
+ * Persists a configuration and reads it back for verification. This is the one place in the
+ * module that programs the flash - previously it ran inside the I2C1 interrupt, stalling the
+ * bus for the whole duration of a page transfer.
+ */
+static void applyConfig(const LedCfg_T *_pCfg)
+{
+  nv_write_U8(NV_ADDR_LED_D1_FUNC, _pCfg->func);
+  nv_write_U8(NV_ADDR_LED_D1_PARAM_R, _pCfg->paramR);
+  nv_write_U8(NV_ADDR_LED_D1_PARAM_G, _pCfg->paramG);
+  nv_write_U8(NV_ADDR_LED_D1_PARAM_B, _pCfg->paramB);
+
+  LedCfg_T cfg = s_Cfg;         // anything that fails to read back keeps its current value
+  bool valid = true;
+  valid &= (nv_read_U8(NV_ADDR_LED_D1_FUNC, &cfg.func) == NV_OK);
+  valid &= (nv_read_U8(NV_ADDR_LED_D1_PARAM_R, &cfg.paramR) == NV_OK);
+  valid &= (nv_read_U8(NV_ADDR_LED_D1_PARAM_G, &cfg.paramG) == NV_OK);
+  valid &= (nv_read_U8(NV_ADDR_LED_D1_PARAM_B, &cfg.paramB) == NV_OK);
+
+  if (!valid)
+  {
+    LOG_ERROR("[LED] Configuration NV read back failed");
+    taskENTER_CRITICAL();
+    s_ErrMask |= LED_ERR_NV_WRITE;
+    taskEXIT_CRITICAL();
+  }
+
+  taskENTER_CRITICAL();
+  s_Cfg = cfg;
+  taskEXIT_CRITICAL();
+
+  applyCfgColour();
+}
+
+static void applyBlink(const LedBlink_T *_pBlink)
+{
+  /*
+   * Clamp both phases to one tick. A zero period used to cost one main_poll() sweep per phase,
+   * but an event driven task would get a zero length timeout instead and, combined with
+   * repeat == 0xFF, would spin at its own priority forever and starve APP until the IWDG fires.
+   */
+  TickType_t ticks1 = (TickType_t)_pBlink->period1 * LED_BLINK_UNIT_TICKS;
+  TickType_t ticks2 = (TickType_t)_pBlink->period2 * LED_BLINK_UNIT_TICKS;
+  if (ticks1 == 0)
+    ticks1 = 1;
+  if (ticks2 == 0)
+    ticks2 = 1;
+
+  taskENTER_CRITICAL();
+  s_Led.blinkRepeat = _pBlink->repeat;
+  s_Led.blinkCount = (uint16_t)_pBlink->repeat << 1;   // two phases per blink
+  s_Led.blinkR1 = _pBlink->r1;
+  s_Led.blinkG1 = _pBlink->g1;
+  s_Led.blinkB1 = _pBlink->b1;
+  s_Led.blinkR2 = _pBlink->r2;
+  s_Led.blinkG2 = _pBlink->g2;
+  s_Led.blinkB2 = _pBlink->b2;
+  s_Led.blinkTicks1 = ticks1;
+  s_Led.blinkTicks2 = ticks2;
+  taskEXIT_CRITICAL();
+
+  if (s_Led.blinkRepeat)
+  {
+    setRGB(s_Led.blinkR1, s_Led.blinkG1, s_Led.blinkB1);
+    s_Led.blinkDeadline = xTaskGetTickCount() + s_Led.blinkTicks1;
+  }
+  else
+  {
+    setRGB(s_Led.r, s_Led.g, s_Led.b);
+  }
+}
+
+/*
+ * One blink phase boundary. blinkCount counts phases, so it starts at 2 * repeat and is even
+ * while colour 1 is on screen and odd while colour 2 is:
+ *
+ *   even count -> colour 1 is displayed, the phase lasts blinkTicks1
+ *   odd  count -> colour 2 is displayed, the phase lasts blinkTicks2
+ *
+ * NOTE (pre-existing, preserved on purpose): with repeat == 0xFF the counter is reloaded with
+ * 256 and no colour is written, so colour 2 stays on screen for one extra blinkTicks1 phase
+ * every 128 blinks. Not fixed here - this change is behaviour preserving.
+ */
+static void processBlink(void)
+{
+  if (s_Led.blinkCount & 0x0001)
+  {
+    // Phase 2 expired.
+    s_Led.blinkCount--;
+    if (s_Led.blinkCount == 0)
+    {
+      if (s_Led.blinkRepeat == 0xFF)
+      {
+        s_Led.blinkCount = 256;   // infinite blink, colour intentionally left untouched
+      }
+      else
+      {
+        setRGB(s_Led.r, s_Led.g, s_Led.b);
+      }
+    }
+    else
+    {
+      setRGB(s_Led.blinkR1, s_Led.blinkG1, s_Led.blinkB1);
+    }
+    s_Led.blinkDeadline = xTaskGetTickCount() + s_Led.blinkTicks1;
+  }
+  else
+  {
+    // Phase 1 expired.
+    setRGB(s_Led.blinkR2, s_Led.blinkG2, s_Led.blinkB2);
+    s_Led.blinkCount--;
+    s_Led.blinkDeadline = xTaskGetTickCount() + s_Led.blinkTicks2;
+  }
+}
+
+static void startPwm(void)
+{
+  if ((htim3.Instance->CR1 & TIM_CR1_CEN) != 0)
+    return;
+
+  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1) != HAL_OK)  // LED_D1 red,   PB4
+    APP_ERROR(APP_HAL_ERROR);
+  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2) != HAL_OK)  // LED_D1 green, PB5
+    APP_ERROR(APP_HAL_ERROR);
+  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3) != HAL_OK)  // LED_D1 blue,  PB0
+    APP_ERROR(APP_HAL_ERROR);
+
+  loadConfig();
+}
+
+static void stopPwm(void)
+{
+  if ((htim3.Instance->CR1 & TIM_CR1_CEN) != TIM_CR1_CEN)
+    return;
+
+  HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_3);
+}
+
+static void applyCmd(const LedCmd_T *_pCmd)
+{
+  switch (_pCmd->type)
+  {
+    case LED_CMD_SET_RGB:
+      // Raw override: neither the base colour nor a running blink is touched, as before.
+      setRGB(_pCmd->data.rgb.r, _pCmd->data.rgb.g, _pCmd->data.rgb.b);
+      break;
+
+    case LED_CMD_SET_FUNC_RGB:
+      /*
+       * Cancels a running blink. That is what makes a host blink die within 900 ms while the
+       * LED is assigned to LED_CHARGE_STATUS and battery.c keeps refreshing it - preserved.
+       */
+      if (s_Cfg.func == _pCmd->data.funcRgb.func)
+      {
+        taskENTER_CRITICAL();
+        s_Led.r = _pCmd->data.funcRgb.r;
+        s_Led.g = _pCmd->data.funcRgb.g;
+        s_Led.b = _pCmd->data.funcRgb.b;
+        s_Led.blinkRepeat = 0;
+        s_Led.blinkCount = 0;
+        taskEXIT_CRITICAL();
+        setRGB(s_Led.r, s_Led.g, s_Led.b);
+      }
+      break;
+
+    case LED_CMD_STATE:
+      taskENTER_CRITICAL();
+      s_Led.r = _pCmd->data.rgb.r;
+      s_Led.g = _pCmd->data.rgb.g;
+      s_Led.b = _pCmd->data.rgb.b;
+      taskEXIT_CRITICAL();
+      setRGB(s_Led.r, s_Led.g, s_Led.b);
+      s_AppliedStateSeq = _pCmd->seq;
+      break;
+
+    case LED_CMD_BLINK:
+      applyBlink(&_pCmd->data.blink);
+      s_AppliedBlinkSeq = _pCmd->seq;
+      break;
+
+    case LED_CMD_CONFIG:
+      applyConfig(&_pCmd->data.cfg);
+      s_AppliedCfgSeq = _pCmd->seq;
+      break;
+
+    case LED_CMD_STOP:
+      stopPwm();
+      break;
+
+    case LED_CMD_START:
+      startPwm();
+      break;
+
+    default:
+      ASSERT(0);
+      break;
+  }
+}
+
+static void Task(void *parameters)
+{
+  (void)parameters;
+
+  LOG_INFO("LED task started");
+
+  // Init the PWM timer here, not in led_Init(), the same way the ANALOG task owns its ADC:
+  MX_TIM3_Init();
+  startPwm();
+
+  while (1)
+  {
+    /*
+     * Sleep until the next phase boundary, or indefinitely while the LED is static - a solid
+     * LED costs zero wakeups, which is what the old 20 ms polling could not do.
+     */
+    TickType_t wait = portMAX_DELAY;
+    if (s_Led.blinkCount != 0)
+    {
+      int32_t remain = (int32_t)(s_Led.blinkDeadline - xTaskGetTickCount());
+      wait = (remain > 0) ? (TickType_t)remain : 0;
+    }
+
+    LedCmd_T cmd;
+    if (xQueueReceive(s_QueHandle, &cmd, wait) == pdTRUE)
+      applyCmd(&cmd);           // may restart, retime or cancel the blink
+
+    /*
+     * Deadline driven rather than driven by the receive result: a command arriving mid wait
+     * must not shorten the current phase, and one arriving exactly at the boundary must not
+     * swallow the edge.
+     */
+    if (s_Led.blinkCount != 0
+        && (int32_t)(xTaskGetTickCount() - s_Led.blinkDeadline) >= 0)
+      processBlink();
+  }
+}
+
+/*============================ COMMAND POSTING ===============================*/
+
+/*
+ * The single funnel for every mutating entry point. Callable from the I2C1 interrupt, where the
+ * host command handlers run, as well as from the APP task. Never blocks: an interrupt must not
+ * wait, and the APP task must not be able to wait on the LED task.
+ */
+static bool postCmd(const LedCmd_T *_pCmd)
+{
+  if (s_QueHandle == NULL)
+  {
+    s_ErrMask |= LED_ERR_NOT_READY;   // posted before led_Init(), there is no queue yet
+    return false;
+  }
+
+  BaseType_t sent;
+
+  if (xPortIsInsideInterrupt() != pdFALSE)
+  {
+    BaseType_t woken = pdFALSE;
+    sent = xQueueSendFromISR(s_QueHandle, _pCmd, &woken);
+    portYIELD_FROM_ISR(woken);
+
+    if (sent != pdTRUE)
+    {
+      /*
+       * No critical section and no log from here: an interrupt cannot be preempted by the task
+       * that does the read-modify-write under taskENTER_CRITICAL, and Log_Printf() would put a
+       * few hundred bytes of line buffer on the stack of whatever task was interrupted.
+       */
+      s_ErrMask |= LED_ERR_QUEUE_FULL;
+    }
+  }
+  else
+  {
+    sent = xQueueSend(s_QueHandle, _pCmd, 0);
+
+    if (sent != pdTRUE)
+    {
+      LOG_ERROR("[LED] Command queue full, cmd=%u dropped", _pCmd->type);
+      taskENTER_CRITICAL();
+      s_ErrMask |= LED_ERR_QUEUE_FULL;
+      taskEXIT_CRITICAL();
+    }
+  }
+
+  return (sent == pdTRUE);
+}
+
+/*============================ PUBLIC API ====================================*/
+
+void led_Init(void)
+{
+  LOG_INFO("led_Init...");
+
+  // Create command queue. Must come first: the task outranks APP, so it preempts inside
+  // xTaskCreateStatic() below and blocks on this queue before this function returns.
+  s_QueHandle = xQueueCreateStatic(sizeof(s_QueBuf) / sizeof(s_QueBuf[0]),
+                            sizeof(s_QueBuf[0]), (uint8_t*)s_QueBuf, &s_Que);
+  ASSERT(s_QueHandle != NULL);
+
+  // Create task:
+  s_TaskHandle = xTaskCreateStatic(Task, "LED", sizeof(TaskStack) / sizeof(StackType_t),
+                            NULL, 6, TaskStack, &TaskTCB);
+  ASSERT(s_TaskHandle != NULL);
+}
+
+void led_SetRGB(uint8_t _led, uint8_t _r, uint8_t _g, uint8_t _b)
+{
+  if (_led != LED_D1)
+    return;
+
+  LedCmd_T cmd = { .type = LED_CMD_SET_RGB, .data.rgb = { _r, _g, _b } };
+  postCmd(&cmd);
+}
+
+void led_SetFuncRGB(LedFunction_T _func, uint8_t _r, uint8_t _g, uint8_t _b)
+{
+  LedCmd_T cmd = { .type = LED_CMD_SET_FUNC_RGB,
+                   .data.funcRgb = { (uint8_t)_func, _r, _g, _b } };
+  postCmd(&cmd);
+}
+
+void led_Stop(void)
+{
+  LedCmd_T cmd = { .type = LED_CMD_STOP };
+  postCmd(&cmd);
+}
+
+void led_Start(void)
+{
+  LedCmd_T cmd = { .type = LED_CMD_START };
+  postCmd(&cmd);
+}
+
+/*
+ * Now only D1 is used, so the second LED's registers (0x103, 0x105, 0x107) answer with
  * zeros of the expected length. Returning without touching *len is not an option: the
  * command server checksums whatever length the caller pre-set - 1 byte, see i2c_slave.c -
  * so the host would get a stale byte carrying a valid checksum. Same approach as
  * CmdServerReadRetiredU16() takes for the retired current registers.
  */
-static void LedReadUnused(uint8_t data[], uint16_t *len, uint16_t n) {
-  for (uint16_t i = 0; i < n; i++) data[i] = 0;
-  *len = n;
+static void readUnused(uint8_t _pData[], uint16_t *_pLen, uint16_t _n)
+{
+  for (uint16_t i = 0; i < _n; i++)
+    _pData[i] = 0;
+  *_pLen = _n;
 }
 
-void LedGetConfiguarion(uint8_t led, uint8_t data[], uint16_t *len) {
-	if (led > LED_D1) { LedReadUnused(data, len, 4); return; }
-	data[0] = s_LED.func;
-	data[1] = s_LED.paramR;
-	data[2] = s_LED.paramG;
-	data[3] = s_LED.paramB;
-	*len = 4;
+/* Configuration as it will be once everything queued has been applied. */
+static uint8_t effectiveFunc(void)
+{
+  return (s_ReqCfgSeq != s_AppliedCfgSeq) ? s_ReqCfg.func : s_Cfg.func;
 }
 
-void LedCmdSetState(uint8_t led, uint8_t data[], uint8_t len) {
-	if (led > LED_D1 || s_LED.func != LED_USER_LED) return;
-	s_LED.r = data[0];
-	s_LED.g = data[1];
-	s_LED.b = data[2];
-	LedSetRGB(LED_D1, data[0], data[1], data[2]);
+void led_CmdSetState(uint8_t _led, uint8_t _pData[], uint8_t _len)
+{
+  (void)_len;
+
+  // Gated here rather than in the task so that a rejected write leaves the mirror untouched
+  // and a read back keeps answering with the state that is really in effect.
+  if (_led > LED_D1 || effectiveFunc() != LED_USER_LED)
+    return;
+
+  s_ReqState.r = _pData[0];
+  s_ReqState.g = _pData[1];
+  s_ReqState.b = _pData[2];
+
+  LedCmd_T cmd = { .type = LED_CMD_STATE,
+                   .seq = (uint8_t)(s_ReqStateSeq + 1),
+                   .data.rgb = s_ReqState };
+  if (postCmd(&cmd))
+    s_ReqStateSeq = cmd.seq;    // publish the request only once it is really queued
 }
 
-void LedCmdGetState(uint8_t led, uint8_t data[], uint16_t *len) {
-	if (led > LED_D1) { LedReadUnused(data, len, 3); return; }
-	data[0] = s_LED.r;
-	data[1] = s_LED.g;
-	data[2] = s_LED.b;
-	*len = 3;
+void led_CmdGetState(uint8_t _led, uint8_t _pData[], uint16_t *_pLen)
+{
+  if (_led > LED_D1)
+  {
+    readUnused(_pData, _pLen, 3);
+    return;
+  }
+
+  if (s_ReqStateSeq != s_AppliedStateSeq)
+  {
+    _pData[0] = s_ReqState.r;
+    _pData[1] = s_ReqState.g;
+    _pData[2] = s_ReqState.b;
+  }
+  else
+  {
+    _pData[0] = s_Led.r;
+    _pData[1] = s_Led.g;
+    _pData[2] = s_Led.b;
+  }
+  *_pLen = 3;
 }
 
-void LedCmdSetBlink(uint8_t led, uint8_t data[], uint8_t len) {
-	if (led > LED_D1 || s_LED.func == LED_NOT_USED) return;
+void led_CmdSetBlink(uint8_t _led, uint8_t _pData[], uint8_t _len)
+{
+  (void)_len;
 
-	s_LED.blinkRepeat = data[0];
-	s_LED.blinkCount = data[0];
-	s_LED.blinkCount <<= 1; // *=2
-	s_LED.blinkR1 = data[1];
-	s_LED.blinkG1 = data[2];
-	s_LED.blinkB1 = data[3];
-	s_LED.blinkPeriod1 = data[4];
-	s_LED.blinkPeriod1 *= 10;
-	s_LED.blinkR2 = data[5];
-	s_LED.blinkG2 = data[6];
-	s_LED.blinkB2 = data[7];
-	s_LED.blinkPeriod2 = data[8];
-	s_LED.blinkPeriod2 *= 10;
+  if (_led > LED_D1 || effectiveFunc() == LED_NOT_USED)
+    return;
 
+  s_ReqBlink.repeat = _pData[0];
+  s_ReqBlink.r1 = _pData[1];
+  s_ReqBlink.g1 = _pData[2];
+  s_ReqBlink.b1 = _pData[3];
+  s_ReqBlink.period1 = _pData[4];
+  s_ReqBlink.r2 = _pData[5];
+  s_ReqBlink.g2 = _pData[6];
+  s_ReqBlink.b2 = _pData[7];
+  s_ReqBlink.period2 = _pData[8];
 
-	if (s_LED.blinkRepeat) {
-		LedSetRGB(LED_D1, s_LED.blinkR1, s_LED.blinkG1, s_LED.blinkB1);
-		MS_TIME_COUNTER_INIT(s_LED.blinkTimer);
-	} else {
-		LedSetRGB(LED_D1, s_LED.r, s_LED.g, s_LED.b);
-	}
-
+  LedCmd_T cmd = { .type = LED_CMD_BLINK,
+                   .seq = (uint8_t)(s_ReqBlinkSeq + 1),
+                   .data.blink = s_ReqBlink };
+  if (postCmd(&cmd))
+    s_ReqBlinkSeq = cmd.seq;
 }
 
-void LedCmdGetBlink(uint8_t led, uint8_t data[], uint16_t *len) {
-	if (led > LED_D1) { LedReadUnused(data, len, 9); return; }
+void led_CmdGetBlink(uint8_t _led, uint8_t _pData[], uint16_t *_pLen)
+{
+  if (_led > LED_D1)
+  {
+    readUnused(_pData, _pLen, 9);
+    return;
+  }
 
-	data[0] = s_LED.blinkRepeat < 255 ? s_LED.blinkCount >> 1 : 255;
-	data[1] = s_LED.blinkR1;
-	data[2] = s_LED.blinkG1;
-	data[3] = s_LED.blinkB1;
-	data[4] = s_LED.blinkPeriod1 / 10;
-	data[5] = s_LED.blinkR2;
-	data[6] = s_LED.blinkG2;
-	data[7] = s_LED.blinkB2;
-	data[8] = s_LED.blinkPeriod2 / 10;
-	*len = 9;
+  if (s_ReqBlinkSeq != s_AppliedBlinkSeq)
+  {
+    _pData[0] = s_ReqBlink.repeat;
+    _pData[1] = s_ReqBlink.r1;
+    _pData[2] = s_ReqBlink.g1;
+    _pData[3] = s_ReqBlink.b1;
+    _pData[4] = s_ReqBlink.period1;
+    _pData[5] = s_ReqBlink.r2;
+    _pData[6] = s_ReqBlink.g2;
+    _pData[7] = s_ReqBlink.b2;
+    _pData[8] = s_ReqBlink.period2;
+  }
+  else
+  {
+    // blinkCount counts phases, the host counts blinks. 255 means infinite.
+    _pData[0] = s_Led.blinkRepeat < 255 ? (uint8_t)(s_Led.blinkCount >> 1) : 255;
+    _pData[1] = s_Led.blinkR1;
+    _pData[2] = s_Led.blinkG1;
+    _pData[3] = s_Led.blinkB1;
+    _pData[4] = (uint8_t)(s_Led.blinkTicks1 / LED_BLINK_UNIT_TICKS);
+    _pData[5] = s_Led.blinkR2;
+    _pData[6] = s_Led.blinkG2;
+    _pData[7] = s_Led.blinkB2;
+    _pData[8] = (uint8_t)(s_Led.blinkTicks2 / LED_BLINK_UNIT_TICKS);
+  }
+  *_pLen = 9;
+}
+
+void led_CmdSetConfig(uint8_t _led, uint8_t _pData[], uint8_t _len)
+{
+  (void)_len;
+
+  if (_led > LED_D1)
+    return;
+
+  s_ReqCfg.func = _pData[0];
+  s_ReqCfg.paramR = _pData[1];
+  s_ReqCfg.paramG = _pData[2];
+  s_ReqCfg.paramB = _pData[3];
+
+  LedCmd_T cmd = { .type = LED_CMD_CONFIG,
+                   .seq = (uint8_t)(s_ReqCfgSeq + 1),
+                   .data.cfg = s_ReqCfg };
+  if (postCmd(&cmd))
+    s_ReqCfgSeq = cmd.seq;
+}
+
+void led_CmdGetConfig(uint8_t _led, uint8_t _pData[], uint16_t *_pLen)
+{
+  if (_led > LED_D1)
+  {
+    readUnused(_pData, _pLen, 4);
+    return;
+  }
+
+  /*
+   * While a write is in flight the requested values are reported rather than the NV verified
+   * ones. If the flash write does fail, LED_ERR_NV_WRITE is raised and the answer corrects
+   * itself as soon as the task has applied the command.
+   */
+  const LedCfg_T *p = (s_ReqCfgSeq != s_AppliedCfgSeq) ? &s_ReqCfg : &s_Cfg;
+  _pData[0] = p->func;
+  _pData[1] = p->paramR;
+  _pData[2] = p->paramG;
+  _pData[3] = p->paramB;
+  *_pLen = 4;
+}
+
+uint8_t led_GetParamR(LedFunction_T _func)
+{
+  return (s_Cfg.func == _func) ? s_Cfg.paramR : 0;
+}
+
+uint8_t led_GetParamG(LedFunction_T _func)
+{
+  return (s_Cfg.func == _func) ? s_Cfg.paramG : 0;
+}
+
+uint8_t led_GetParamB(LedFunction_T _func)
+{
+  return (s_Cfg.func == _func) ? s_Cfg.paramB : 0;
+}
+
+uint32_t led_GetErrMask(bool _clear)
+{
+  taskENTER_CRITICAL();
+  uint32_t mask = s_ErrMask;
+  if (_clear)
+    s_ErrMask &= ~mask;
+  taskEXIT_CRITICAL();
+  return mask;
 }

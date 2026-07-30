@@ -322,136 +322,111 @@ void BatInitProfile(uint8_t initPofileId) {
 }
 
 void BatteryInit(void) {
-	uint16_t var;
+	uint8_t profileId;
 
-	EE_ReadVariable(BAT_PROFILE_NV_ADDR, &var);
-	if ( ((var^0xFF)&0xFF) != (var>>8) ) {//if (!NV_IS_DATA_INITIALIZED) {
-		EE_WriteVariable(BAT_PROFILE_NV_ADDR, 0x00FF);
+	if (nv_read_U8(NV_ADDR_BAT_PROFILE, &profileId) != NV_OK) {
+		// Nothing usable stored yet - seed the "no profile selected" marker.
+		nv_write_U8(NV_ADDR_BAT_PROFILE, BATTERY_DEFAULT_PROFILE_ID);
 	}
 
-	EE_ReadVariable(BAT_PROFILE_NV_ADDR, &var);
-	if ( ((var^0xFF)&0xFF) == (var>>8) ) {
-		// if crc correct
-		BatInitProfile(var&0xFF);
+	if (nv_read_U8(NV_ADDR_BAT_PROFILE, &profileId) == NV_OK) {
+		BatInitProfile(profileId);
 	}
-
 }
 
 int8_t BatReadExtendedEEprofileData(void) {
 	uint8_t dataValid = 1;
 
 	customBatProfile.chemistry=0xFF;
-	if (NvReadVariableU8(BAT_CHEMISTRY_NV_ADDR, (uint8_t*)&(customBatProfile.chemistry)) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_CHEMISTRY, (uint8_t*)&(customBatProfile.chemistry)) != NV_OK) dataValid = 0;
 
 	customBatProfile.ocv10=0xFFFF;
-	if (NvReadVariableU8(BAT_OCV10L_NV_ADDR, (uint8_t*)&(customBatProfile.ocv10)) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
-	if (NvReadVariableU8(BAT_OCV10H_NV_ADDR, (uint8_t*)&(customBatProfile.ocv10)+1) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_OCV10L, (uint8_t*)&(customBatProfile.ocv10)) != NV_OK) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_OCV10H, (uint8_t*)&(customBatProfile.ocv10)+1) != NV_OK) dataValid = 0;
 
 	customBatProfile.ocv50=0xFFFF;
-	if (NvReadVariableU8(BAT_OCV50L_NV_ADDR, (uint8_t*)&(customBatProfile.ocv50)) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
-	if (NvReadVariableU8(BAT_OCV50H_NV_ADDR, (uint8_t*)&(customBatProfile.ocv50)+1) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_OCV50L, (uint8_t*)&(customBatProfile.ocv50)) != NV_OK) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_OCV50H, (uint8_t*)&(customBatProfile.ocv50)+1) != NV_OK) dataValid = 0;
 
 	customBatProfile.ocv90=0xFFFF;
-	if (NvReadVariableU8(BAT_OCV90L_NV_ADDR, (uint8_t*)&(customBatProfile.ocv90)) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
-	if (NvReadVariableU8(BAT_OCV90H_NV_ADDR, (uint8_t*)&(customBatProfile.ocv90)+1) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_OCV90L, (uint8_t*)&(customBatProfile.ocv90)) != NV_OK) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_OCV90H, (uint8_t*)&(customBatProfile.ocv90)+1) != NV_OK) dataValid = 0;
 
 	customBatProfile.r10=0xFFFF;
-	if (NvReadVariableU8(BAT_R10L_NV_ADDR, (uint8_t*)&(customBatProfile.r10)) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
-	if (NvReadVariableU8(BAT_R10H_NV_ADDR, (uint8_t*)&(customBatProfile.r10)+1) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_R10L, (uint8_t*)&(customBatProfile.r10)) != NV_OK) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_R10H, (uint8_t*)&(customBatProfile.r10)+1) != NV_OK) dataValid = 0;
 
 	customBatProfile.r50=0xFFFF;
-	if (NvReadVariableU8(BAT_R50L_NV_ADDR, (uint8_t*)&(customBatProfile.r50)) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
-	if (NvReadVariableU8(BAT_R50H_NV_ADDR, (uint8_t*)&(customBatProfile.r50)+1) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_R50L, (uint8_t*)&(customBatProfile.r50)) != NV_OK) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_R50H, (uint8_t*)&(customBatProfile.r50)+1) != NV_OK) dataValid = 0;
 
 	customBatProfile.r90=0xFFFF;
-	if (NvReadVariableU8(BAT_R90L_NV_ADDR, (uint8_t*)&(customBatProfile.r90)) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
-	if (NvReadVariableU8(BAT_R90H_NV_ADDR, (uint8_t*)&(customBatProfile.r90)+1) != NV_READ_VARIABLE_SUCCESS) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_R90L, (uint8_t*)&(customBatProfile.r90)) != NV_OK) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_R90H, (uint8_t*)&(customBatProfile.r90)+1) != NV_OK) dataValid = 0;
 
 	return !dataValid; // return 0 if valid
 }
 
 int8_t BatReadEEprofileData(void) {
 	uint8_t dataValid = 1;
-	uint16_t var;
-	EE_ReadVariable(BAT_CAPACITY_NV_ADDR, &var);
-	customBatProfile.capacity = UNPACK_CAPACITY_U16(var); // correction for large capacities over 32767
+	uint8_t var8;
+	uint16_t var16 = 0;
 
-	EE_ReadVariable(CHARGE_CURRENT_NV_ADDR, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8)); // upper byte should be complement of lower
-	customBatProfile.chargeCurrent = var&0xFF;
+	/* Capacity is the one profile field that needs the full 16 bit cell, so it carries no
+	 * complement byte - all it can be checked for is presence. */
+	if (nv_read_U16(NV_ADDR_BAT_CAPACITY, &var16) != NV_OK) dataValid = 0;
+	customBatProfile.capacity = UNPACK_CAPACITY_U16(var16); // correction for large capacities over 32767
 
-	EE_ReadVariable(CHARGE_TERM_CURRENT_NV_ADDR, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	customBatProfile.terminationCurr = var&0xFF;
+	if (nv_read_U8(NV_ADDR_CHARGE_CURRENT, &customBatProfile.chargeCurrent) != NV_OK) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_CHARGE_TERM_CURRENT, &customBatProfile.terminationCurr) != NV_OK) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_REG_VOLTAGE, &customBatProfile.regulationVoltage) != NV_OK) dataValid = 0;
+	if (nv_read_U8(NV_ADDR_BAT_CUTOFF_VOLTAGE, &customBatProfile.cutoffVoltage) != NV_OK) dataValid = 0;
 
-	EE_ReadVariable(BAT_REG_VOLTAGE_NV_ADDR, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	customBatProfile.regulationVoltage = var&0xFF;
+	/* The temperature points are int8_t, the NV layer deals in unsigned bytes. */
+	if (nv_read_U8(NV_ADDR_BAT_TEMP_COLD, &var8) != NV_OK) dataValid = 0; else customBatProfile.tCold = (int8_t)var8;
+	if (nv_read_U8(NV_ADDR_BAT_TEMP_COOL, &var8) != NV_OK) dataValid = 0; else customBatProfile.tCool = (int8_t)var8;
+	if (nv_read_U8(NV_ADDR_BAT_TEMP_WARM, &var8) != NV_OK) dataValid = 0; else customBatProfile.tWarm = (int8_t)var8;
+	if (nv_read_U8(NV_ADDR_BAT_TEMP_HOT, &var8) != NV_OK) dataValid = 0; else customBatProfile.tHot = (int8_t)var8;
 
-	EE_ReadVariable(BAT_CUTOFF_VOLTAGE_NV_ADDR, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	customBatProfile.cutoffVoltage = var&0xFF;
-
-	EE_ReadVariable(BAT_TEMP_COLD_NV_ADDR, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	customBatProfile.tCold = var&0xFF;
-
-	EE_ReadVariable(BAT_TEMP_COOL_NV_ADDR, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	customBatProfile.tCool = var&0xFF;
-
-	EE_ReadVariable(BAT_TEMP_WARM_NV_ADDR, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	customBatProfile.tWarm = var&0xFF;
-
-	EE_ReadVariable(BAT_TEMP_HOT_NV_ADDR, &var);
-	dataValid = dataValid && (((~var)&0xFF) == (var>>8));
-	customBatProfile.tHot = var&0xFF;
-
-	EE_ReadVariable(BAT_NTC_B_NV_ADDR, &var);
-	customBatProfile.ntcB = var;
-	uint16_t ntcCrc = var;
-
-	EE_ReadVariable(BAT_NTC_RESISTANCE_NV_ADDR, &var);
-	customBatProfile.ntcResistance = var;
-	ntcCrc ^= var;
-
-	EE_ReadVariable(BAT_NTC_CRC_NV_ADDR, &var);
-	dataValid = dataValid &&  (var == ntcCrc);
+	/* NTC constants are 16 bit as well, guarded by their own xor checksum variable. */
+	if (nv_read_U16(NV_ADDR_BAT_NTC_B, &customBatProfile.ntcB) != NV_OK) dataValid = 0;
+	if (nv_read_U16(NV_ADDR_BAT_NTC_RESISTANCE, &customBatProfile.ntcResistance) != NV_OK) dataValid = 0;
+	if (nv_read_U16(NV_ADDR_BAT_NTC_CRC, &var16) != NV_OK) dataValid = 0;
+	if (var16 != (customBatProfile.ntcB ^ customBatProfile.ntcResistance)) dataValid = 0;
 
 	return !dataValid; // return 0 if valid
 }
 
 void BatWriteEEprofileData(BatteryProfile_T *batProfile) {
 	uint16_t var = PACK_CAPACITY_U16(batProfile->capacity); // correction for large capacities over 32767
-	EE_WriteVariable(BAT_CAPACITY_NV_ADDR, var);
-	NvWriteVariableU8(CHARGE_CURRENT_NV_ADDR, batProfile->chargeCurrent);//EE_WriteVariable(CHARGE_CURRENT_NV_ADDR, batProfile->chargeCurrent | ((uint16_t)~batProfile->chargeCurrent<<8));
-	NvWriteVariableU8(CHARGE_TERM_CURRENT_NV_ADDR, batProfile->terminationCurr);//EE_WriteVariable(CHARGE_TERM_CURRENT_NV_ADDR, batProfile->terminationCurr | ((uint16_t)~batProfile->terminationCurr<<8));
-	NvWriteVariableU8(BAT_REG_VOLTAGE_NV_ADDR, batProfile->regulationVoltage);//EE_WriteVariable(BAT_REG_VOLTAGE_NV_ADDR, batProfile->regulationVoltage | ((uint16_t)~batProfile->regulationVoltage<<8));
-	NvWriteVariableU8(BAT_CUTOFF_VOLTAGE_NV_ADDR, batProfile->cutoffVoltage);//EE_WriteVariable(BAT_CUTOFF_VOLTAGE_NV_ADDR, batProfile->cutoffVoltage | ((uint16_t)~batProfile->cutoffVoltage<<8));
-	NvWriteVariableU8(BAT_TEMP_COLD_NV_ADDR, batProfile->tCold);//EE_WriteVariable(BAT_TEMP_COLD_NV_ADDR, batProfile->tCold | ((uint16_t)~batProfile->tCold<<8));
-	NvWriteVariableU8(BAT_TEMP_COOL_NV_ADDR, batProfile->tCool);//EE_WriteVariable(BAT_TEMP_COOL_NV_ADDR, batProfile->tCool | ((uint16_t)~batProfile->tCool<<8));
-	NvWriteVariableU8(BAT_TEMP_WARM_NV_ADDR, batProfile->tWarm);//EE_WriteVariable(BAT_TEMP_WARM_NV_ADDR, batProfile->tWarm | ((uint16_t)~batProfile->tWarm<<8));
-	NvWriteVariableU8(BAT_TEMP_HOT_NV_ADDR, batProfile->tHot);//EE_WriteVariable(BAT_TEMP_HOT_NV_ADDR, batProfile->tHot | ((uint16_t)~batProfile->tHot<<8));
-	EE_WriteVariable(BAT_NTC_B_NV_ADDR, batProfile->ntcB);
-	EE_WriteVariable(BAT_NTC_RESISTANCE_NV_ADDR, batProfile->ntcResistance);
-	EE_WriteVariable(BAT_NTC_CRC_NV_ADDR, batProfile->ntcB ^ batProfile->ntcResistance);
+	nv_write_U16(NV_ADDR_BAT_CAPACITY, var);
+	nv_write_U8(NV_ADDR_CHARGE_CURRENT, batProfile->chargeCurrent);
+	nv_write_U8(NV_ADDR_CHARGE_TERM_CURRENT, batProfile->terminationCurr);
+	nv_write_U8(NV_ADDR_BAT_REG_VOLTAGE, batProfile->regulationVoltage);
+	nv_write_U8(NV_ADDR_BAT_CUTOFF_VOLTAGE, batProfile->cutoffVoltage);
+	nv_write_U8(NV_ADDR_BAT_TEMP_COLD, batProfile->tCold);
+	nv_write_U8(NV_ADDR_BAT_TEMP_COOL, batProfile->tCool);
+	nv_write_U8(NV_ADDR_BAT_TEMP_WARM, batProfile->tWarm);
+	nv_write_U8(NV_ADDR_BAT_TEMP_HOT, batProfile->tHot);
+	nv_write_U16(NV_ADDR_BAT_NTC_B, batProfile->ntcB);
+	nv_write_U16(NV_ADDR_BAT_NTC_RESISTANCE, batProfile->ntcResistance);
+	nv_write_U16(NV_ADDR_BAT_NTC_CRC, batProfile->ntcB ^ batProfile->ntcResistance);
 }
 
 void BatWriteExtendedEEprofileData(BatteryProfile_T *batProfile) {
-	NvWriteVariableU8(BAT_CHEMISTRY_NV_ADDR, (uint8_t)(batProfile->chemistry));
-	NvWriteVariableU8(BAT_OCV10L_NV_ADDR, batProfile->ocv10);
-	NvWriteVariableU8(BAT_OCV10H_NV_ADDR, (batProfile->ocv10)>>8);
-	NvWriteVariableU8(BAT_OCV50L_NV_ADDR, batProfile->ocv50);
-	NvWriteVariableU8(BAT_OCV50H_NV_ADDR, (batProfile->ocv50)>>8);
-	NvWriteVariableU8(BAT_OCV90L_NV_ADDR, batProfile->ocv90);
-	NvWriteVariableU8(BAT_OCV90H_NV_ADDR, (batProfile->ocv90)>>8);
-	NvWriteVariableU8(BAT_R10L_NV_ADDR, batProfile->r10);
-	NvWriteVariableU8(BAT_R10H_NV_ADDR, (batProfile->r10)>>8);
-	NvWriteVariableU8(BAT_R50L_NV_ADDR, batProfile->r50);
-	NvWriteVariableU8(BAT_R50H_NV_ADDR, (batProfile->r50)>>8);
-	NvWriteVariableU8(BAT_R90L_NV_ADDR, batProfile->r90);
-	NvWriteVariableU8(BAT_R90H_NV_ADDR, (batProfile->r90)>>8);
+	nv_write_U8(NV_ADDR_BAT_CHEMISTRY, (uint8_t)(batProfile->chemistry));
+	nv_write_U8(NV_ADDR_BAT_OCV10L, batProfile->ocv10);
+	nv_write_U8(NV_ADDR_BAT_OCV10H, (batProfile->ocv10)>>8);
+	nv_write_U8(NV_ADDR_BAT_OCV50L, batProfile->ocv50);
+	nv_write_U8(NV_ADDR_BAT_OCV50H, (batProfile->ocv50)>>8);
+	nv_write_U8(NV_ADDR_BAT_OCV90L, batProfile->ocv90);
+	nv_write_U8(NV_ADDR_BAT_OCV90H, (batProfile->ocv90)>>8);
+	nv_write_U8(NV_ADDR_BAT_R10L, batProfile->r10);
+	nv_write_U8(NV_ADDR_BAT_R10H, (batProfile->r10)>>8);
+	nv_write_U8(NV_ADDR_BAT_R50L, batProfile->r50);
+	nv_write_U8(NV_ADDR_BAT_R50H, (batProfile->r50)>>8);
+	nv_write_U8(NV_ADDR_BAT_R90L, batProfile->r90);
+	nv_write_U8(NV_ADDR_BAT_R90H, (batProfile->r90)>>8);
 }
 
 static uint32_t chargeLedTaskMsCounter;
@@ -462,12 +437,10 @@ void BatteryTask(void) {
 	if (setProfileReq >= 0) {
 		uint8_t id = setProfileReq;
 		setProfileReq = -1;
-		EE_WriteVariable(BAT_PROFILE_NV_ADDR, id | ((uint16_t)(~id)<<8));
-		uint16_t var;
-		EE_ReadVariable(BAT_PROFILE_NV_ADDR, &var);
-		if ( ((var^0xFF)&0xFF) == (var>>8) ) {
-			// if fcs correct
-			BatInitProfile(var&0xFF);
+		nv_write_U8(NV_ADDR_BAT_PROFILE, id);
+		uint8_t storedId;
+		if (nv_read_U8(NV_ADDR_BAT_PROFILE, &storedId) == NV_OK) {
+			BatInitProfile(storedId);
 		} else {
 			currentBatProfile = NULL;
 			batProfileStatus = BATTERY_INVALID_PROFILE_ID;
@@ -489,14 +462,12 @@ void BatteryTask(void) {
 			currentBatProfile = NULL;
 		}
 
-		uint16_t var;
-		EE_ReadVariable(BAT_PROFILE_NV_ADDR, &var);
-		if ( ((var&0xFF) != BATTERY_CUSTOM_PROFILE_ID) || (((var^0xFF)&0xFF) != (var>>8)) ) {
+		uint8_t storedId;
+		if (nv_read_U8(NV_ADDR_BAT_PROFILE, &storedId) != NV_OK || storedId != BATTERY_CUSTOM_PROFILE_ID) {
 			BatReadExtendedEEprofileData();
-			uint16_t var;
-			EE_WriteVariable(BAT_PROFILE_NV_ADDR, BATTERY_CUSTOM_PROFILE_ID | ((~(uint16_t)BATTERY_CUSTOM_PROFILE_ID)<<8));
-			EE_ReadVariable(BAT_PROFILE_NV_ADDR, &var);
-			if (((var^0xFF)&0xFF) == (var>>8) && (var&0xFF) == BATTERY_CUSTOM_PROFILE_ID) {  // upper byte should be complement if data are valid
+			nv_write_U8(NV_ADDR_BAT_PROFILE, BATTERY_CUSTOM_PROFILE_ID);
+			if (nv_read_U8(NV_ADDR_BAT_PROFILE, &storedId) == NV_OK
+			    && storedId == BATTERY_CUSTOM_PROFILE_ID) {
 				if (currentBatProfile != NULL)
 					batProfileStatus = BATTERY_CUSTOM_PROFILE_ID;
 				else
@@ -535,15 +506,15 @@ void BatteryTask(void) {
 		uint8_t r,g;
 		if (batteryRsoc > 500) {
 			r = 0;
-			g = LedGetParamG(LED_CHARGE_STATUS);//60;
+			g = led_GetParamG(LED_CHARGE_STATUS);
 		} else if (batteryRsoc > 150) {
-			r = LedGetParamR(LED_CHARGE_STATUS);//50;
-			g = LedGetParamG(LED_CHARGE_STATUS);//60;
+			r = led_GetParamR(LED_CHARGE_STATUS);
+			g = led_GetParamG(LED_CHARGE_STATUS);
 		} else {
-			r = LedGetParamR(LED_CHARGE_STATUS);//50;
+			r = led_GetParamR(LED_CHARGE_STATUS);
 			g = 0;
 		}
-		uint8_t paramB = LedGetParamB(LED_CHARGE_STATUS);
+		uint8_t paramB = led_GetParamB(LED_CHARGE_STATUS);
 
 		if (batteryStatus == BAT_STATUS_CHARGING_FROM_IN || batteryStatus == BAT_STATUS_CHARGING_FROM_5V_IO) {//if (chargerStatus == CHG_CHARGING_FROM_IN || chargerStatus == CHG_CHARGING_FROM_USB) {
 			b = b?0:paramB;//200 - r;
@@ -553,7 +524,7 @@ void BatteryTask(void) {
 			b = 0;
 		}
 
-		LedFunctionSetRGB(LED_CHARGE_STATUS, r, g, b);
+		led_SetFuncRGB(LED_CHARGE_STATUS, r, g, b);
 	}
 }
 

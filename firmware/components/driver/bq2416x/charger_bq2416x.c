@@ -8,7 +8,6 @@
 #include "board.h"
 #include "driver/i2c/i2c_master.h"
 #include "nv.h"
-#include "eeprom.h"
 #include "stddef.h"
 
 
@@ -358,14 +357,10 @@ int8_t ChargerUpdateUSBInLockout() {
 
 void ChargerInit(bool _reset)
 {
-	uint16_t var = 0;
-
 	// TODO - check!
 	if (_reset)
 	{
-		EE_ReadVariable(CHARGER_INPUTS_CONFIG_NV_ADDR, &var);
-		if (((~var)&0xFF) == (var>>8)) {
-			chargerInputsConfig = var&0xFF;
+		if (nv_read_U8(NV_ADDR_CHARGER_INPUTS_CONFIG, &chargerInputsConfig) == NV_OK) {
 			ChargerSetInputsConfig(chargerInputsConfig);
 		} else {
 			// set default config
@@ -381,9 +376,7 @@ void ChargerInit(bool _reset)
 			chargerInputsConfig |= chargerInDpm << 4;
 		}
 
-		EE_ReadVariable(CHARGING_CONFIG_NV_ADDR, &var);
-		if (((~var)&0xFF) == (var>>8)) {
-			chargingConfig = var&0xFF;
+		if (nv_read_U8(NV_ADDR_CHARGING_CONFIG, &chargingConfig) == NV_OK) {
 			chargingEnabled = chargingConfig & 0x01;
 		} else {
 			// set default config
@@ -635,42 +628,32 @@ void ChargerSetInputsConfig(uint8_t config) {
 void ChargerWriteInputsConfig(uint8_t config) {
 	ChargerSetInputsConfig(config);
 	if (config & 0x80) {
-		NvWriteVariableU8(CHARGER_INPUTS_CONFIG_NV_ADDR, config);
+		nv_write_U8(NV_ADDR_CHARGER_INPUTS_CONFIG, config);
 	}
 }
 
 uint8_t ChargerReadInputsConfig(void) {
-	uint16_t var = 0;
-	EE_ReadVariable(CHARGER_INPUTS_CONFIG_NV_ADDR, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		if ((chargerInputsConfig & 0x7F) == (var & 0x7F)) {
-			return var&0xFF;
-		} else {
-			return chargerInputsConfig;
-		}
-	} else {
-		return chargerInputsConfig;
+	uint8_t stored = 0;
+	if (nv_read_U8(NV_ADDR_CHARGER_INPUTS_CONFIG, &stored) == NV_OK
+	    && (chargerInputsConfig & 0x7F) == (stored & 0x7F)) {
+		return stored;
 	}
+	return chargerInputsConfig;
 }
 
 void ChargerWriteChargingConfig(uint8_t config) {
 	chargingConfig = config;
 	chargingEnabled = chargingConfig & 0x01;
 	if (config & 0x80) {
-		NvWriteVariableU8(CHARGING_CONFIG_NV_ADDR, config);
+		nv_write_U8(NV_ADDR_CHARGING_CONFIG, config);
 	}
 }
 
 uint8_t ChargerReadChargingConfig(void) {
-	uint16_t var = 0;
-	EE_ReadVariable(CHARGING_CONFIG_NV_ADDR, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		if ((chargingConfig & 0x7F) == (var & 0x7F)) {
-			return var&0xFF;
-		} else {
-			return chargingConfig;
-		}
-	} else {
-		return chargingConfig;
+	uint8_t stored = 0;
+	if (nv_read_U8(NV_ADDR_CHARGING_CONFIG, &stored) == NV_OK
+	    && (chargingConfig & 0x7F) == (stored & 0x7F)) {
+		return stored;
 	}
+	return chargingConfig;
 }

@@ -257,7 +257,7 @@ void FuelGaugeInit(bool _reset) {
 	//volatile int8_t succ;
 
 	uint8_t config;
-	if (NvReadVariableU8(FUEL_GAUGE_CONFIG_NV_ADDR, &config) == NV_READ_VARIABLE_SUCCESS) {
+	if (nv_read_U8(NV_ADDR_FUEL_GAUGE_CONFIG, &config) == NV_OK) {
 		tempSensorConfig = config&0x07;
 		rsocMeasurementConfig = (config>>4)&0x03;
 	}
@@ -524,10 +524,10 @@ void FuelGaugeSetBatProfile(const BatteryProfile_T *batProfile) {
 int8_t FuelGaugeSetConfig(uint8_t *data, uint16_t len) {
 	if ( (data[0]&0x07) >= BAT_TEMP_SENSE_CONFIG_END || ((data[0]&0x30)>>4) >= RSOC_MEASUREMENT_CONFIG_END ) return 1;
 
-	NvWriteVariableU8(FUEL_GAUGE_CONFIG_NV_ADDR, data[0]);
+	nv_write_U8(NV_ADDR_FUEL_GAUGE_CONFIG, data[0]);
 
 	uint8_t config;
-	if (NvReadVariableU8(FUEL_GAUGE_CONFIG_NV_ADDR, &config) == NV_READ_VARIABLE_SUCCESS) {
+	if (nv_read_U8(NV_ADDR_FUEL_GAUGE_CONFIG, &config) == NV_OK) {
 		rsocMeasurementConfig = (config>>4)&0x03;
 		tempSensorConfig = config&0x07;
 	} else {

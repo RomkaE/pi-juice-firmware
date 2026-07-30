@@ -23,7 +23,7 @@
 /* USER CODE BEGIN 0 */
 
 #include "board.h"
-#include "nv.h"
+#include "nv.h"       // TODO - remove NV usage
 
 /*
  * I2C2 TIMINGR, recomputed for the clock the board actually runs at.
@@ -89,7 +89,8 @@ void MX_I2C1_Init(void)
    * defaults in i2c.h. The command server can rewrite them at runtime through
    * registers 124/125.
    */
-  uint16_t var = 0;
+  uint8_t adr1 = OWN1_I2C_ADDRESS << 1;
+  uint8_t adr2 = OWN2_I2C_ADDRESS << 1;
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
@@ -104,12 +105,10 @@ void MX_I2C1_Init(void)
 
   /* NOTE: hand written, CubeMX cannot express address-from-NV. Re-apply after
    * regenerating this file, otherwise both slave addresses come out as 0. */
-  EE_ReadVariable(OWN_ADDRESS1_NV_ADDR, &var);
-  hi2c1.Init.OwnAddress1 = (((~var) & 0xFF) == (var >> 8)) ? (var & 0xFF)
-                                                           : (OWN1_I2C_ADDRESS << 1);
-  EE_ReadVariable(OWN_ADDRESS2_NV_ADDR, &var);
-  hi2c1.Init.OwnAddress2 = (((~var) & 0xFF) == (var >> 8)) ? (var & 0xFF)
-                                                           : (OWN2_I2C_ADDRESS << 1);
+  (void)nv_read_U8(NV_ADDR_OWN_ADDRESS1, &adr1);   // keeps the default when nothing valid is stored
+  (void)nv_read_U8(NV_ADDR_OWN_ADDRESS2, &adr2);
+  hi2c1.Init.OwnAddress1 = adr1;
+  hi2c1.Init.OwnAddress2 = adr2;
 
   if (HAL_I2C_Init(&hi2c1) != HAL_OK)
   {

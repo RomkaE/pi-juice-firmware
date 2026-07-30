@@ -244,16 +244,14 @@ void IoConfigure(uint8_t pin) {
 }
 
 void IoNvReadConfig(uint8_t pin) {
-	uint16_t var;
-	EE_ReadVariable(IO_CONFIG1_NV_ADDR+(pin-1)*3, &var);
-	if (((~var)&0xFF) != (var>>8)) {
+	if (nv_read_U8(NV_ADDR_IO_CONFIG1+(pin-1)*3, &ioConfig[pin-1]) != NV_OK) {
 		ioConfig[pin-1] = 0x80; // in case of nv write error, set to non configured
 		return;
-	} else {
-		ioConfig[pin-1] = var & 0xFF;
 	}
-	EE_ReadVariable(IO_CONFIG1_PARAM1_NV_ADDR+(pin-1)*3, &ioParam1[pin-1]);
-	EE_ReadVariable(IO_CONFIG1_PARAM2_NV_ADDR+(pin-1)*3, &ioParam2[pin-1]);
+	/* The two parameters are full 16 bit values, so they carry no complement byte. A failed
+	 * read leaves them at whatever survived in no_init RAM, as before. */
+	(void)nv_read_U16(NV_ADDR_IO_CONFIG1_PARAM1+(pin-1)*3, &ioParam1[pin-1]);
+	(void)nv_read_U16(NV_ADDR_IO_CONFIG1_PARAM2+(pin-1)*3, &ioParam2[pin-1]);
 }
 
 void IoControlInit() {
@@ -274,9 +272,9 @@ void IoSetConfiguarion(uint8_t pin, uint8_t data[], uint8_t len) {
 	ioParam2[pin-1] |= data[3];
 
 	if (data[0]&0x80) {
-		NvWriteVariableU8(IO_CONFIG1_NV_ADDR+(pin-1)*3, data[0]);
-		EE_WriteVariable(IO_CONFIG1_PARAM1_NV_ADDR+(pin-1)*3, ioParam1[pin-1]);
-		EE_WriteVariable(IO_CONFIG1_PARAM2_NV_ADDR+(pin-1)*3, ioParam2[pin-1]);
+		nv_write_U8(NV_ADDR_IO_CONFIG1+(pin-1)*3, data[0]);
+		nv_write_U16(NV_ADDR_IO_CONFIG1_PARAM1+(pin-1)*3, ioParam1[pin-1]);
+		nv_write_U16(NV_ADDR_IO_CONFIG1_PARAM2+(pin-1)*3, ioParam2[pin-1]);
 
 		IoNvReadConfig(pin);
 	}

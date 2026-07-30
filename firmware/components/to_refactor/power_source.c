@@ -152,13 +152,10 @@ void PowerSourceInit(bool _reset)
 	MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 	MS_TIME_COUNTER_INIT(pwr5vDetTimeCount);
 
-	uint16_t var = 0;
-	EE_ReadVariable(POWER_REGULATOR_CONFIG_NV_ADDR, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		uint8_t temp = var&0xFF;
-		if (temp < PWR_REGULATOR_MODE_END) {
-			powerRegulatorConfig = temp;
-		}
+	uint8_t temp = 0;
+	if (nv_read_U8(NV_ADDR_POWER_REGULATOR_CONFIG, &temp) == NV_OK
+	    && temp < PWR_REGULATOR_MODE_END) {
+		powerRegulatorConfig = temp;
 	}
 
 	vbatPwrOffTresh = currentBatProfile!=NULL ? (uint16_t)(currentBatProfile->cutoffVoltage)*20+VBAT_TURNOFF_ADC_THRESHOLD : (uint16_t)3000+VBAT_TURNOFF_ADC_THRESHOLD;
@@ -455,15 +452,12 @@ uint8_t PowerSourceGetVSysSwitchState() {
 
 void SetPowerRegulatorConfigCmd(uint8_t data[], uint8_t len) {
 	if (data[0] >= PWR_REGULATOR_MODE_END) return;
-	uint16_t var = 0;
-	EE_WriteVariable(POWER_REGULATOR_CONFIG_NV_ADDR, data[0] | ((uint16_t)(~data[0])<<8));
+	nv_write_U8(NV_ADDR_POWER_REGULATOR_CONFIG, data[0]);
 
-	EE_ReadVariable(POWER_REGULATOR_CONFIG_NV_ADDR, &var);
-	if (((~var)&0xFF) == (var>>8)) {
-		uint8_t temp = var&0xFF;
-		if (temp < PWR_REGULATOR_MODE_END) {
-			powerRegulatorConfig = temp;
-		}
+	uint8_t temp = 0;
+	if (nv_read_U8(NV_ADDR_POWER_REGULATOR_CONFIG, &temp) == NV_OK
+	    && temp < PWR_REGULATOR_MODE_END) {
+		powerRegulatorConfig = temp;
 	}
 }
 
