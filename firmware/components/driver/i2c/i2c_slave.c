@@ -121,7 +121,7 @@ void i2c_slave_OnAddr(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
     }
   }
 
-  // TODO - WTF?!
+  // TODO - ?!
 //  PowerMngmtHostPollEvent();
 //  MS_TIME_COUNTER_INIT(lastHostCommandTimer);
 }

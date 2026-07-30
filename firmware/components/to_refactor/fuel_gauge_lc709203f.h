@@ -16,10 +16,9 @@
 #define FUEL_GAUGE_TEMP_MODE_THERMISTOR 	1
 #define FUEL_GAUGE_TEMP_MODE_I2C		 	0
 
-#define FUEL_GAUGE_TEMP_SENSE_FAULT_STATUS()	(ntcFaultFlag)
-
-// TODO - fix and move to API
-#define FUEL_GAUGE_IC_FAULT_STATUS()			( rsocMeasurementConfig==RSOC_MEASUREMENT_AUTO_DETECT /* fgIcId>0 && fgIcId<0xFFFF - // TODO always TRUE*/ && (fuelGaugeI2cErrorCounter <= -5 || fuelGaugeI2cErrorCounter >= 5) )
+// Mask errors:
+#define FUEL_GAUGE_ERR_QUEUE_FULL   (1UL << 0)  // command dropped, the task did not drain in time
+#define FUEL_GAUGE_ERR_NOT_READY    (1UL << 1)  // command posted before fuel_gauge_Init() created the queue
 
 typedef enum BatteryTempSenseConfig_T {
 	BAT_TEMP_SENSE_CONFIG_NOT_USED = 0,
@@ -35,27 +34,32 @@ typedef enum RsocMeasurementConfig_T {
 	RSOC_MEASUREMENT_CONFIG_END
 } RsocMeasurementConfig_T;
 
-extern uint16_t batteryVoltage;
-extern uint16_t batteryRsoc;
-extern int8_t batteryTemp;
-extern volatile int16_t batteryCurrent;
-extern int8_t fuelGaugeI2cErrorCounter;
+/*
+ * Creates the fuel gauge task and its queue, nothing else: I2C2 priming and NV access happen
+ * inside the task body, so this must be called after i2c_master_Init() and nv_Init(), and after
+ * battery_Init() (the task reads the current profile via battery_GetProfile() on startup).
+ * Always does a full from-scratch init (SOC tables rebuilt, NTC fault flag cleared) - unlike
+ * charger_Init(), it does not distinguish a POR from a warm reset.
+ */
+void fuel_gauge_Init(void);
 
-/* Saturating diagnostic counters, see fuel_gauge_lc709203f.c: transfers that
- * failed at HAL level versus transfers that completed with a bad CRC-8. */
-extern uint16_t fuelGaugeHalErrorCount;
-extern uint16_t fuelGaugeCrcErrorCount;
-extern volatile uint8_t fuelGaugeTempMode;
-extern BatteryTempSenseConfig_T tempSensorConfig;
-extern uint16_t fgIcId;
-extern int8_t ntcFaultFlag;
-extern RsocMeasurementConfig_T rsocMeasurementConfig;
+// Published telemetry, safe to read from any task or from the I2C1 interrupt:
+uint16_t fuel_gauge_GetVoltage(void);
+uint16_t fuel_gauge_GetRsoc(void);
+int8_t fuel_gauge_GetTemp(void);
+int16_t fuel_gauge_GetCurrent(void);
+BatteryTempSenseConfig_T fuel_gauge_GetTempSenseConfig(void);
+bool fuel_gauge_IsIcFault(void);
+bool fuel_gauge_IsTempSenseFault(void);
 
-void FuelGaugeInit(bool _reset);
-void FuelGaugeTask(void);
-void FuelGaugeSetBatProfile(const BatteryProfile_T *batProfile);
-int8_t FuelGaugeSetConfig(uint8_t *data, uint16_t len);
-void FuelGaugeGetConfig(uint8_t data[], uint16_t *len);
-int8_t FuelGaugeIcPreInit(void);
+/* Posted by the APP task when battery.c selects a new profile (APP_EVT_BATTERY_PROFILE_CHANGED).
+ * Copies the profile into the task's own state - never hands out a live pointer across tasks. */
+void fuel_gauge_CmdSetBatProfile(const BatteryProfile_T *batProfile);
+
+/* Host register 0x93 - fuel gauge configuration, persisted in the emulated EEPROM. */
+int8_t fuel_gauge_CmdSetConfig(uint8_t *data, uint16_t len);
+void fuel_gauge_GetConfig(uint8_t data[], uint16_t *len);
+
+uint32_t fuel_gauge_GetErrMask(bool _clear);
 
 #endif /* FUEL_GAUGE_LC709203F_H_ */

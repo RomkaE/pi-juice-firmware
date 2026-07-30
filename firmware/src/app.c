@@ -124,7 +124,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == CHG_INT_PIN)
   {
-    chargerInterruptFlag = 1;	  // TODO - change to notify
+    charger_NotifyFromISR();
   }
   else if (GPIO_Pin == EXT_IO2_PIN)
   {
@@ -137,7 +137,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   }
 }
 
-static void main_init(void)
+static bool main_init(void)
 {
 	if (retained_mem_GetStatus())
 	  LOG_INFO("Retained Memory is VALID!");
@@ -176,7 +176,6 @@ static void main_init(void)
 //	MX_IWDG_Init();
 
 	PowerSourceInit(reset_init);
-	FuelGaugeInit(reset_init);
 	PowerManagementInit(reset_init);
 
 	IoControlInit();
@@ -188,26 +187,17 @@ static void main_init(void)
 	HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN,
 	                  (eeAddr & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
-	// I2C master and 2 devices init:
-  {
-    i2c_master_Init();
-    BatteryInit();
-
-
-//    if (executionState == EXECUTION_STATE_COLD_START)
-    {
-      HAL_Delay(100);  // after power-on, charger and fuel gauge requires initialization time
-      FuelGaugeIcPreInit(); // // TODO - check
-    }
-
-    ChargerInit(reset_init);
-  }
+	// I2C master init - battery/fuel_gauge/charger do their own device init once their tasks
+	// are created, see TaskApp()'s subsystem-init block below.
+  i2c_master_Init();
 
   // I2C slave and device init:
   {
     i2c_slave_Init();
     RtcInit(reset_init);
   }
+
+  return reset_init;
 }
 
 static void main_poll(void)
@@ -243,6 +233,24 @@ static void main_poll(void)
   */
 }
 
+/*
+ * Battery applied a profile change (in whichever of the three app_ProcessEvent() cases below);
+ * this is what actually tells charger/fuel_gauge/power_source about it. Called unconditionally
+ * after any of the three - redundantly re-sending the same profile to a module that isn't
+ * affected by what changed is harmless (they only cache a copy, no expensive or destructive
+ * work is gated on "did it really change"), and it keeps this simple: one fan-out point instead
+ * of three slightly different ones.
+ */
+static void app_FanOutBatteryProfile(void)
+{
+  BatteryProfile_T profile;
+  bool valid = battery_GetProfile(&profile);
+  const BatteryProfile_T *p = valid ? &profile : NULL;
+  charger_CmdSetBatProfile(p);
+  fuel_gauge_CmdSetBatProfile(p);
+  PowerSourceSetBatProfile(p);
+}
+
 static void app_ProcessEvent(const AppEvent_t *_evt)
 {
   switch (_evt->type)
@@ -258,6 +266,25 @@ static void app_ProcessEvent(const AppEvent_t *_evt)
 
     case APP_EVT_BUTTON_RESET_CONFIG:
       button_OnEvent_DualLongPress();
+      break;
+
+    case APP_EVT_BATTERY_SET_PROFILE:
+      battery_ApplySetProfile(_evt->data.batterySetProfile.id, _evt->data.batterySetProfile.seq);
+      app_FanOutBatteryProfile();
+      break;
+
+    case APP_EVT_BATTERY_WRITE_CUSTOM_PROFILE:
+      battery_ApplyWriteCustomProfile(&_evt->data.batteryCustomProfile.profile, _evt->data.batteryCustomProfile.seq);
+      app_FanOutBatteryProfile();
+      break;
+
+    case APP_EVT_BATTERY_WRITE_CUSTOM_EXTENDED_PROFILE:
+      battery_ApplyWriteCustomExtendedProfile(&_evt->data.batteryCustomExtProfile.profile);
+      app_FanOutBatteryProfile();
+      break;
+
+    case APP_EVT_CHARGER_INPUT_PRESENCE:
+      charger_OnEvent_InputPresenceChanged(_evt->data.chargerInput.present);
       break;
 
     default:
@@ -298,28 +325,43 @@ static void TaskApp(void *parameters)
   LOG_INFO("APP task started");
 
   // TODO - move/remove
-  main_init();
+  bool reset_init = main_init();
 
-  // Subsystems initialization:
+  /*
+   * Subsystems initialization. battery_Init() has no task of its own - it's a plain synchronous
+   * NV load - so by the time it returns, battery_GetProfile() already reflects real data, and it
+   * just needs to run before fuel_gauge_Init()/charger_Init(), which read it during their own
+   * startup. Those two, in turn, each run at a priority above APP's, so xTaskCreateStatic()
+   * inside them preempts and runs the new task to its first blocking wait before returning -
+   * see led_Init()'s comment for the same property.
+   */
   analog_Init();
   led_Init();
   button_Init();
+  battery_Init();
+  fuel_gauge_Init();
+  charger_Init(reset_init);
+
+  /*
+   * No dedicated battery task to drive the charge-status LED anymore (see battery.h) - APP does
+   * it here, deadline driven exactly like led.c's own blink phases, so the event queue wait is
+   * a heartbeat rather than the only pacing.
+   */
+  TickType_t ledDeadline = xTaskGetTickCount() + pdMS_TO_TICKS(BATTERY_CHARGE_LED_PERIOD_MS);
 
   while(1)
   {
     AppEvent_t evt;
-    if (xQueueReceive(s_EvtQueHandle, &evt, portMAX_DELAY) == pdTRUE)
+    int32_t remain = (int32_t)(ledDeadline - xTaskGetTickCount());
+    TickType_t wait = (remain > 0) ? (TickType_t)remain : 0;
+
+    if (xQueueReceive(s_EvtQueHandle, &evt, wait) == pdTRUE)
       app_ProcessEvent(&evt);
 
-    // TODO - move to charger
-    // PowerSourceTask();
-
-    // PowerSource5vIoDetectionTask();
-    // PowerManagementTask();
-
-//    ChargerTask();
-//    FuelGaugeTask();
-//    BatteryTask();
+    if ((int32_t)(xTaskGetTickCount() - ledDeadline) >= 0) {
+      battery_UpdateChargeLed();
+      ledDeadline = xTaskGetTickCount() + pdMS_TO_TICKS(BATTERY_CHARGE_LED_PERIOD_MS);
+    }
   }
 }
 

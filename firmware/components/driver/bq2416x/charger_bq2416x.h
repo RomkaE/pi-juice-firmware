@@ -13,17 +13,10 @@
 
 #include "to_refactor/battery.h"
 
-#define BAT_REG_VOLTAGE	(regs[3] >> 2)
-#define CHARGE_CURRENT	((((int16_t)(regs[5] >> 3) * 75 + 550) / 5 + 1) >> 1)
-#define CHARGE_TERMINATION_CURRENT	((((int16_t)(regs[5] && 0x07) * 50 + 50) / 5 + 1) >> 1)
-#define CHARGER_IS_BATTERY_PRESENT()	(!((regs[1] & 0x06) == 0x04))//((regs[1] & 0x06) == 0x00 || (regs[1] & 0x06) == 0x02)
-#define CHARGER_INSTAT()	((regs[1] >> 6) & 0x03)
-#define CHARGER_USBSTAT()	((regs[1] >> 4) & 0x03)
-#define CHARGER_IS_DPM_MODE_ACTIVE() 	(regs[6]&0x40)
-#define CHARGER_IS_USBIN_LOCKED() 	(regs[1]&0x08)
-#define CHRGER_TS_FAULT_STATUS() 	(regs[7]&0x06>>1)
-#define CHARGER_IS_INPUT_PRESENT() ((regs[0]&0x70)&&((regs[0]&0x70)<(6*16)))
-#define CHARGER_FAULT_STATUS() (regs[0]&0x07)
+// Mask errors:
+#define CHARGER_ERR_QUEUE_FULL   (1UL << 0)  // command dropped, the task did not drain in time
+#define CHARGER_ERR_NOT_READY    (1UL << 1)  // command posted before charger_Init() created the queue
+#define CHARGER_ERR_EVENT_LOST   (1UL << 2)  // input-presence event dropped, the APP event queue was full
 
 typedef enum ChargerStatus_T {
 	CHG_NO_VALID_SOURCE = 0,
@@ -72,28 +65,54 @@ typedef enum ChargerFaultStatus_T {
 	CHG_FAULT_UNKNOWN
 } ChargerFaultStatus_T;
 
-extern uint8_t regs[8];
+/*
+ * Creates the charger task and its queue, nothing else: register I/O and NV access happen
+ * inside the task body, so this must be called after i2c_master_Init() and nv_Init(), and after
+ * battery_Init() (the task reads the current profile via battery_GetProfile() on startup).
+ */
+void charger_Init(bool _reset);
 
-extern ChargerStatus_T chargerStatus;
-extern uint8_t chargerNeedPoll;
-extern ChargerUSBInLockoutStatus_T usbInLockoutStatus;
-extern uint8_t chargerI2cErrorCounter;
-extern uint8_t chargerInterruptFlag;
+/* Wakes the task from the CHG_INT EXTI edge. Safe from an interrupt only. */
+void charger_NotifyFromISR(void);
 
-void ChargerInit(bool _reset);
-void ChargerTask(void);
-void ChargerTriggerNTCMonitor(NTC_MonitorTemperature_T temp);
-void ChargerSetUSBLockout(ChargerUSBInLockoutStatus_T status);
-void SetChargeCurrentReq(uint8_t current);
-void SetChargeTerminationCurrentReq(uint8_t current);
-void SetBatRegulationVoltageReq(uint8_t voltageCode);
-void ChargerSetBatProfileReq(const BatteryProfile_T* batProfile);
-void ChargerUsbInCurrentLimitStepUp(void);
-void ChargerUsbInCurrentLimitSetMin(void);
-void ChargerUsbInCurrentLimitStepDown(void);
-void ChargerWriteInputsConfig(uint8_t config);
-uint8_t ChargerReadInputsConfig(void);
-void ChargerWriteChargingConfig(uint8_t config);
-uint8_t ChargerReadChargingConfig(void);
+// Published status, safe to read from any task or from the I2C1 interrupt:
+ChargerStatus_T charger_GetStatus(void);
+bool charger_IsBatteryPresent(void);
+bool charger_IsInputPresent(void);
+uint8_t charger_GetInStat(void);
+uint8_t charger_GetUsbStat(void);
+bool charger_IsDpmModeActive(void);
+ChargerUSBInLockoutStatus_T charger_GetUsbInLockoutStatus(void);
+uint8_t charger_GetTsFaultStatus(void);
+ChargerFaultStatus_T charger_GetFaultStatus(void);
+uint8_t charger_GetI2cErrorCount(void);
+bool charger_IsNoBatteryTurnOnEnabled(void);
+
+void charger_TriggerNtcMonitor(NTC_MonitorTemperature_T temp);
+
+void charger_SetUsbLockout(ChargerUSBInLockoutStatus_T status);
+void charger_UsbInCurrentLimitStepUp(void);
+void charger_UsbInCurrentLimitSetMin(void);
+void charger_UsbInCurrentLimitStepDown(void);
+
+/* Host registers - config writes are queued to the task, reads answer from the applied/mirrored
+ * value the same way led_CmdGetConfig() does. */
+void charger_CmdWriteInputsConfig(uint8_t config);
+uint8_t charger_ReadInputsConfig(void);
+void charger_CmdWriteChargingConfig(uint8_t config);
+uint8_t charger_ReadChargingConfig(void);
+
+/* Posted by the APP task when battery.c selects a new profile (APP_EVT_BATTERY_PROFILE_CHANGED).
+ * Copies the profile into the task's own state - never hands out a live pointer across tasks. */
+void charger_CmdSetBatProfile(const BatteryProfile_T *batProfile);
+
+uint32_t charger_GetErrMask(bool _clear);
+
+/*
+ * Hook for the APP task: called after the charger detects an edge on "is an input source
+ * present". Weak no-op by default - same as button_OnEvent_PowerOn() - ready for real logic
+ * without another refactor.
+ */
+void charger_OnEvent_InputPresenceChanged(bool present);
 
 #endif /* CHARGER_BQ2416X_H_ */

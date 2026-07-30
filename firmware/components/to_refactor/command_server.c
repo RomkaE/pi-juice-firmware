@@ -445,14 +445,14 @@ void CmdServerDefaultReadWrite(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 
 static uint8_t IsEventFault(void) {
   return powerOffBtnEventFlag || forcedPowerOffFlag || forcedVSysOutputOffFlag ||
-	     watchdogExpiredFlag || (currentBatProfile == NULL) || CHRGER_TS_FAULT_STATUS();
+	     watchdogExpiredFlag || !battery_GetProfile(NULL) || charger_GetTsFaultStatus();
 }
 
 void CmdServerReadStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_READ) {
 		pData[0] = IsEventFault();
 		pData[0] |= button_IsEvent() << 1;
-		pData[0] |= (batteryStatus << 2);
+		pData[0] |= (battery_GetStatus() << 2);
 		pData[0] |= (powerInStatus << 4);
 		pData[0] |= (power5vIoStatus << 6);
 		*dataLen = 1;
@@ -469,8 +469,8 @@ void CmdServerReadWriteEventFaultStatus(uint8_t dir, uint8_t *pData, uint16_t *d
 		//forcedVSysOutputOffFlag = 0;
 		ev |= watchdogExpiredFlag << 3;
 		//watchdogExpiredFlag = 0;
-		ev |= (currentBatProfile == NULL) ? 0x20 : 0;
-		ev |= CHRGER_TS_FAULT_STATUS() << 6;
+		ev |= !battery_GetProfile(NULL) ? 0x20 : 0;
+		ev |= charger_GetTsFaultStatus() << 6;
 		pData[0] = ev;
 		*dataLen = 1;
 	} else {
@@ -483,15 +483,17 @@ void CmdServerReadWriteEventFaultStatus(uint8_t dir, uint8_t *pData, uint16_t *d
 
 void CmdServerReadRsoc(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	if (dir == MASTER_CMD_DIR_READ) {
-		pData[0] = batteryRsoc<1000 ? ((uint32_t)batteryRsoc * 819) >> 13 : 100;
+		uint16_t rsoc = fuel_gauge_GetRsoc();
+		pData[0] = rsoc<1000 ? ((uint32_t)rsoc * 819) >> 13 : 100;
 		*dataLen = 1;
 	}
 }
 
 void CmdServerReadRsocHigherResolution(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	if (dir == MASTER_CMD_DIR_READ) {
-		pData[0] = *((uint8_t*)&batteryRsoc);
-		pData[1] = *((uint8_t*)(&batteryRsoc) + 1);
+		uint16_t rsoc = fuel_gauge_GetRsoc();
+		pData[0] = (uint8_t)rsoc;
+		pData[1] = (uint8_t)(rsoc >> 8);
 		*dataLen = 2;
 	}
 }
@@ -515,7 +517,7 @@ void CmdServerReadButtonStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 void CmdServerReadBatTemp(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	if (dir == MASTER_CMD_DIR_READ) {
 		uint8_t adr = pData[0];
-		reg[adr] = batteryTemp;
+		reg[adr] = fuel_gauge_GetTemp();
 		//reg[adr+1] = batteryTemp >> 8;
 		pData[0] = reg[adr];
 		pData[1] = 0xFF;//reg[adr+1];
@@ -526,8 +528,9 @@ void CmdServerReadBatTemp(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 void CmdServerReadBatVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	if (dir == MASTER_CMD_DIR_READ) {
 		uint8_t adr = pData[0];
-		reg[adr] = batteryVoltage;
-		reg[adr+1] = batteryVoltage >> 8;
+		uint16_t volt = fuel_gauge_GetVoltage();
+		reg[adr] = volt;
+		reg[adr+1] = volt >> 8;
 		pData[0] = reg[adr];
 		pData[1] = reg[adr+1];
 		*dataLen = 2;
@@ -554,7 +557,7 @@ void CmdServerReadRetiredU16(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 
 void CmdServerReadBatCurrent(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	if (dir == MASTER_CMD_DIR_READ) {
-		volatile uint16_t cur = batteryCurrent;
+		uint16_t cur = (uint16_t)fuel_gauge_GetCurrent();
 		uint8_t adr = pData[0];
 		reg[adr] = cur;
 		reg[adr+1] = cur >> 8;
@@ -618,44 +621,43 @@ void CmdServerReadWriteBatRegVoltage(uint8_t dir, uint8_t *pData, uint16_t *data
 
 void CmdServerReadWriteChargingConfig(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		ChargerWriteChargingConfig(pData[1]);
+		charger_CmdWriteChargingConfig(pData[1]);
 	} else {
-		pData[0] = ChargerReadChargingConfig();
+		pData[0] = charger_ReadChargingConfig();
 		*dataLen = 1;
 	}
 }
 
 void CmdServerReadWriteBatProfile(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		BatteryWriteCustomProfileReq(&pData[1], *dataLen-1);
+		battery_CmdWriteCustomProfile(&pData[1], *dataLen-1);
 	} else {
-		BatteryReadCurrentProfile(pData, dataLen);
+		battery_ReadCurrentProfile(pData, dataLen);
 	}
 }
 
 void CmdServerReadWriteBatExtendedProfile(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		BatteryWriteCustomExtendedProfileReq(&pData[1], *dataLen-1);
+		battery_CmdWriteCustomExtendedProfile(&pData[1], *dataLen-1);
 	} else {
-		BatteryReadCurrentExtendedProfile(pData, dataLen);
+		battery_ReadCurrentExtendedProfile(pData, dataLen);
 	}
 }
 
 void CmdServerReadWriteBatteryProfileId(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		if (BatterySetProfileReq(pData[1]) == 0) {
-		}
+		battery_CmdSetProfile(pData[1]);
 	} else {
-		BatteryReadProfileStatus(pData, dataLen);
+		battery_ReadProfileStatus(pData, dataLen);
 	}
 }
 
 void CmdServerReadWriteFuelGaugeConfig(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		if (FuelGaugeSetConfig(pData+1, *dataLen - 1) == 0) {
+		if (fuel_gauge_CmdSetConfig(pData+1, *dataLen - 1) == 0) {
 		}
 	} else {
-		FuelGaugeGetConfig(pData, dataLen);
+		fuel_gauge_GetConfig(pData, dataLen);
 	}
 }
 
@@ -789,9 +791,9 @@ void CmdServerReadWriteRtcAlarmCtrlStatus(uint8_t dir, uint8_t *pData, uint16_t 
 
 void CmdServerReadWriteInputsConfig(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		ChargerWriteInputsConfig(pData[1]);
+		charger_CmdWriteInputsConfig(pData[1]);
 	} else {
-		pData[0] = ChargerReadInputsConfig();
+		pData[0] = charger_ReadInputsConfig();
 		*dataLen = 1;
 	}
 }
@@ -1083,13 +1085,13 @@ void CmdServerReadFirmwareVersion(uint8_t dir, uint8_t *pData, uint16_t *dataLen
 void CmdServerReadBoardFaultStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_READ) {
 		// bit 0 charger i2c fault
-		pData[0] = (hi2c2.ErrorCode || chargerI2cErrorCounter) & 0x01;
+		pData[0] = (hi2c2.ErrorCode || charger_GetI2cErrorCount()) & 0x01;
 		// bit 1-3 charger fault status
-		pData[0] |= ((CHARGER_FAULT_STATUS()) << 1) & 0xE0;
+		pData[0] |= (((uint8_t)charger_GetFaultStatus()) << 1) & 0xE0;
 		// bit 4 fuel gauge i2c fault
-		pData[0] |= FUEL_GAUGE_IC_FAULT_STATUS() << 4;
+		pData[0] |= fuel_gauge_IsIcFault() << 4;
 		// bit 5 fuel gauge temp sense fault (bad sensor connection)
-		pData[0] |= FUEL_GAUGE_TEMP_SENSE_FAULT_STATUS() << 5;
+		pData[0] |= fuel_gauge_IsTempSenseFault() << 5;
 		*dataLen = 1;
 	}
 }

@@ -43,8 +43,6 @@ uint8_t powerOffBtnEventFlag __attribute__((section("no_init")));
 
 uint8_t ioWakeupEvent = 0;
 
-extern uint8_t noBatteryTurnOn;
-
 void PowerManagementInit(bool _reset) {
 	uint8_t var8 = 0;
 	if (nv_read_U8(NV_ADDR_RUN_PIN_CONFIG, &var8) == NV_OK) {
@@ -62,8 +60,8 @@ void PowerManagementInit(bool _reset) {
 			}
 		}
 
-		if (CHARGER_IS_INPUT_PRESENT()) {
-			delayedTurnOnFlag = (noBatteryTurnOn == 1);
+		if (charger_IsInputPresent()) {
+			delayedTurnOnFlag = charger_IsNoBatteryTurnOnEnabled();
 		} else {
 			delayedTurnOnFlag = 0;
 		}
@@ -200,7 +198,7 @@ void PowerManagementTask(void) {
 	if (MS_TIME_COUNT(powerMngmtTaskMsCounter) >= 500) {
 		MS_TIME_COUNTER_INIT(powerMngmtTaskMsCounter);
 
-		volatile int isWakeupOnCharge = batteryRsoc >= wakeupOnCharge && CHARGER_IS_INPUT_PRESENT() && CHARGER_IS_BATTERY_PRESENT();
+		volatile int isWakeupOnCharge = fuel_gauge_GetRsoc() >= wakeupOnCharge && charger_IsInputPresent() && charger_IsBatteryPresent();
 		if ( 		( isWakeupOnCharge || rtcWakeupEventFlag || ioWakeupEvent) // there is wake-up trigger
 				&& 	!delayedPowerOffCounter // deny wake-up during shutdown
 				&& 	!delayedTurnOnFlag
@@ -249,14 +247,14 @@ void PowerManagementTask(void) {
 		delayedPowerOffCounter = 0;
 	}
 
-	if ( wakeupOnCharge == 0xFFFF && !CHARGER_IS_INPUT_PRESENT() && (wakeupOnChargeConfig&0x80)) {
+	if ( wakeupOnCharge == 0xFFFF && !charger_IsInputPresent() && (wakeupOnChargeConfig&0x80)) {
 		// setup wake-up on charge if charging stopped, power source removed
 		wakeupOnCharge = (wakeupOnChargeConfig&0x7F) <= 100 ? (wakeupOnChargeConfig&0x7F) * 10 : 0xFFFF;
 	}
 }
 
-void InputSourcePresenceChangeCb(uint8_t event) {
-
+void charger_OnEvent_InputPresenceChanged(bool present) {
+	UNUSED(present);
 }
 
 void PowerMngmtSchedulePowerOff(uint8_t dalayCode) {
