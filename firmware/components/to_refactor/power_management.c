@@ -6,7 +6,7 @@
  */
 
 #include "iosystem/analog.h"
-#include <to_refactor/button.h>
+#include "iosystem/button.h"
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/power_management.h>
 #include <to_refactor/power_source.h>
@@ -150,7 +150,8 @@ int8_t ResetHost(void) {
 	return 1;
 }*/
 
-void PowerOnButtonEventCb(uint8_t b, ButtonEvent_T event) {
+// TODO - move to app
+void button_OnEvent_PowerOn(uint8_t b, ButtonEvent_T event) {
 	//if ( event == BUTTON_EVENT_SINGLE_PRESS ) {
 		if ( (!PWR_5V_BOOST_EN_STATUS() && power5vIoStatus == PWR_SOURCE_NOT_PRESENT)
 				|| (MS_TIME_COUNT(lastWakeupTimer) > 12000/*15000*/ && MS_TIME_COUNT(lastHostCommandTimer) > 11000)  ) {
@@ -161,29 +162,31 @@ void PowerOnButtonEventCb(uint8_t b, ButtonEvent_T event) {
 				delayedPowerOffCounter = 0;
 			}
 		}
-		ButtonRemoveEvent(b);
+		button_ClearEvent(b);
 	//}
 }
 
-void PowerOffButtonEventCb(uint8_t b, ButtonEvent_T event) {
+// TODO - move to app
+void button_OnEvent_PowerOff(uint8_t b, ButtonEvent_T event) {
 	//if ( event == BUTTON_EVENT_LONG_PRESS2 ) {
 		// cut power to rpi
 		if ( PWR_5V_BOOST_EN_STATUS() && power5vIoStatus == PWR_SOURCE_NOT_PRESENT ) {
 				Turn5vBoost(0);
 				powerOffBtnEventFlag = 1;
 		}
-		ButtonRemoveEvent(b); // remove event
+		button_ClearEvent(b); // remove event
 	//}
 }
 
-void ButtonEventFuncPowerResetCb(uint8_t b, ButtonEvent_T event) {
+// TODO - move to app
+void button_OnEvent_PowerReset(uint8_t b, ButtonEvent_T event) {
 	if (ResetHost() == 0) {
 		wakeupOnCharge = 0xFFFF;
 		rtcWakeupEventFlag = 0;
 		ioWakeupEvent = 0;
 		delayedPowerOffCounter = 0;
 	}
-	ButtonRemoveEvent(b);
+	button_ClearEvent(b);
 }
 
 void PowerMngmtHostPollEvent(void) {

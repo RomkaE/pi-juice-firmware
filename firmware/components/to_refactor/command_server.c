@@ -7,8 +7,7 @@
 
 #include "iosystem/analog.h"
 #include <to_refactor/battery.h>
-#include <to_refactor/battery.h>
-#include <to_refactor/button.h>
+#include "iosystem/button.h"
 #include <to_refactor/command_server.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/io_control.h>
@@ -452,7 +451,7 @@ static uint8_t IsEventFault(void) {
 void CmdServerReadStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_READ) {
 		pData[0] = IsEventFault();
-		pData[0] |= IsButtonEvent() << 1;
+		pData[0] |= button_IsEvent() << 1;
 		pData[0] |= (batteryStatus << 2);
 		pData[0] |= (powerInStatus << 4);
 		pData[0] |= (power5vIoStatus << 6);
@@ -499,17 +498,17 @@ void CmdServerReadRsocHigherResolution(uint8_t dir, uint8_t *pData, uint16_t *da
 
 void CmdServerReadButtonStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_READ) {
-		ButtonEvent_T evSw = GetButtonEvent(0);
+		ButtonEvent_T evSw = button_GetEvent(0);
 		pData[0] = evSw & 0x0f;
-		evSw = GetButtonEvent(1);
+		evSw = button_GetEvent(1);
 		pData[0] |= evSw << 4;
-		evSw = GetButtonEvent(2);
+		evSw = button_GetEvent(2);
 		pData[1] = evSw & 0x0f;
 		*dataLen = 2;
 	} else {
-		if (!(pData[1] & 0x0F)) ButtonRemoveEvent(0);
-		if (!(pData[1] & 0xF0)) ButtonRemoveEvent(1);
-		if (!(pData[2] & 0x0F)) ButtonRemoveEvent(2);
+		if (!(pData[1] & 0x0F)) button_ClearEvent(0);
+		if (!(pData[1] & 0xF0)) button_ClearEvent(1);
+		if (!(pData[2] & 0x0F)) button_ClearEvent(2);
 	}
 }
 
@@ -830,25 +829,25 @@ void CmdServerReadWriteWakeupOnCharge(uint8_t dir, uint8_t *pData, uint16_t *dat
 
 void CmdServerReadWriteButtonConfigurationSw1(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		ButtonSetConfiguarion(0, pData+1, *dataLen - 1);
+		button_SetConfig(0, pData+1, *dataLen - 1);
 	} else {
-		ButtonGetConfiguarion(0, pData, dataLen);
+		button_GetConfig(0, pData, dataLen);
 	}
 }
 
 void CmdServerReadWriteButtonConfigurationSw2(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		ButtonSetConfiguarion(1, pData+1, *dataLen - 1);
+		button_SetConfig(1, pData+1, *dataLen - 1);
 	} else {
-		ButtonGetConfiguarion(1, pData, dataLen);
+		button_GetConfig(1, pData, dataLen);
 	}
 }
 
 void CmdServerReadWriteButtonConfigurationSw3(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		ButtonSetConfiguarion(2, pData+1, *dataLen - 1);
+		button_SetConfig(2, pData+1, *dataLen - 1);
 	} else {
-		ButtonGetConfiguarion(2, pData, dataLen);
+		button_GetConfig(2, pData, dataLen);
 	}
 }
 
@@ -1065,12 +1064,10 @@ void CmdServerRunBootloader(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
   Jump_To_Bootloader();
 }
 
-extern void ButtonDualLongPressEventCb(void);
-
 void CmdServerReadWriteDefaultConfiguration(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
 		if (pData[1] == 0xaa && pData[2] == 0x55 && pData[3] == 0x0a && pData[4] == 0xa3 ) {
-			ButtonDualLongPressEventCb();
+//			button_OnEvent_DualLongPress();   // TODO - !?
 		}
 	}
 }

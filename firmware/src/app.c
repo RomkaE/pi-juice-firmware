@@ -35,7 +35,7 @@
 #include <stdbool.h>
 
 #include "iosystem/analog.h"
-#include <to_refactor/button.h>
+#include "iosystem/button.h"
 #include <to_refactor/command_server.h>
 #include <to_refactor/fuel_gauge_lc709203f.h>
 #include <to_refactor/io_control.h>
@@ -43,20 +43,21 @@
 #include <to_refactor/power_source.h>
 #include <to_refactor/rtc_ds1339_emu.h>
 #include <to_refactor/time_count.h>
+#include "app.h"
 #include "main.h"
 #include "nv.h"
 #include "retained_memory.h"
 #include "charger_bq2416x.h"
 #include "led.h"
-
+#include "board.h"
 #include "app-error/app_assert.h"
+
+#include "driver/i2c/i2c_slave.h"
+#include "driver/i2c/i2c_master.h"
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
-#include "board.h"
 #include "cube-mx/i2c.h"
-#include "driver/i2c/i2c_slave.h"
-#include "driver/i2c/i2c_master.h"
 #include "cube-mx/iwdg.h"
 #include "cube-mx/tim.h"
 #include "cube-mx/rtc.h"
@@ -68,27 +69,6 @@
 
 // LOG:
 #include "log/log.h"
-
-/* Slave addresses live in cube-mx/i2c.h together with the I2C1 setup. */
-
-#define NEED_EVENT_POLL()		((chargerNeedPoll \
-								|| extiFlag \
-								|| rtcWakeupEventFlag \
-								|| PWR_SOURCE_NEED_POLL() \
-								|| alarmEventFlag ))
-
-/* Private variables ---------------------------------------------------------*/
-
-/* Owned by cube-mx/i2c.c, cube-mx/rtc.c and cube-mx/iwdg.c since the split.
- * hi2c1/hi2c2 are declared by cube-mx/i2c.h. */
-
-//bool resetStatus = 0;
-
-/* USER CODE BEGIN PV */
-/* Private variables ---------------------------------------------------------*/
-
-/* Buffer used for I2C transfer */
-  //uint8_t i2cTrfBuffer[256];
 
 static uint32_t lowPowerDealyTimer;
 static uint32_t mainPollMsCounter;
@@ -103,18 +83,34 @@ extern uint8_t alarmEventFlag;
 
 static TaskHandle_t s_TaskHandleApp;
 static StaticTask_t TaskTCBApp;
-static StackType_t TaskStackApp[1024 * 1];
+static StackType_t TaskStackApp[256];
 
-/* Private function prototypes -----------------------------------------------*/
+// System wide event queue - see the contract in app.h:
+static QueueHandle_t s_EvtQueHandle;
+static StaticQueue_t s_EvtQue;
+static AppEvent_t s_EvtQueBuf[16];   // TODO - remove magic number
 
-void ButtonDualLongPressEventCb(void) {
+/*
+ * What a configured button function does. The mapping lives here rather than in button.c on
+ * purpose: the button module detects and knows how a button is configured, this decides what
+ * that configuration means. Indexed by ButtonFunction_T, which is host visible - the codes
+ * arrive raw from registers 0x110/0x112/0x114.
+ */
+static const ButtonEventCb_T buttonEventCbs[BUTTON_EVENT_FUNC_NUMBER] = {
+  NULL,                         // BUTTON_EVENT_NO_FUNC
+  button_OnEvent_PowerOn,       // BUTTON_EVENT_FUNC_POWER_ON
+  button_OnEvent_PowerOff,      // BUTTON_EVENT_FUNC_POWER_OFF
+  button_OnEvent_PowerReset,    // BUTTON_EVENT_FUNC_POWER_RESET
+};
+
+void button_OnEvent_DualLongPress(void) {
 	// Reset to default
 	nv_Erase();
 
-//	executionState = EXECUTION_STATE_CONFIG_RESET;
 	/* Terminal indication: never returns, and HAL_Delay() spins at the APP task priority, so
 	 * the IWDG is no longer refreshed and resets the board after ~8 s. Pre-existing - TODO.
 	 * led_SetRGB() only queues, but the LED task outranks APP and applies it right away. */
+	// TODO - non return! WDT - is DISABLED!!!
 	while(1) {
 	  led_SetRGB(LED_D1, 150, 0, 0);
 	  HAL_Delay(500);
@@ -123,24 +119,21 @@ void ButtonDualLongPressEventCb(void) {
 	}
 }
 
-// TODO
-uint8_t extiFlag = 0;
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+// TODO - move to bsp:
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
   if (GPIO_Pin == CHG_INT_PIN)
   {
-	  // CH_INT
-	  chargerInterruptFlag = 1;
-	  extiFlag = 1;
-  } else if (GPIO_Pin == I2C1_SDA_PIN)
+    chargerInterruptFlag = 1;	  // TODO - change to notify
+  }
+  else if (GPIO_Pin == EXT_IO2_PIN)
   {
-	  // I2C SDA
-	  extiFlag = 2;
-  } else if (GPIO_Pin == EXT_IO2_PIN) {
-	  extiFlag = 4;
-	  ioWakeupEvent = 1;
-  } else {
-	  // SW1, SW2, SW3
-	  extiFlag = 3;
+    ioWakeupEvent = 1;			    // TODO - change to notify
+  }
+  else if (GPIO_Pin == BTN_SW1_PIN || GPIO_Pin == BTN_SW2_PIN || GPIO_Pin == BTN_SW3_PIN)
+  {
+    // A press edge, wake the button task out of its idle block.
+    button_NotifyFromISR();
   }
 }
 
@@ -180,12 +173,11 @@ static void main_init(void)
 	MS_TIME_COUNTER_INIT(lowPowerDealyTimer);
 
 	// TODO - move to bsp/drivers
-	MX_IWDG_Init();
+//	MX_IWDG_Init();
 
 	PowerSourceInit(reset_init);
 	FuelGaugeInit(reset_init);
 	PowerManagementInit(reset_init);
-	ButtonInit();
 
 	IoControlInit();
 
@@ -220,44 +212,79 @@ static void main_init(void)
 
 static void main_poll(void)
 {
-  // Do not disturb i2c transfer if this is i2c interrupt wakeup
-  if ( MS_TIME_COUNT(mainPollMsCounter) >= TICK_PERIOD_MS || NEED_EVENT_POLL())
+  // TODO - move to rtc
+  /*
+  extern RTC_HandleTypeDef hrtc;
+  if (alarmEventFlag || __HAL_RTC_ALARM_GET_FLAG(&hrtc, RTC_FLAG_ALRAF) != RESET)
   {
-    PowerSource5vIoDetectionTask();
-    ChargerTask();
-    FuelGaugeTask();
-    BatteryTask();
-    PowerSourceTask();
-
-    // TODO - move to bsp/drivers
-    extern RTC_HandleTypeDef hrtc;
-    if (alarmEventFlag
-        || __HAL_RTC_ALARM_GET_FLAG(&hrtc, RTC_FLAG_ALRAF) != RESET)
-    {
-      EvaluateAlarm();
-      alarmEventFlag = 0;
-      __HAL_RTC_ALARM_CLEAR_FLAG(&hrtc, RTC_FLAG_ALRAF);
-    }
-    ButtonTask();
-    PowerManagementTask();
-
-    // TODO -!?
-    if (extiFlag == 2)
-    {
-      MS_TIME_COUNTER_INIT(lastHostCommandTimer);
-    }
-    extiFlag = 0;
-
-    // Refresh IWDG: reload counter
-    // TODO - move to bsp/drivers
-    extern IWDG_HandleTypeDef hiwdg;
-    if (HAL_IWDG_Refresh(&hiwdg) != HAL_OK)
-    {
-      Error_Handler(); // Refresh Error
-    }
-
-    MS_TIME_COUNTER_INIT(mainPollMsCounter);
+    EvaluateAlarm();
+    alarmEventFlag = 0;
+    __HAL_RTC_ALARM_CLEAR_FLAG(&hrtc, RTC_FLAG_ALRAF);
   }
+  */
+
+  // TODO - move to i2c slave proto/logic
+  /*
+  if (extiFlag == 2)
+  {
+    MS_TIME_COUNTER_INIT(lastHostCommandTimer);
+  }
+  extiFlag = 0;
+  */
+
+  // Refresh IWDG: reload counter
+  // TODO - move to bsp/drivers
+  /*
+  extern IWDG_HandleTypeDef hiwdg;
+  if (HAL_IWDG_Refresh(&hiwdg) != HAL_OK)
+  {
+    Error_Handler(); // Refresh Error
+  }
+  */
+}
+
+static void app_ProcessEvent(const AppEvent_t *_evt)
+{
+  switch (_evt->type)
+  {
+    case APP_EVT_BUTTON:
+    {
+      uint8_t func = _evt->data.button.func;
+      if (func < BUTTON_EVENT_FUNC_NUMBER && buttonEventCbs[func] != NULL)
+        buttonEventCbs[func](_evt->data.button.index,
+                             (ButtonEvent_T)_evt->data.button.event);
+      break;
+    }
+
+    case APP_EVT_BUTTON_RESET_CONFIG:
+      button_OnEvent_DualLongPress();
+      break;
+
+    default:
+      LOG_ERROR("[APP] Unknown event type %u", _evt->type);
+      break;
+  }
+}
+
+bool app_PostEvent(const AppEvent_t *_pEvent)
+{
+  if (s_EvtQueHandle == NULL)
+    return false;
+
+  BaseType_t sent;
+
+  if (xPortIsInsideInterrupt() != pdFALSE)
+  {
+    BaseType_t woken = pdFALSE;
+    sent = xQueueSendFromISR(s_EvtQueHandle, _pEvent, &woken);
+    portYIELD_FROM_ISR(woken);
+  }
+  else
+  {
+    sent = xQueueSend(s_EvtQueHandle, _pEvent, 0);
+  }
+
+  return (sent == pdTRUE);
 }
 
 static void TaskApp(void *parameters)
@@ -275,16 +302,34 @@ static void TaskApp(void *parameters)
 
   // Subsystems initialization:
   analog_Init();
-  led_Init();   // after main_init(): the task needs nv_Init() and bsp_ClockConfig() done
+  led_Init();
+  button_Init();
 
   while(1)
   {
-	  main_poll();  // TODO - move/remove
+    AppEvent_t evt;
+    if (xQueueReceive(s_EvtQueHandle, &evt, portMAX_DELAY) == pdTRUE)
+      app_ProcessEvent(&evt);
+
+    // TODO - move to charger
+    // PowerSourceTask();
+
+    // PowerSource5vIoDetectionTask();
+    // PowerManagementTask();
+
+//    ChargerTask();
+//    FuelGaugeTask();
+//    BatteryTask();
   }
 }
 
 void app_Init(void)
 {
+  // Create the event queue first: producers are started by TaskApp and post into it.
+  s_EvtQueHandle = xQueueCreateStatic(sizeof(s_EvtQueBuf)/sizeof(s_EvtQueBuf[0]),
+                           sizeof(s_EvtQueBuf[0]), (uint8_t*)s_EvtQueBuf, &s_EvtQue);
+  ASSERT(s_EvtQueHandle != NULL);
+
   s_TaskHandleApp = xTaskCreateStatic(TaskApp, "APP", sizeof(TaskStackApp)/sizeof(StackType_t),
                            NULL, 5,
                            TaskStackApp, &TaskTCBApp);

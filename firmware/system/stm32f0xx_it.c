@@ -125,7 +125,6 @@ void ADC1_IRQHandler(void)
   */
 void EXTI4_15_IRQHandler(void)
 {
-  HAL_GPIO_EXTI_IRQHandler(I2C1_SDA_PIN);
   HAL_GPIO_EXTI_IRQHandler(BTN_SW1_PIN);
   HAL_GPIO_EXTI_IRQHandler(BTN_SW2_PIN);
   HAL_GPIO_EXTI_IRQHandler(EXT_IO2_PIN);
