@@ -66,9 +66,5 @@ int8_t button_IsActive(void);
 
 uint32_t button_GetErrMask(bool _clear);
 
-void button_OnEvent_PowerOn(uint8_t b, ButtonEvent_T event);
-void button_OnEvent_PowerOff(uint8_t b, ButtonEvent_T event);
-void button_OnEvent_PowerReset(uint8_t b, ButtonEvent_T event);
-void button_OnEvent_DualLongPress(void);
 
 #endif /* BUTTON_H_ */

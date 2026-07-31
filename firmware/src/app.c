@@ -75,7 +75,6 @@ uint32_t lastHostCommandTimer;
 
 uint8_t i2cErrorCounter = 0;
 
-extern uint32_t lastWakeupTimer;
 extern uint8_t alarmEventFlag;
 
 static TaskHandle_t s_TaskHandleApp;
@@ -108,14 +107,35 @@ static volatile uint8_t s_ChgReqChargingSeq, s_ChgAppliedChargingSeq;
  * that configuration means. Indexed by ButtonFunction_T, which is host visible - the codes
  * arrive raw from registers 0x110/0x112/0x114.
  */
+static void app_OnButtonPowerOn(uint8_t b, ButtonEvent_T event)
+{
+  (void)event;
+  power_HostTurnOn();
+  button_ClearEvent(b);
+}
+
+static void app_OnButtonPowerOff(uint8_t b, ButtonEvent_T event)
+{
+  (void)event;
+  power_HostTurnOff();
+  button_ClearEvent(b);
+}
+
+static void app_OnButtonPowerReset(uint8_t b, ButtonEvent_T event)
+{
+  (void)event;
+  power_HostReset();
+  button_ClearEvent(b);
+}
+
 static const ButtonEventCb_T buttonEventCbs[BUTTON_EVENT_FUNC_NUMBER] = {
   NULL,                         // BUTTON_EVENT_NO_FUNC
-  button_OnEvent_PowerOn,       // BUTTON_EVENT_FUNC_POWER_ON
-  button_OnEvent_PowerOff,      // BUTTON_EVENT_FUNC_POWER_OFF
-  button_OnEvent_PowerReset,    // BUTTON_EVENT_FUNC_POWER_RESET
+  app_OnButtonPowerOn,          // BUTTON_EVENT_FUNC_POWER_ON
+  app_OnButtonPowerOff,         // BUTTON_EVENT_FUNC_POWER_OFF
+  app_OnButtonPowerReset,       // BUTTON_EVENT_FUNC_POWER_RESET
 };
 
-void button_OnEvent_DualLongPress(void) {
+static void button_OnEvent_DualLongPress(void) {
 	// Reset to default
 	nv_Erase();
 
@@ -212,8 +232,8 @@ static bool main_init(void)
   return reset_init;
 }
 
-static void main_poll(void)
-{
+//static void main_poll(void)
+//{
   // TODO - move to rtc
   /*
   extern RTC_HandleTypeDef hrtc;
@@ -243,7 +263,7 @@ static void main_poll(void)
     Error_Handler(); // Refresh Error
   }
   */
-}
+//}
 
 /*
  * Battery applied a profile change (in whichever of the three app_ProcessEvent() cases below);
@@ -490,8 +510,7 @@ static void TaskApp(void *parameters)
 
   LOG_INFO("APP task started");
 
-  // TODO - move/remove
-  bool reset_init = main_init();
+  main_init();
 
   /*
    * Subsystems initialization. battery_Init() has no task of its own - it's a plain synchronous

@@ -492,22 +492,3 @@ uint32_t button_GetErrMask(bool _clear) {
 	taskEXIT_CRITICAL();
 	return mask;
 }
-
-__weak void button_OnEvent_PowerOn(uint8_t b, ButtonEvent_T event) {
-	UNUSED(b);
-	UNUSED(event);
-}
-
-__weak void button_OnEvent_PowerOff(uint8_t b, ButtonEvent_T event) {
-	UNUSED(b);
-	UNUSED(event);
-}
-
-__weak void button_OnEvent_PowerReset(uint8_t b, ButtonEvent_T event) {
-	UNUSED(b);
-	UNUSED(event);
-}
-
-__weak void button_OnEvent_DualLongPress(void) {
-
-}

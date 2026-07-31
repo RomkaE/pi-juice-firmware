@@ -196,11 +196,6 @@ static BatteryThermalState_T s_ThermalState = BAT_TEMP_UNKNOWN;
  */
 static bool s_5vInDetected;
 
-/*
- * Retained across a warm reset (not zeroed - see retained_memory.c for the same idea elsewhere):
- * charger_Init() only takes the values from NV when _reset (POR) is true, so a watchdog or soft
- * reset keeps whatever the host last configured instead of silently reverting.
- */
 static uint8_t s_ChargerInputsConfig;
 static uint8_t s_UsbInEnabled;
 static uint8_t s_NoBatteryTurnOn;
