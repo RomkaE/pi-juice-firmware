@@ -6,12 +6,15 @@
  */
 
 #include "iosystem/analog.h"
-#include <to_refactor/fuel_gauge_lc709203f.h>
-#include <to_refactor/power_source.h>
-#include <to_refactor/time_count.h>
+#include "power_source.h"
 #include "charger_bq2416x.h"
 #include "stm32f0xx_hal.h"
 #include "nv.h"
+#include "utils/time_count.h"
+
+// FreeRTOS:
+#include "FreeRTOS.h"
+#include "task.h"
 
 #define PWR_5V_IO_DET_ADC_THRESHOLD		2950
 #define VBAT_TURNOFF_ADC_THRESHOLD		0 // mV unit
@@ -27,6 +30,23 @@ extern uint8_t resetStatus;
 extern uint16_t wakeupOnCharge;
 
 uint8_t pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_UNKNOWN;
+
+/*
+ * The charger no longer reads this variable - it is told instead, so that components/power has no
+ * cross-module data coupling left. Everything below assigns through here to keep the two in step.
+ *
+ * NB: nothing in this file runs today (PowerSource5vIoDetectionTask() has no call sites), so the
+ * charger never hears "5V input detected" and USB-IN charging stays locked out. Unchanged
+ * behaviour, but now it is one missing call rather than a variable frozen at UNKNOWN.
+ */
+static void setPwr5vInDetStatus(uint8_t _status)
+{
+  if (pwr5vInDetStatus == _status)
+    return;
+
+  pwr5vInDetStatus = _status;
+  charger_Set5vInDetected(_status == PWR_5V_IN_DETECTION_STATUS_PRESENT);
+}
 static uint16_t vbatPwrOffTresh;
 
 /*
@@ -78,9 +98,10 @@ void Power5VSetModeLDO(void) {
 __STATIC_INLINE int Retry5VTurnOn() {
 	int n = 5;
 	while(n--) {
-		DelayUs(200);
+//		DelayUs(200);
+	  vTaskDelay(1);
 		// Check battery voltage
-		volatile int16_t batVolt = analog_GetVBatt();
+		int16_t batVolt = analog_GetVBatt();
 		if ( (!PWR_SOURCE_PRESENT()) && batVolt < vbatPwrOffTresh) {
 			HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_RESET);
 			forcedPowerOffFlag = 1;
@@ -88,6 +109,7 @@ __STATIC_INLINE int Retry5VTurnOn() {
 		}
 	}
 
+	// TODO -!?
 	HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_RESET);
 	DelayUs(5);
 	HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_SET);
@@ -102,9 +124,11 @@ int8_t Turn5vBoost(uint8_t onOff) {
 		if (PWR_5V_BOOST_EN_STATUS()) return 0;
 
 		int status;
-		if ( fuel_gauge_GetVoltage() > vbatPwrOffTresh || PWR_SOURCE_PRESENT()/*chargerStatus != CHG_NO_VALID_SOURCE*/) {
+		if ( analog_GetVBattAvg() > vbatPwrOffTresh || PWR_SOURCE_PRESENT()/*chargerStatus != CHG_NO_VALID_SOURCE*/)
+		{
 			PWR_5V_DET_LDO_ENABLE(0);
-			DelayUs(5);
+//			DelayUs(5);
+			vTaskDelay(1);
 			HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_SET);
 
 			// Retry turn on in case of large capacitive load
@@ -165,8 +189,8 @@ void PowerSourceInit(bool _reset)
 	}
 	vbatPwrOffTreshAdc = VBAT_MV_TO_ADC(vbatPwrOffTresh);
 
-	DelayUs(100);
-	volatile uint16_t batVolt = analog_GetVBatt();
+//	DelayUs(100);
+//	volatile uint16_t batVolt = analog_GetVBatt();
 
 	// maintain regulator state before reset
 	// TODO - WTF! REMOVE! Pin could have not valid state!!!!
@@ -225,7 +249,7 @@ void PowerSourceInit(bool _reset)
 
 }
 
-/*__STATIC_INLINE*/ void CheckMinimumPower(int16_t volt5) {
+void CheckMinimumPower(int16_t volt5) {
 	if ( PWR_5V_BOOST_EN_STATUS() ) {
 
 		if ((volt5 < 2000 && analog_GetAvdd() > 2500) || PWR_SOURCE_5VREG_IS_PWR_BAD())
@@ -239,26 +263,14 @@ void PowerSourceInit(bool _reset)
 		uint16_t samt = analog_GetVBatt();
 		// if no sources connected, turn off 5V regulator and system switch when battery voltage drops below minimum
 		if ( samt < vbatPwrOffTreshAdc && pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_PRESENT && charger_GetInStat()) {
-			/*if ( PWR_VSYS_OUTPUT_EN_STATUS() ) {
-				TurnVSysOutput(0);
-				forcedVSysOutputOffFlag = 1;
-				MS_TIME_COUNTER_INIT(forcedPowerOffCounter); // leave 2 ms for switch to react
-			}
-			else*/
-			  if ( MS_TIME_COUNT(forcedPowerOffCounter) >= 2) {
+			  if (MS_TIME_COUNT(forcedPowerOffCounter) >= 2)
+			  {
 				PWR_5V_DET_LDO_ENABLE(0);
 				forcedPowerOffFlag = 1;
 				Turn5vBoost(0);
 				wakeupOnCharge = 5; // schedule wake up when power is applied
 			}
 		}
-	} else {
-	  /*
-		int16_t batVolt = analog_GetVBatt();
-		if ( (!PWR_SOURCE_PRESENT() ) && batVolt < vbatPwrOffTresh && PWR_VSYS_OUTPUT_EN_STATUS()) {
-			TurnVSysOutput(0);
-			forcedVSysOutputOffFlag = 1;
-		}*/
 	}
 }
 
@@ -293,18 +305,18 @@ void PowerSource5vIoDetectionTask(void)
 			if ( samp < PWR_5V_IO_DET_ADC_THRESHOLD) {
 				if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
 					MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
-					charger_UsbInCurrentLimitStepDown();
+					charger_SetUsbILim(CHG_ILIM_STEP_DOWN);
 				}
-				pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT;
+				setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT);
 				if (pwr5VChgLoadMaximumReached > 1) pwr5VChgLoadMaximumReached --;
 				charger_SetUsbLockout(CHG_USB_IN_LOCK);
 				PWR_5V_DET_LDO_ENABLE(0);
 			}
 		} else if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
-			pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_UNKNOWN;
+			setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_UNKNOWN);
 			if (pwr5VChgLoadMaximumReached > 1) pwr5VChgLoadMaximumReached --;
 			charger_SetUsbLockout(CHG_USB_IN_LOCK);
-			charger_UsbInCurrentLimitStepDown();
+			charger_SetUsbILim(CHG_ILIM_STEP_DOWN);
 			MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 		}
 
@@ -334,13 +346,13 @@ void PowerSource5vIoDetectionTask(void)
 			}
 			if ( fetCutoffCount >= 200 ) {//if ( sam >= PWR_5V_IO_DET_ADC_THRESHOLD ) {
 				// turn on usb in if pmos is cutoff
-				pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_PRESENT;
+				setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_PRESENT);
 				charger_SetUsbLockout(CHG_USB_IN_UNLOCK);
 				//pwr5vIoLoadCurrent = 0;
 				MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 			} else {
 				if (fetActiveCount >= 3) {
-					pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT;
+					setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT);
 				}
 				PWR_5V_DET_LDO_ENABLE(0);
 			}
@@ -351,15 +363,15 @@ void PowerSource5vIoDetectionTask(void)
 		if (volt5 < 4800) {
 			if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
 				MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
-				charger_UsbInCurrentLimitStepDown();
+				charger_SetUsbILim(CHG_ILIM_STEP_DOWN);
 			}
-			pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT;
+			setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT);
 			charger_SetUsbLockout(CHG_USB_IN_LOCK);
 			if (pwr5VChgLoadMaximumReached > 1) pwr5VChgLoadMaximumReached --;
 		} else if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_PRESENT && MS_TIME_COUNT(pwr5vDetTimeCount) > 500) {
 		  HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_SET);
 			PWR_5V_DET_LDO_ENABLE(1);
-			pwr5vInDetStatus = PWR_5V_IN_DETECTION_STATUS_PRESENT;
+			setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_PRESENT);
 			charger_SetUsbLockout(CHG_USB_IN_UNLOCK); // turn on charger in
 			MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 			//wakeupOnCharge = 0xFFFF;
@@ -370,7 +382,7 @@ void PowerSource5vIoDetectionTask(void)
 		MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 		if (pwr5vInDetStatus == PWR_5V_IN_DETECTION_STATUS_PRESENT ) {
 			if (pwr5VChgLoadMaximumReached > 1) {
-				charger_UsbInCurrentLimitStepUp();
+				charger_SetUsbILim(CHG_ILIM_STEP_UP);
 				pwr5VChgLoadMaximumReached = 2;
 			} else if (pwr5VChgLoadMaximumReached == 0) {
 				pwr5VChgLoadMaximumReached = 3;
@@ -378,41 +390,42 @@ void PowerSource5vIoDetectionTask(void)
 		} else if (pwr5vInDetStatus == PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
 			// this means input is disconnected, and flag can be cleared
 			pwr5VChgLoadMaximumReached = 0;
-			charger_UsbInCurrentLimitSetMin();
+			charger_SetUsbILim(CHG_ILIM_SET_MIN);
 		}
 	}
 }
 
-void PowerSourceTask(void) {
-
-	uint8_t pwrStat = charger_GetInStat();
-	if (pwrStat == 0x03) {
-		powerInStatus = PWR_SOURCE_NOT_PRESENT;
-	} else if (pwrStat == 0x01 || pwrStat == 0x02) {
-		powerInStatus = PWR_SOURCE_BAD;
-	} else if (charger_IsDpmModeActive()) {
-		powerInStatus = PWR_SOURCE_WEAK;
-	} else {
-		powerInStatus = PWR_SOURCE_NORMAL;
-	}
-
-	if (charger_GetUsbInLockoutStatus() == CHG_USB_IN_UNLOCK) {
-		pwrStat = charger_GetUsbStat();
-		if (/*!CHARGER_IS_USBIN_LOCKED() ||*/ pwrStat == 0x03) {
-			power5vIoStatus = PWR_SOURCE_NOT_PRESENT;
-		} else if ( pwrStat == 0x01 || pwrStat == 0x02) {
-			power5vIoStatus = PWR_SOURCE_BAD;
-		} else if (/*charger_IsDpmModeActive() &&*/ pwr5VChgLoadMaximumReached == 1 ) {
-			power5vIoStatus = PWR_SOURCE_WEAK;
-		} else {
-			power5vIoStatus = PWR_SOURCE_NORMAL;
-		}
-	} else if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_PRESENT) {
-		power5vIoStatus = PWR_SOURCE_NOT_PRESENT;
-	} else {
-		power5vIoStatus = PWR_SOURCE_NORMAL;
-	}
-}
+// TODO
+//void PowerSourceTask(void) {
+//
+//	uint8_t pwrStat = charger_GetInStat();
+//	if (pwrStat == 0x03) {
+//		powerInStatus = PWR_SOURCE_NOT_PRESENT;
+//	} else if (pwrStat == 0x01 || pwrStat == 0x02) {
+//		powerInStatus = PWR_SOURCE_BAD;
+//	} else if (charger_IsDpmModeActive()) {
+//		powerInStatus = PWR_SOURCE_WEAK;
+//	} else {
+//		powerInStatus = PWR_SOURCE_NORMAL;
+//	}
+//
+//	if (charger_GetUsbInLockoutStatus() == CHG_USB_IN_UNLOCK) {
+//		pwrStat = charger_GetUsbStat();
+//		if (/*!CHARGER_IS_USBIN_LOCKED() ||*/ pwrStat == 0x03) {
+//			power5vIoStatus = PWR_SOURCE_NOT_PRESENT;
+//		} else if ( pwrStat == 0x01 || pwrStat == 0x02) {
+//			power5vIoStatus = PWR_SOURCE_BAD;
+//		} else if (/*charger_IsDpmModeActive() &&*/ pwr5VChgLoadMaximumReached == 1 ) {
+//			power5vIoStatus = PWR_SOURCE_WEAK;
+//		} else {
+//			power5vIoStatus = PWR_SOURCE_NORMAL;
+//		}
+//	} else if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_PRESENT) {
+//		power5vIoStatus = PWR_SOURCE_NOT_PRESENT;
+//	} else {
+//		power5vIoStatus = PWR_SOURCE_NORMAL;
+//	}
+//}
 
 void PowerSourceSetBatProfile(const BatteryProfile_T* batProfile) {
 	/*

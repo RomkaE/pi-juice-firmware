@@ -12,7 +12,7 @@
 #define LOG_TO_RTT              1
 
 #define LOG_BUFF_LINE_SIZE      ( 64 + 32 )
-#define LOG_BUFF_SIZE           ( 256 )
+//#define LOG_BUFF_SIZE           ( 256 )
 
 #if LOG_TO_CDC
 #define LOG_TUD_CDC_IF          1

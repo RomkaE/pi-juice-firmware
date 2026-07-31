@@ -8,24 +8,25 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <to_refactor/battery.h>
+#include "power/battery.h"
+#include "power/charger_bq2416x.h"
+#include "iosystem/analog.h"
 #include <to_refactor/config_switch_resistor.h>
 #include "fuel_gauge_lc709203f.h"
-#include "charger_bq2416x.h"
 #include "nv.h"
 #include "led.h"
 #include "src/app.h"
 
-// FreeRTOS: battery has no task of its own, just taskENTER_CRITICAL()/xPortIsInsideInterrupt().
+// FreeRTOS:
 #include "FreeRTOS.h"
 #include "task.h"
 
 // LOG:
 #include "log/log.h"
 
-#define BATTERY_PROFILES_COUNT() ((sizeof(s_BatteryProfiles)/sizeof(BatteryProfile_T)))
-#define PACK_CAPACITY_U16(c) 	((c==0xFFFFFFFF) ? 0xFFFF : (c >> ((c>=0x8000)*7)) | (c>=0x8000)*0x8000)
-#define UNPACK_CAPACITY_U16(v) 	((v==0xFFFF) ? 0xFFFFFFFF : (uint32_t)(v&0x7FFF) << (((v&0x8000) >> 15)*7))
+#define BATTERY_PROFILES_COUNT()    ((sizeof(s_BatteryProfiles)/sizeof(BatteryProfile_T)))
+#define PACK_CAPACITY_U16(c)        ((c==0xFFFFFFFF) ? 0xFFFF : (c >> ((c>=0x8000)*7)) | (c>=0x8000)*0x8000)
+#define UNPACK_CAPACITY_U16(v)      ((v==0xFFFF) ? 0xFFFFFFFF : (uint32_t)(v&0x7FFF) << (((v&0x8000) >> 15)*7))
 
 static const BatteryProfile_T s_BatteryProfiles[] = {
 	{ 	// PiJuice Zero 1000mAh battery
@@ -245,6 +246,8 @@ static BatteryProfile_T s_CustomProfile = {
 		0xFFFF,
 };
 
+static bool s_Present;   // aggregated, see battery_UpdatePresence()
+static BatteryThermalState_T s_ThermalState = BAT_TEMP_UNKNOWN;
 static uint8_t s_BatProfileStatus = BATTERY_INVALID_PROFILE_ID;
 
 // Currently selected profile, published as a value (never a pointer into another task's memory).
@@ -311,24 +314,24 @@ static int8_t readEEprofileData(void)
 
   /* Capacity is the one profile field that needs the full 16 bit cell, so it carries no
    * complement byte - all it can be checked for is presence. */
-  if (nv_read_U16(NV_ADDR_BAT_CAPACITY, &var16) != NV_OK) dataValid = 0;
+  if (nv_read_U16(NV_ADDR_BATT_CAPACITY, &var16) != NV_OK) dataValid = 0;
   s_CustomProfile.capacity = UNPACK_CAPACITY_U16(var16); // correction for large capacities over 32767
 
   if (nv_read_U8(NV_ADDR_CHARGE_CURRENT, &s_CustomProfile.chargeCurrent) != NV_OK) dataValid = 0;
   if (nv_read_U8(NV_ADDR_CHARGE_TERM_CURRENT, &s_CustomProfile.terminationCurr) != NV_OK) dataValid = 0;
-  if (nv_read_U8(NV_ADDR_BAT_REG_VOLTAGE, &s_CustomProfile.regulationVoltage) != NV_OK) dataValid = 0;
-  if (nv_read_U8(NV_ADDR_BAT_CUTOFF_VOLTAGE, &s_CustomProfile.cutoffVoltage) != NV_OK) dataValid = 0;
+  if (nv_read_U8(NV_ADDR_BATT_REG_VOLTAGE, &s_CustomProfile.regulationVoltage) != NV_OK) dataValid = 0;
+  if (nv_read_U8(NV_ADDR_BATT_CUTOFF_VOLTAGE, &s_CustomProfile.cutoffVoltage) != NV_OK) dataValid = 0;
 
   /* The temperature points are int8_t, the NV layer deals in unsigned bytes. */
-  if (nv_read_U8(NV_ADDR_BAT_TEMP_COLD, &var8) != NV_OK) dataValid = 0; else s_CustomProfile.tCold = (int8_t)var8;
-  if (nv_read_U8(NV_ADDR_BAT_TEMP_COOL, &var8) != NV_OK) dataValid = 0; else s_CustomProfile.tCool = (int8_t)var8;
-  if (nv_read_U8(NV_ADDR_BAT_TEMP_WARM, &var8) != NV_OK) dataValid = 0; else s_CustomProfile.tWarm = (int8_t)var8;
-  if (nv_read_U8(NV_ADDR_BAT_TEMP_HOT, &var8) != NV_OK) dataValid = 0; else s_CustomProfile.tHot = (int8_t)var8;
+  if (nv_read_U8(NV_ADDR_BATT_TEMP_COLD, &var8) != NV_OK) dataValid = 0; else s_CustomProfile.tCold = (int8_t)var8;
+  if (nv_read_U8(NV_ADDR_BATT_TEMP_COOL, &var8) != NV_OK) dataValid = 0; else s_CustomProfile.tCool = (int8_t)var8;
+  if (nv_read_U8(NV_ADDR_BATT_TEMP_WARM, &var8) != NV_OK) dataValid = 0; else s_CustomProfile.tWarm = (int8_t)var8;
+  if (nv_read_U8(NV_ADDR_BATT_TEMP_HOT, &var8) != NV_OK) dataValid = 0; else s_CustomProfile.tHot = (int8_t)var8;
 
   /* NTC constants are 16 bit as well, guarded by their own xor checksum variable. */
-  if (nv_read_U16(NV_ADDR_BAT_NTC_B, &s_CustomProfile.ntcB) != NV_OK) dataValid = 0;
-  if (nv_read_U16(NV_ADDR_BAT_NTC_RESISTANCE, &s_CustomProfile.ntcResistance) != NV_OK) dataValid = 0;
-  if (nv_read_U16(NV_ADDR_BAT_NTC_CRC, &var16) != NV_OK) dataValid = 0;
+  if (nv_read_U16(NV_ADDR_BATT_NTC_B, &s_CustomProfile.ntcB) != NV_OK) dataValid = 0;
+  if (nv_read_U16(NV_ADDR_BATT_NTC_RESISTANCE, &s_CustomProfile.ntcResistance) != NV_OK) dataValid = 0;
+  if (nv_read_U16(NV_ADDR_BATT_NTC_CRC, &var16) != NV_OK) dataValid = 0;
   if (var16 != (s_CustomProfile.ntcB ^ s_CustomProfile.ntcResistance)) dataValid = 0;
 
   return !dataValid; // return 0 if valid
@@ -337,18 +340,18 @@ static int8_t readEEprofileData(void)
 static void writeEEprofileData(const BatteryProfile_T *batProfile)
 {
   uint16_t var = PACK_CAPACITY_U16(batProfile->capacity); // correction for large capacities over 32767
-  nv_write_U16(NV_ADDR_BAT_CAPACITY, var);
+  nv_write_U16(NV_ADDR_BATT_CAPACITY, var);
   nv_write_U8(NV_ADDR_CHARGE_CURRENT, batProfile->chargeCurrent);
   nv_write_U8(NV_ADDR_CHARGE_TERM_CURRENT, batProfile->terminationCurr);
-  nv_write_U8(NV_ADDR_BAT_REG_VOLTAGE, batProfile->regulationVoltage);
-  nv_write_U8(NV_ADDR_BAT_CUTOFF_VOLTAGE, batProfile->cutoffVoltage);
-  nv_write_U8(NV_ADDR_BAT_TEMP_COLD, batProfile->tCold);
-  nv_write_U8(NV_ADDR_BAT_TEMP_COOL, batProfile->tCool);
-  nv_write_U8(NV_ADDR_BAT_TEMP_WARM, batProfile->tWarm);
-  nv_write_U8(NV_ADDR_BAT_TEMP_HOT, batProfile->tHot);
-  nv_write_U16(NV_ADDR_BAT_NTC_B, batProfile->ntcB);
-  nv_write_U16(NV_ADDR_BAT_NTC_RESISTANCE, batProfile->ntcResistance);
-  nv_write_U16(NV_ADDR_BAT_NTC_CRC, batProfile->ntcB ^ batProfile->ntcResistance);
+  nv_write_U8(NV_ADDR_BATT_REG_VOLTAGE, batProfile->regulationVoltage);
+  nv_write_U8(NV_ADDR_BATT_CUTOFF_VOLTAGE, batProfile->cutoffVoltage);
+  nv_write_U8(NV_ADDR_BATT_TEMP_COLD, batProfile->tCold);
+  nv_write_U8(NV_ADDR_BATT_TEMP_COOL, batProfile->tCool);
+  nv_write_U8(NV_ADDR_BATT_TEMP_WARM, batProfile->tWarm);
+  nv_write_U8(NV_ADDR_BATT_TEMP_HOT, batProfile->tHot);
+  nv_write_U16(NV_ADDR_BATT_NTC_B, batProfile->ntcB);
+  nv_write_U16(NV_ADDR_BATT_NTC_RESISTANCE, batProfile->ntcResistance);
+  nv_write_U16(NV_ADDR_BATT_NTC_CRC, batProfile->ntcB ^ batProfile->ntcResistance);
 }
 
 static void writeExtendedEEprofileData(const BatteryProfile_T *batProfile)
@@ -438,25 +441,11 @@ static void initProfile(uint8_t initProfileId)
   }
 }
 
-static void batteryInit(void)
-{
-  uint8_t profileId;
-
-  if (nv_read_U8(NV_ADDR_BAT_PROFILE, &profileId) != NV_OK) {
-    // Nothing usable stored yet - seed the "no profile selected" marker.
-    nv_write_U8(NV_ADDR_BAT_PROFILE, BATTERY_DEFAULT_PROFILE_ID);
-  }
-
-  if (nv_read_U8(NV_ADDR_BAT_PROFILE, &profileId) == NV_OK) {
-    initProfile(profileId);
-  }
-}
-
 static void applySetProfile(uint8_t id)
 {
-  nv_write_U8(NV_ADDR_BAT_PROFILE, id);
+  nv_write_U8(NV_ADDR_BATT_PROFILE, id);
   uint8_t storedId;
-  if (nv_read_U8(NV_ADDR_BAT_PROFILE, &storedId) == NV_OK) {
+  if (nv_read_U8(NV_ADDR_BATT_PROFILE, &storedId) == NV_OK) {
     initProfile(storedId);
   } else {
     setCurrentProfile(NULL);
@@ -476,10 +465,10 @@ static void applyWriteCustomProfile(const BatteryProfile_T *req)
   }
 
   uint8_t storedId;
-  if (nv_read_U8(NV_ADDR_BAT_PROFILE, &storedId) != NV_OK || storedId != BATTERY_CUSTOM_PROFILE_ID) {
+  if (nv_read_U8(NV_ADDR_BATT_PROFILE, &storedId) != NV_OK || storedId != BATTERY_CUSTOM_PROFILE_ID) {
     readExtendedEEprofileData();
-    nv_write_U8(NV_ADDR_BAT_PROFILE, BATTERY_CUSTOM_PROFILE_ID);
-    if (nv_read_U8(NV_ADDR_BAT_PROFILE, &storedId) == NV_OK
+    nv_write_U8(NV_ADDR_BATT_PROFILE, BATTERY_CUSTOM_PROFILE_ID);
+    if (nv_read_U8(NV_ADDR_BATT_PROFILE, &storedId) == NV_OK
         && storedId == BATTERY_CUSTOM_PROFILE_ID) {
       if (s_CurrentProfileValid)
         s_BatProfileStatus = BATTERY_CUSTOM_PROFILE_ID;
@@ -505,9 +494,14 @@ void battery_UpdateChargeLed(void)
 {
   static uint8_t b = 0;
 
-  uint16_t rsoc = fuel_gauge_GetRsoc();
+  uint16_t rsoc = fuel_gauge_GetRsoc();   // 0.1% units
   uint8_t r, g;
-  if (rsoc > 500) {
+  if (rsoc == FUEL_GAUGE_RSOC_UNKNOWN) {
+    /* No charge reading at all. Red alone is the "fault" colour here - showing green would
+     * claim a full pack we have no evidence for. */
+    r = led_GetParamR(LED_CHARGE_STATUS);
+    g = 0;
+  } else if (rsoc > 500) {
     r = 0;
     g = led_GetParamG(LED_CHARGE_STATUS);
   } else if (rsoc > 150) {
@@ -563,7 +557,16 @@ static bool postToApp(const AppEvent_t *_pEvt)
 void battery_Init(void)
 {
   LOG_INFO("battery_Init...");
-  batteryInit();
+
+  uint8_t profileId;
+  if (nv_read_U8(NV_ADDR_BATT_PROFILE, &profileId) != NV_OK) {
+    LOG_WARNING("NV read battery profile: FAILED. Set default profile.");
+    nv_write_U8(NV_ADDR_BATT_PROFILE, BATTERY_DEFAULT_PROFILE_ID);
+  }
+
+  if (nv_read_U8(NV_ADDR_BATT_PROFILE, &profileId) == NV_OK) {
+    initProfile(profileId);
+  }
 }
 
 void battery_ApplySetProfile(uint8_t id, uint8_t seq)
@@ -593,9 +596,67 @@ bool battery_GetProfile(BatteryProfile_T *out)
   return valid;
 }
 
+bool battery_UpdatePresence(void)
+{
+  bool present = charger_IsBatteryPresent() && (analog_GetVBattAvg() > BATTERY_PRESENT_MV);
+
+  if (present == s_Present)
+    return false;
+
+  s_Present = present;
+  LOG_INFO("[BAT] battery %s", present ? "present" : "absent");
+  return true;
+}
+
+bool battery_IsPresent(void)
+{
+  return s_Present;
+}
+
+/*
+ * The thresholds nest as tCold < tCool < tWarm < tHot, so the tests run coldest-first and the
+ * first match wins. That reproduces the charger's old overlapping predicates exactly: a reading
+ * at or above tHot used to satisfy both "disable charging" and "above tWarm", which the ordinal
+ * BAT_TEMP_HOT now carries on its own.
+ */
+static BatteryThermalState_T evaluateThermalState(void)
+{
+  if (!s_CurrentProfileValid)
+    return BAT_TEMP_UNKNOWN;
+
+  if (fuel_gauge_GetTempSenseConfig() == BAT_TEMP_SENSE_CONFIG_NOT_USED)
+    return BAT_TEMP_UNKNOWN;
+
+  int8_t temp = fuel_gauge_GetTemp();
+
+  if (temp <= s_CurrentProfile.tCold) return BAT_TEMP_COLD;
+  if (temp <  s_CurrentProfile.tCool) return BAT_TEMP_COOL;
+  if (temp >= s_CurrentProfile.tHot)  return BAT_TEMP_HOT;
+  if (temp >  s_CurrentProfile.tWarm) return BAT_TEMP_WARM;
+
+  return BAT_TEMP_NORMAL;
+}
+
+bool battery_UpdateThermalState(void)
+{
+  BatteryThermalState_T state = evaluateThermalState();
+
+  if (state == s_ThermalState)
+    return false;
+
+  s_ThermalState = state;
+  LOG_INFO("[BAT] thermal state %u", (unsigned)state);
+  return true;
+}
+
+BatteryThermalState_T battery_GetThermalState(void)
+{
+  return s_ThermalState;
+}
+
 BatteryStatus_T battery_GetStatus(void)
 {
-  if (!charger_IsBatteryPresent() || fuel_gauge_GetVoltage() < 2500)
+  if (!s_Present)
     return BAT_STATUS_NOT_PRESENT;
   if (charger_GetStatus() == CHG_CHARGING_FROM_IN)
     return BAT_STATUS_CHARGING_FROM_IN;

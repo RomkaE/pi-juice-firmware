@@ -10,14 +10,14 @@
 
 #include <stdbool.h>
 
-#include "to_refactor/battery.h"
-#include "to_refactor/time_count.h"   /* PWR_SOURCE_NEED_POLL() below expands MS_TIME_COUNT() */
+#include "power/battery.h"
 #include "board.h"
 
-#define PWR_5V_IN_DETECTION_STATUS_UNKNOWN		0
-#define PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT	1
-#define PWR_5V_IN_DETECTION_STATUS_PRESENT	2
-#define PWR_5V_TURN_ON_TIMEOUT	40
+#define PWR_5V_IN_DETECTION_STATUS_UNKNOWN      0
+#define PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT  1
+#define PWR_5V_IN_DETECTION_STATUS_PRESENT      2
+
+#define PWR_5V_TURN_ON_TIMEOUT        40
 
 #define PWR_5V_BOOST_EN_STATUS()	 	(HAL_GPIO_ReadPin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN) == GPIO_PIN_SET)
 #define PWR_SOURCE_NEED_POLL() 	(pwr5vInDetStatus == PWR_5V_IN_DETECTION_STATUS_PRESENT || MS_TIME_COUNT(pwr5vOnTimeout) <= PWR_5V_TURN_ON_TIMEOUT)

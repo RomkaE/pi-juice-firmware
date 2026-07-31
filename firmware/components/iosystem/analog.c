@@ -9,7 +9,6 @@
 #include <stdbool.h>
 #include "analog.h"
 #include <to_refactor/config_switch_resistor.h>
-#include <to_refactor/time_count.h>
 #include "nv.h"
 #include "app-error/app_error.h"
 #include "app-error/app_assert.h"

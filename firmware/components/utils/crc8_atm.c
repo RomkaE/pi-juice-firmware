@@ -5,7 +5,7 @@
  *      Author: milan
  */
 
-#include <to_refactor/crc8_atm.h>
+#include "crc8_atm.h"
 
 #define POLYNOMIAL    (0x1070U << 3)
 

@@ -6,17 +6,18 @@
  */
 
 #include "iosystem/analog.h"
-#include <to_refactor/battery.h>
 #include "iosystem/button.h"
-#include <to_refactor/command_server.h>
-#include <to_refactor/fuel_gauge_lc709203f.h>
-#include <to_refactor/io_control.h>
-#include <to_refactor/power_management.h>
-#include <to_refactor/power_source.h>
+#include "power/battery.h"
+#include "power/fuel_gauge_lc709203f.h"
+#include "power/power_management.h"
+#include "power/power_source.h"
+#include "power/charger_bq2416x.h"
 #include <to_refactor/rtc_ds1339_emu.h>
+#include <to_refactor/io_control.h>
+#include <to_refactor/command_server.h>
+#include "src/app.h"
 #include "stddef.h"
 #include "nv.h"
-#include "charger_bq2416x.h"
 #include "led.h"
 #include "main.h"
 
@@ -50,7 +51,6 @@ void CmdServerReadRsocHigherResolution(uint8_t dir, uint8_t *pData, uint16_t *da
 void CmdServerReadButtonStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadBatTemp(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadBatVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
-void CmdServerReadBatCurrent(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadMainVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadRetiredU16(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteButtonConfigurationSw1(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
@@ -173,7 +173,7 @@ static const MasterCommand_T masterCommands[REGISTERS_NUM] =
 /*72*/	NULL,// reserved
 /*73*/	CmdServerReadBatVoltage,// battery voltage low byte
 /*74*/	NULL,// battery voltage high byte
-/*75*/	CmdServerReadBatCurrent,// battery current low byte
+/*75*/	CmdServerReadRetiredU16,// battery current low byte - no current sensor on the board, reads 0
 /*76*/	NULL,// battery current high byte
 /*77*/	CmdServerReadMainVoltage,// RPI voltage low byte
 /*78*/	NULL,// RPI voltage high byte
@@ -483,8 +483,13 @@ void CmdServerReadWriteEventFaultStatus(uint8_t dir, uint8_t *pData, uint16_t *d
 
 void CmdServerReadRsoc(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	if (dir == MASTER_CMD_DIR_READ) {
+		/* RSOC is in 0.1% units; 819/8192 converts to whole percent. An unknown reading must
+		 * not fall through to the "clamp to 100" branch and report a full battery. */
 		uint16_t rsoc = fuel_gauge_GetRsoc();
-		pData[0] = rsoc<1000 ? ((uint32_t)rsoc * 819) >> 13 : 100;
+		if (rsoc == FUEL_GAUGE_RSOC_UNKNOWN)
+			pData[0] = 0;
+		else
+			pData[0] = rsoc<1000 ? ((uint32_t)rsoc * 819) >> 13 : 100;
 		*dataLen = 1;
 	}
 }
@@ -528,7 +533,8 @@ void CmdServerReadBatTemp(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 void CmdServerReadBatVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	if (dir == MASTER_CMD_DIR_READ) {
 		uint8_t adr = pData[0];
-		uint16_t volt = fuel_gauge_GetVoltage();
+		// The fuel gauge no longer publishes a voltage - the ADC measures the same pack:
+		uint16_t volt = analog_GetVBattAvg();
 		reg[adr] = volt;
 		reg[adr+1] = volt >> 8;
 		pData[0] = reg[adr];
@@ -551,18 +557,6 @@ void CmdServerReadRetiredU16(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 		reg[adr+1] = 0;
 		pData[0] = 0;
 		pData[1] = 0;
-		*dataLen = 2;
-	}
-}
-
-void CmdServerReadBatCurrent(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
-	if (dir == MASTER_CMD_DIR_READ) {
-		uint16_t cur = (uint16_t)fuel_gauge_GetCurrent();
-		uint8_t adr = pData[0];
-		reg[adr] = cur;
-		reg[adr+1] = cur >> 8;
-		pData[0] = reg[adr];
-		pData[1] = reg[adr+1];
 		*dataLen = 2;
 	}
 }
@@ -621,9 +615,9 @@ void CmdServerReadWriteBatRegVoltage(uint8_t dir, uint8_t *pData, uint16_t *data
 
 void CmdServerReadWriteChargingConfig(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		charger_CmdWriteChargingConfig(pData[1]);
+		app_ChargerCmdWriteChargingConfig(pData[1]);
 	} else {
-		pData[0] = charger_ReadChargingConfig();
+		pData[0] = app_ChargerReadChargingConfig();
 		*dataLen = 1;
 	}
 }
@@ -654,10 +648,9 @@ void CmdServerReadWriteBatteryProfileId(uint8_t dir, uint8_t *pData, uint16_t *d
 
 void CmdServerReadWriteFuelGaugeConfig(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		if (fuel_gauge_CmdSetConfig(pData+1, *dataLen - 1) == 0) {
-		}
+		app_FuelGaugeCmdSetConfig(pData+1, *dataLen - 1);
 	} else {
-		fuel_gauge_GetConfig(pData, dataLen);
+		app_FuelGaugeReadConfig(pData, dataLen);
 	}
 }
 
@@ -791,9 +784,9 @@ void CmdServerReadWriteRtcAlarmCtrlStatus(uint8_t dir, uint8_t *pData, uint16_t 
 
 void CmdServerReadWriteInputsConfig(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		charger_CmdWriteInputsConfig(pData[1]);
+		app_ChargerCmdWriteInputsConfig(pData[1]);
 	} else {
-		pData[0] = charger_ReadInputsConfig();
+		pData[0] = app_ChargerReadInputsConfig();
 		*dataLen = 1;
 	}
 }

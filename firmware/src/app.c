@@ -36,18 +36,18 @@
 
 #include "iosystem/analog.h"
 #include "iosystem/button.h"
+#include "power/fuel_gauge_lc709203f.h"
+#include "power/power_management.h"
+#include "power/power_source.h"
+#include "power/charger_bq2416x.h"
+
 #include <to_refactor/command_server.h>
-#include <to_refactor/fuel_gauge_lc709203f.h>
-#include <to_refactor/io_control.h>
-#include <to_refactor/power_management.h>
-#include <to_refactor/power_source.h>
 #include <to_refactor/rtc_ds1339_emu.h>
-#include <to_refactor/time_count.h>
+#include <to_refactor/io_control.h>
 #include "app.h"
 #include "main.h"
 #include "nv.h"
 #include "retained_memory.h"
-#include "charger_bq2416x.h"
 #include "led.h"
 #include "board.h"
 #include "app-error/app_assert.h"
@@ -70,9 +70,6 @@
 // LOG:
 #include "log/log.h"
 
-static uint32_t lowPowerDealyTimer;
-static uint32_t mainPollMsCounter;
-
 // TODO !!??
 uint32_t lastHostCommandTimer;
 
@@ -89,6 +86,21 @@ static StackType_t TaskStackApp[256];
 static QueueHandle_t s_EvtQueHandle;
 static StaticQueue_t s_EvtQue;
 static AppEvent_t s_EvtQueBuf[16];   // TODO - remove magic number
+
+/*
+ * Request mirror for the fuel gauge configuration register, same idiom as led.c/charger.c: a host
+ * write is applied asynchronously, so until it has been, reads answer with what was asked for
+ * rather than with what is still in effect.
+ */
+static uint8_t s_FgReqConfig;
+static volatile uint8_t s_FgReqConfigSeq;
+static volatile uint8_t s_FgAppliedConfigSeq;
+
+/* Same mirror for the charger's two configuration registers. */
+static uint8_t s_ChgReqInputsConfig, s_ChgInputsReadout;
+static volatile uint8_t s_ChgReqInputsSeq, s_ChgAppliedInputsSeq;
+static uint8_t s_ChgReqChargingConfig, s_ChgChargingReadout;
+static volatile uint8_t s_ChgReqChargingSeq, s_ChgAppliedChargingSeq;
 
 /*
  * What a configured button function does. The mapping lives here rather than in button.c on
@@ -168,9 +180,9 @@ static bool main_init(void)
 
 	HAL_InitTick(TICK_INT_PRIORITY);
 
-	MS_TIME_COUNTER_INIT(lastHostCommandTimer);
-	MS_TIME_COUNTER_INIT(mainPollMsCounter);
-	MS_TIME_COUNTER_INIT(lowPowerDealyTimer);
+//	MS_TIME_COUNTER_INIT(lastHostCommandTimer);
+//	MS_TIME_COUNTER_INIT(mainPollMsCounter);
+//	MS_TIME_COUNTER_INIT(lowPowerDealyTimer);
 
 	// TODO - move to bsp/drivers
 //	MX_IWDG_Init();
@@ -246,9 +258,84 @@ static void app_FanOutBatteryProfile(void)
   BatteryProfile_T profile;
   bool valid = battery_GetProfile(&profile);
   const BatteryProfile_T *p = valid ? &profile : NULL;
-  charger_CmdSetBatProfile(p);
-  fuel_gauge_CmdSetBatProfile(p);
+  charger_SetBatProfile(p);
+  fuel_gauge_SetBatProfile(p);
   PowerSourceSetBatProfile(p);
+}
+
+/*
+ * Battery presence: battery.c aggregates it, this hands the answer to whoever needs to act on it.
+ * Called both on the charger's BATSTAT edge and on the periodic tick below, because the second
+ * source of the aggregate - the pack voltage - has no edge of its own.
+ */
+static void app_UpdateBatteryPresence(void)
+{
+  if (battery_UpdatePresence())
+    fuel_gauge_SetBatteryPresent(battery_IsPresent());
+}
+
+/*
+ * Battery temperature verdict: battery.c combines the profile's thresholds with whatever
+ * temperature source is alive, and the charger is told the answer. The charger never reads the
+ * fuel gauge itself - that was the last cross-dependency inside components/power.
+ */
+static void app_UpdateThermalState(void)
+{
+  if (battery_UpdateThermalState())
+    charger_SetThermalState(battery_GetThermalState());
+}
+
+/*
+ * Persist the fuel gauge configuration and only then hand it to the driver. The read-back is what
+ * decides: whatever ends up in NV is what the fuel gauge is told to run with, so a store that
+ * silently went wrong cannot leave the two disagreeing.
+ */
+static void app_ApplyFuelGaugeConfig(uint8_t config, uint8_t seq)
+{
+  if (nv_write_U8(NV_ADDR_FUEL_GAUGE_CONFIG_MASK, config) != NV_OK)
+    LOG_ERROR("[APP] NV write of the fuel gauge config failed");
+
+  uint8_t stored;
+  if (nv_read_U8(NV_ADDR_FUEL_GAUGE_CONFIG_MASK, &stored) != NV_OK) {
+    LOG_ERROR("[APP] NV read-back of the fuel gauge config failed, falling back to auto detect");
+    stored = FUEL_GAUGE_CONFIG_DEFAULT;
+  }
+
+  fuel_gauge_SetConfig(stored);
+  s_FgAppliedConfigSeq = seq;
+}
+
+/*
+ * The charger's two configuration bytes follow the same rule, with one wrinkle of their own that
+ * comes straight from the host protocol: bit 7 asks for the value to be stored, and a read-back
+ * only counts as verified when the low seven bits match what was requested.
+ */
+static uint8_t app_PersistChargerConfig(uint8_t _nvAddr, uint8_t _config)
+{
+  if (_config & 0x80) {
+    if (nv_write_U8(_nvAddr, _config) != NV_OK)
+      LOG_ERROR("[APP] NV write of charger config %u failed", _nvAddr);
+  }
+
+  uint8_t stored = 0;
+  bool verified = (nv_read_U8(_nvAddr, &stored) == NV_OK)
+               && ((_config & 0x7F) == (stored & 0x7F));
+
+  return verified ? stored : _config;
+}
+
+static void app_ApplyChargerInputsConfig(uint8_t config, uint8_t seq)
+{
+  s_ChgInputsReadout = app_PersistChargerConfig(NV_ADDR_CHARGER_INPUTS_CONFIG, config);
+  charger_SetInputsConfig(config);
+  s_ChgAppliedInputsSeq = seq;
+}
+
+static void app_ApplyChargerChargingConfig(uint8_t config, uint8_t seq)
+{
+  s_ChgChargingReadout = app_PersistChargerConfig(NV_ADDR_CHARGING_CONFIG, config);
+  charger_SetChargingConfig(config);
+  s_ChgAppliedChargingSeq = seq;
 }
 
 static void app_ProcessEvent(const AppEvent_t *_evt)
@@ -287,6 +374,23 @@ static void app_ProcessEvent(const AppEvent_t *_evt)
       charger_OnEvent_InputPresenceChanged(_evt->data.chargerInput.present);
       break;
 
+    case APP_EVT_BATTERY_PRESENCE:
+      // The flag itself is one of two sources - battery.c re-reads both and decides:
+      app_UpdateBatteryPresence();
+      break;
+
+    case APP_EVT_FUEL_GAUGE_SET_CONFIG:
+      app_ApplyFuelGaugeConfig(_evt->data.fuelGaugeConfig.config, _evt->data.fuelGaugeConfig.seq);
+      break;
+
+    case APP_EVT_CHARGER_SET_INPUTS_CONFIG:
+      app_ApplyChargerInputsConfig(_evt->data.chargerConfig.config, _evt->data.chargerConfig.seq);
+      break;
+
+    case APP_EVT_CHARGER_SET_CHARGING_CONFIG:
+      app_ApplyChargerChargingConfig(_evt->data.chargerConfig.config, _evt->data.chargerConfig.seq);
+      break;
+
     default:
       LOG_ERROR("[APP] Unknown event type %u", _evt->type);
       break;
@@ -314,6 +418,68 @@ bool app_PostEvent(const AppEvent_t *_pEvent)
   return (sent == pdTRUE);
 }
 
+int8_t app_FuelGaugeCmdSetConfig(uint8_t *data, uint16_t len)
+{
+  (void)len;
+
+  if (!fuel_gauge_IsConfigValid(data[0]))
+    return 1;
+
+  uint8_t seq = (uint8_t)(s_FgReqConfigSeq + 1);
+  AppEvent_t evt = { .type = APP_EVT_FUEL_GAUGE_SET_CONFIG };
+  evt.data.fuelGaugeConfig.config = data[0];
+  evt.data.fuelGaugeConfig.seq = seq;
+
+  s_FgReqConfig = data[0];
+  if (app_PostEvent(&evt))
+    s_FgReqConfigSeq = seq;
+
+  return 0;
+}
+
+void app_FuelGaugeReadConfig(uint8_t data[], uint16_t *len)
+{
+  data[0] = (s_FgReqConfigSeq != s_FgAppliedConfigSeq)
+      ? s_FgReqConfig
+      : fuel_gauge_GetConfig();
+  *len = 1;
+}
+
+void app_ChargerCmdWriteInputsConfig(uint8_t config)
+{
+  uint8_t seq = (uint8_t)(s_ChgReqInputsSeq + 1);
+  AppEvent_t evt = { .type = APP_EVT_CHARGER_SET_INPUTS_CONFIG };
+  evt.data.chargerConfig.config = config;
+  evt.data.chargerConfig.seq = seq;
+
+  s_ChgReqInputsConfig = config;
+  if (app_PostEvent(&evt))
+    s_ChgReqInputsSeq = seq;
+}
+
+uint8_t app_ChargerReadInputsConfig(void)
+{
+  return (s_ChgReqInputsSeq != s_ChgAppliedInputsSeq) ? s_ChgReqInputsConfig : s_ChgInputsReadout;
+}
+
+void app_ChargerCmdWriteChargingConfig(uint8_t config)
+{
+  uint8_t seq = (uint8_t)(s_ChgReqChargingSeq + 1);
+  AppEvent_t evt = { .type = APP_EVT_CHARGER_SET_CHARGING_CONFIG };
+  evt.data.chargerConfig.config = config;
+  evt.data.chargerConfig.seq = seq;
+
+  s_ChgReqChargingConfig = config;
+  if (app_PostEvent(&evt))
+    s_ChgReqChargingSeq = seq;
+}
+
+uint8_t app_ChargerReadChargingConfig(void)
+{
+  return (s_ChgReqChargingSeq != s_ChgAppliedChargingSeq)
+      ? s_ChgReqChargingConfig : s_ChgChargingReadout;
+}
+
 static void TaskApp(void *parameters)
 {
   (void)parameters;
@@ -338,9 +504,37 @@ static void TaskApp(void *parameters)
   analog_Init();
   led_Init();
   button_Init();
+
   battery_Init();
-  fuel_gauge_Init();
-  charger_Init(reset_init);
+
+  /* The fuel gauge does not read NV itself - see app_ApplyFuelGaugeConfig(). */
+  uint8_t fg_cfg_mask;
+  if (nv_read_U8(NV_ADDR_FUEL_GAUGE_CONFIG_MASK, &fg_cfg_mask) != NV_OK ||
+      !fuel_gauge_IsConfigValid(fg_cfg_mask))
+    fg_cfg_mask = FUEL_GAUGE_CONFIG_DEFAULT;
+  fuel_gauge_Init(fg_cfg_mask);
+
+  /* Nor does the charger. Both bytes are used only on a power-on reset - see charger_Init(). */
+  uint8_t chgInputs, chgCharging;
+  if (nv_read_U8(NV_ADDR_CHARGER_INPUTS_CONFIG, &chgInputs) != NV_OK)
+    chgInputs = CHARGER_INPUTS_CONFIG_DEFAULT;
+  if (nv_read_U8(NV_ADDR_CHARGING_CONFIG, &chgCharging) != NV_OK)
+    chgCharging = CHARGER_CHARGING_CONFIG_DEFAULT;
+  s_ChgInputsReadout = chgInputs;
+  s_ChgChargingReadout = chgCharging;
+  charger_Init(chgInputs, chgCharging);
+
+  /*
+   * Neither device asks anybody for anything - they are told. The profile goes in here; battery
+   * presence and the thermal verdict arrive on the charger's first BATSTAT edge or on the
+   * periodic tick below, whichever comes first.
+   */
+  {
+    BatteryProfile_T profile;
+    const BatteryProfile_T *p = battery_GetProfile(&profile) ? &profile : NULL;
+    fuel_gauge_SetBatProfile(p);
+    charger_SetBatProfile(p);
+  }
 
   /*
    * No dedicated battery task to drive the charge-status LED anymore (see battery.h) - APP does
@@ -359,6 +553,8 @@ static void TaskApp(void *parameters)
       app_ProcessEvent(&evt);
 
     if ((int32_t)(xTaskGetTickCount() - ledDeadline) >= 0) {
+      app_UpdateBatteryPresence();
+      app_UpdateThermalState();
       battery_UpdateChargeLed();
       ledDeadline = xTaskGetTickCount() + pdMS_TO_TICKS(BATTERY_CHARGE_LED_PERIOD_MS);
     }

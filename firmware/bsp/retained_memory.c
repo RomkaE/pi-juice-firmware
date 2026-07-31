@@ -51,11 +51,11 @@ typedef struct
 	uint32_t base;
 	uint32_t size;
 	uint32_t check;
-} RetainedToken_T;
+} RetainedToken_t;
 
 static bool s_Status = true;
 
-static RetainedToken_T retainedToken __attribute__((section("no_init")));
+static RetainedToken_t retainedToken __attribute__((section("no_init")));
 
 bool retained_mem_Check(void)
 {

@@ -8,11 +8,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "iosystem/button.h"
-#include <to_refactor/time_count.h>
 #include "nv.h"
 #include "app-error/app_assert.h"
 #include "src/app.h"
 #include "board.h"
+#include "utils/time_count.h"
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"

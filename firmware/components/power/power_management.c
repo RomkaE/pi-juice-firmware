@@ -7,12 +7,12 @@
 
 #include "iosystem/analog.h"
 #include "iosystem/button.h"
-#include <to_refactor/fuel_gauge_lc709203f.h>
-#include <to_refactor/power_management.h>
-#include <to_refactor/power_source.h>
-#include <to_refactor/time_count.h>
+#include "fuel_gauge_lc709203f.h"
+#include "power_management.h"
+#include "power_source.h"
 #include "nv.h"
 #include "charger_bq2416x.h"
+#include "utils/time_count.h"
 
 
 RunPinInstallationStatus_T runPinInstallationStatus = RUN_PIN_NOT_INSTALLED;
@@ -91,9 +91,13 @@ int8_t ResetHost(void) {
 	if ( (PWR_5V_BOOST_EN_STATUS() || power5vIoStatus != PWR_SOURCE_NOT_PRESENT) && runPinInstallationStatus == RUN_PIN_INSTALLED ) {
 		Turn5vBoost(1);
 		// activate RUN signal
+		// TODO - Check. The pin is not used in the circuit.
+		/*
 		HAL_GPIO_WritePin(HOST_RUN_PORT, HOST_RUN_PIN, GPIO_PIN_RESET);
 		DelayUs(100);
 		HAL_GPIO_WritePin(HOST_RUN_PORT, HOST_RUN_PIN, GPIO_PIN_SET);
+		*/
+
 		MS_TIME_COUNTER_INIT(lastWakeupTimer);
 		return 0;
 	} else if (power5vIoStatus == PWR_SOURCE_NOT_PRESENT) {
@@ -198,7 +202,11 @@ void PowerManagementTask(void) {
 	if (MS_TIME_COUNT(powerMngmtTaskMsCounter) >= 500) {
 		MS_TIME_COUNTER_INIT(powerMngmtTaskMsCounter);
 
-		volatile int isWakeupOnCharge = fuel_gauge_GetRsoc() >= wakeupOnCharge && charger_IsInputPresent() && charger_IsBatteryPresent();
+		/* An unknown charge level must not satisfy the threshold - 0xFFFF would pass every
+		 * comparison and wake the host on a dead fuel gauge. */
+		uint16_t rsoc = fuel_gauge_GetRsoc();
+		volatile int isWakeupOnCharge = rsoc != FUEL_GAUGE_RSOC_UNKNOWN && rsoc >= wakeupOnCharge
+				&& charger_IsInputPresent() && charger_IsBatteryPresent();
 		if ( 		( isWakeupOnCharge || rtcWakeupEventFlag || ioWakeupEvent) // there is wake-up trigger
 				&& 	!delayedPowerOffCounter // deny wake-up during shutdown
 				&& 	!delayedTurnOnFlag

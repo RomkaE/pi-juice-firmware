@@ -11,16 +11,8 @@
 #include "stdint.h"
 #include "stm32f0xx_hal.h"
 
-#define TICK_PERIOD_MS		20
-
-//#define TIME_COUNTERS_MAX 	16
-
-#define MS_TIME_COUNTER_INIT(c)	(c=HAL_GetTick())
-#define MS_TIME_COUNT(c)	(HAL_GetTick()-c)
-
-//extern uint32_t ticks[TIME_COUNTERS_MAX];
-
-//int8_t AddTimeCounter();
+#define MS_TIME_COUNTER_INIT(c)      (c=HAL_GetTick())
+#define MS_TIME_COUNT(c)             (HAL_GetTick()-c)
 
 /**
  * @brief  Delays for amount of micro seconds

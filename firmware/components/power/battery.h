@@ -53,12 +53,34 @@ typedef struct
 	uint16_t ntcResistance; // 10ohm unit, 0xFFFF undefined
 } BatteryProfile_T;
 
+/*
+ * Thermal verdict, aggregated here from the profile's four thresholds and whatever temperature
+ * source is alive. The charger acts on this instead of reading a raw temperature and the profile
+ * itself - see charger_SetThermalState().
+ *
+ * The order matters and callers may rely on it: HOT implies "above tWarm" and COLD implies
+ * "below tCool", because that is how the thresholds nest. UNKNOWN means "no usable reading" and
+ * must be treated exactly like NORMAL - the same thing the charger did when the temperature
+ * sensor was configured as not used.
+ */
+typedef enum BatteryThermalState_T {
+	BAT_TEMP_UNKNOWN = 0,   // no profile, or the temperature sensor is not in use
+	BAT_TEMP_COLD,          // <= tCold
+	BAT_TEMP_COOL,          // <  tCool
+	BAT_TEMP_NORMAL,
+	BAT_TEMP_WARM,          // >  tWarm
+	BAT_TEMP_HOT            // >= tHot
+} BatteryThermalState_T;
+
 typedef enum BatteryStatus_T {
 	BAT_STATUS_NORMAL = 0,
 	BAT_STATUS_CHARGING_FROM_IN,
 	BAT_STATUS_CHARGING_FROM_5V_IO,
 	BAT_STATUS_NOT_PRESENT
 } BatteryStatus_T;
+
+/* Below this the pack is treated as absent whatever the charger's own detector says. */
+#define BATTERY_PRESENT_MV  2550
 
 /*
  * Battery has no hardware of its own - unlike led/button/analog/charger/fuel_gauge, it never
@@ -82,6 +104,30 @@ void battery_Init(void);
 bool battery_GetProfile(BatteryProfile_T *out);
 
 BatteryStatus_T battery_GetStatus(void);
+
+/*
+ * Battery presence, aggregated here from two independent sources that know nothing about each
+ * other: the charger's own BATSTAT detector and the pack voltage measured by the ADC. This is
+ * what battery.c is for - the modules produce readings, the aggregation and the decision live in
+ * one place, in APP task context.
+ *
+ * battery_UpdatePresence() re-evaluates and returns true when the answer changed, so the caller
+ * knows it has something to announce. APP calls it on a charger BATSTAT edge and on its own
+ * periodic tick, so a slow voltage collapse is noticed as well as a pack being pulled.
+ */
+bool battery_UpdatePresence(void);
+bool battery_IsPresent(void);
+
+/*
+ * Same shape for the thermal verdict: the profile's thresholds live here, the temperature comes
+ * from whichever source is alive, and the result is what the charger is told. Update() returns
+ * true when the verdict changed, so APP knows it has something to announce.
+ *
+ * No hysteresis, exactly as before this was factored out: a temperature sitting on a threshold
+ * can flap at the APP tick rate. Known, deliberately unchanged.
+ */
+bool battery_UpdateThermalState(void);
+BatteryThermalState_T battery_GetThermalState(void);
 
 /*
  * Host register 0x82 - selects one of the built-in profiles, BATTERY_CUSTOM_PROFILE_ID or

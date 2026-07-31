@@ -5,8 +5,8 @@
  *      Author: milan
  */
 // linux driver for rtc and alarm config.txt: dtoverlay=i2c-rtc,ds1339,wakeup-source
-#include <to_refactor/power_management.h>
-#include <to_refactor/power_source.h>
+#include "power/power_management.h"
+#include "power/power_source.h"
 #include <to_refactor/rtc_ds1339_emu.h>
 #include "stm32f0xx_hal.h"
 #include "main.h"
