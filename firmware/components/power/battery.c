@@ -624,10 +624,13 @@ static BatteryThermalState_T evaluateThermalState(void)
   if (!s_CurrentProfileValid)
     return BAT_TEMP_UNKNOWN;
 
-  if (fuel_gauge_GetTempSenseConfig() == BAT_TEMP_SENSE_CONFIG_NOT_USED)
-    return BAT_TEMP_UNKNOWN;
-
   int8_t temp = fuel_gauge_GetTemp();
+
+  /* "No reading", not a very cold pack - it is what the fuel gauge answers while the IC is not the
+   * source. Without this it would satisfy the tCold test below and a lost IC would look like a
+   * frozen battery, stopping the charge. */
+  if (temp == FUEL_GAUGE_TEMP_UNKNOWN)
+    return BAT_TEMP_UNKNOWN;
 
   if (temp <= s_CurrentProfile.tCold) return BAT_TEMP_COLD;
   if (temp <  s_CurrentProfile.tCool) return BAT_TEMP_COOL;

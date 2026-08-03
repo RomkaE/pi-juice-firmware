@@ -279,7 +279,7 @@ static void app_FanOutBatteryProfile(void)
   bool valid = battery_GetProfile(&profile);
   const BatteryProfile_T *p = valid ? &profile : NULL;
   charger_SetBatProfile(p);
-  fuel_gauge_SetBatProfile(p);
+  fuel_gauge_SetBattProfile(p);
   PowerSourceSetBatProfile(p);
 }
 
@@ -511,27 +511,26 @@ static void TaskApp(void *parameters)
   LOG_INFO("APP task started");
 
   main_init();
-
-  /*
-   * Subsystems initialization. battery_Init() has no task of its own - it's a plain synchronous
-   * NV load - so by the time it returns, battery_GetProfile() already reflects real data, and it
-   * just needs to run before fuel_gauge_Init()/charger_Init(), which read it during their own
-   * startup. Those two, in turn, each run at a priority above APP's, so xTaskCreateStatic()
-   * inside them preempts and runs the new task to its first blocking wait before returning -
-   * see led_Init()'s comment for the same property.
-   */
   analog_Init();
   led_Init();
   button_Init();
 
-  battery_Init();
+  {
+    battery_Init();
 
-  /* The fuel gauge does not read NV itself - see app_ApplyFuelGaugeConfig(). */
-  uint8_t fg_cfg_mask;
-  if (nv_read_U8(NV_ADDR_FUEL_GAUGE_CONFIG_MASK, &fg_cfg_mask) != NV_OK ||
-      !fuel_gauge_IsConfigValid(fg_cfg_mask))
-    fg_cfg_mask = FUEL_GAUGE_CONFIG_DEFAULT;
-  fuel_gauge_Init(fg_cfg_mask);
+    BatteryProfile_T batt_profile;
+    bool valid = battery_GetProfile(&batt_profile);
+
+    if (valid)
+      fuel_gauge_Init(&batt_profile);
+    else
+      fuel_gauge_Init(NULL);
+
+    if (valid)
+      charger_SetBatProfile(&batt_profile);
+    else
+      charger_SetBatProfile(NULL);
+  }
 
   /* Nor does the charger. Both bytes are used only on a power-on reset - see charger_Init(). */
   uint8_t chgInputs, chgCharging;
@@ -543,17 +542,6 @@ static void TaskApp(void *parameters)
   s_ChgChargingReadout = chgCharging;
   charger_Init(chgInputs, chgCharging);
 
-  /*
-   * Neither device asks anybody for anything - they are told. The profile goes in here; battery
-   * presence and the thermal verdict arrive on the charger's first BATSTAT edge or on the
-   * periodic tick below, whichever comes first.
-   */
-  {
-    BatteryProfile_T profile;
-    const BatteryProfile_T *p = battery_GetProfile(&profile) ? &profile : NULL;
-    fuel_gauge_SetBatProfile(p);
-    charger_SetBatProfile(p);
-  }
 
   /*
    * No dedicated battery task to drive the charge-status LED anymore (see battery.h) - APP does
