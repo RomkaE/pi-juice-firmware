@@ -63,7 +63,7 @@
  * PACK_CAPACITY_U16()/UNPACK_CAPACITY_U16() pair in battery.c. */
 #define FG_CAPACITY_UNKNOWN     0xFFFF
 
-#define FG_TASK_STACK_WORDS     192
+#define FG_TASK_STACK_WORDS     256
 #define FG_QUE_LEN              4
 
 #define FG_COUNT_SATURATING(c)	do { if ((c) < 0xFFFF) (c)++; } while (0)

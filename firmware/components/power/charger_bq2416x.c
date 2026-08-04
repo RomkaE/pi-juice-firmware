@@ -69,7 +69,7 @@
 
 #define CHG_I2C_ERR_REINIT      10     // soft bus failures before the I2C master is kicked
 
-#define CHG_TASK_STACK_WORDS    192   // deepest measured frame is 56 bytes, see the .su file
+#define CHG_TASK_STACK_WORDS    256   // deepest measured frame is 56 bytes, see the .su file
 #define CHG_QUE_LEN             8
 
 _Static_assert(pdMS_TO_TICKS(CHG_ACTIVE_PERIOD_MS) >= 1,
