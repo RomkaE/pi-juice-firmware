@@ -12,8 +12,10 @@
 #include "iosystem/analog.h"
 #include "driver/i2c/i2c_master.h"
 #include "utils/crc8_atm.h"
+#include "utils/utils.h"
 #include "app-error/app_assert.h"
 #include "app-error/app_error.h"
+
 
 // FreeRTOS:
 #include "FreeRTOS.h"
@@ -54,6 +56,8 @@
 #define FG_RETRY_PERIOD_MS      10000   // FG_ST_IC_LOST: how often a written-off IC is retried
 #define FG_POWER_ON_DELAY_MS    100     // the IC needs this much after power on before it answers
                                         // max Tinit 90ms - Table 4 in the LC709203F datasheet
+#define FG_PARAM_SETTLE_MS      100     // settle time after a battery parameter write, register 0x12
+                                        // Figure 18 in the LC709203F datasheet
 
 #define FG_INIT_ATTEMPTS        5       // bring-up tries before the IC is declared absent
 #define FG_ERR_LIMIT            5       // consecutive transport errors that drop ACTIVE to LOST
@@ -63,11 +67,15 @@
  * PACK_CAPACITY_U16()/UNPACK_CAPACITY_U16() pair in battery.c. */
 #define FG_CAPACITY_UNKNOWN     0xFFFF
 
+#define FG_COUNT_SATURATING(c)  do { if ((c) < 0xFFFF) (c)++; } while (0)
+
+#define LC_INIT_RSOC_REG        LC_REG_BEFORE_RSOC  // LC_REG_BEFORE_RSOC or LC_REG_INITIAL_RSOC
+
 #define FG_TASK_STACK_WORDS     256
 #define FG_QUE_LEN              4
 
-#define FG_COUNT_SATURATING(c)	do { if ((c) < 0xFFFF) (c)++; } while (0)
-
+_Static_assert( LC_INIT_RSOC_REG == LC_REG_BEFORE_RSOC || LC_INIT_RSOC_REG == LC_REG_INITIAL_RSOC,
+                "LC_INIT_RSOC_REG must be LC_REG_BEFORE_RSOC or LC_REG_INITIAL_RSOC");
 _Static_assert(pdMS_TO_TICKS(FG_MEAS_PERIOD_MS) >= 1, "FG_MEAS_PERIOD_MS must be at least one RTOS tick");
 
 // Internal battery profile:
@@ -160,11 +168,6 @@ static QueueHandle_t s_QueHandle;
 static StaticQueue_t s_Que;
 static FuelGaugeEvent_t s_QueBuf[FG_QUE_LEN];
 
-/*
- * Returns 0 on success, +1 on a transport error (device absent or bus broken) and -1 on a CRC
- * mismatch. The sign matters: a CRC mismatch means the device answered, so it must not count
- * towards writing the device off.
- */
 static int8_t readWord(uint8_t _reg, uint16_t *_word)
 {
   uint8_t buf[6] = { LC_I2C_ADDR, _reg, LC_I2C_ADDR | 0x01, 0, 0, 0 };
@@ -186,7 +189,6 @@ static int8_t readWord(uint8_t _reg, uint16_t *_word)
   return 0;
 }
 
-/* Returns 0 on success, 1 on a transport error. */
 static int8_t writeWord(uint8_t _reg, uint16_t _word)
 {
   uint8_t buf[5] = { LC_I2C_ADDR, _reg, (uint8_t) _word, (uint8_t) (_word >> 8), 0 };
@@ -199,6 +201,24 @@ static int8_t writeWord(uint8_t _reg, uint16_t _word)
     return 1;
   }
   return 0;
+}
+
+static int8_t updateWord(const char *_name, uint8_t _reg, uint16_t _want, bool *_changed)
+{
+  uint16_t have;
+
+  *_changed = false;      // nothing was written yet, and a failed read leaves it that way
+
+  int8_t res = readWord(_reg, &have);
+  if (res != 0)
+    return res;
+
+  *_changed = (have != _want);
+  if (!*_changed)
+    return 0;
+
+  LOG_INFO("[FG] %s register stale: old=0x%04X, new=0x%04X", _name, (unsigned)have, (unsigned)_want);
+  return writeWord(_reg, _want);
 }
 
 static void profileConvert(const BatteryProfile_T *_src, FgBattProfile_t *_dst)
@@ -224,8 +244,9 @@ static void profileConvert(const BatteryProfile_T *_src, FgBattProfile_t *_dst)
  * for the PiJuice Zero but 1820 for BP7X - so snapping would throw away most of the resolution the
  * register has.
  *
- * Returns LC_APA_DEFAULT when the profile states no capacity. The register has to be written with
- * something (its power-on value is not usable) and the 3000 mAh row is the middle of the range.
+ * Returns LC_APA_DEFAULT when a profile is in hand but states no capacity - the 3000 mAh row is the
+ * middle of the range, which is as good as a guess gets. With no profile at all the register is not
+ * written in the first place, see starting_flow().
  */
 static uint16_t apa_value(uint16_t _capacity)
 {
@@ -267,8 +288,12 @@ static uint16_t change_parameter_value(uint16_t _chrg_voltage)
 
 static bool starting_flow(void)
 {
+  // Persist across FG_INIT_ATTEMPTS: a parameter changed by a failed attempt
+  // still requires RSOC recalibration. Clear only after re-initialisation
+  // completes successfully:
+  static bool s_ReinitRsoc;
+
   int8_t res;
-  bool f_init_rsoc = false; // need initial RSOC
   uint16_t value;
 
   // Read IC version:
@@ -292,72 +317,42 @@ static bool starting_flow(void)
   if (s_BattProfileValid)
   {
     // APA:
-    {
-      res = readWord(LC_REG_APA, &value);
-      if (res != 0)
-        return false;
-      uint16_t apa = apa_value(s_BattProfile.capacity);
-      if (apa != value)
-      {
-        LOG_INFO("[FG] APA register stale: old=0x%04X, new=0x%04X", (unsigned)value, (unsigned)apa);
-        res = writeWord(LC_REG_APA, apa);
-        if (res != 0)
-          return false;
-        f_init_rsoc = true;
-      }
-    }
+    bool apa_written = false;
+    res = updateWord("APA", LC_REG_APA, apa_value(s_BattProfile.capacity), &apa_written);
+    s_ReinitRsoc |= apa_written;
+    if (res != 0)
+      return false;
 
     // Set Battery profile:
-    {
-      res = readWord(LC_REG_CHANGE_PARAM, &value);
-      if (res != 0)
-        return false;
-      uint16_t parameter = change_parameter_value(s_BattProfile.chrg_voltage);
-      if (parameter != value)
-      {
-        LOG_INFO("[FG] PARAMETER register stale: old=0x%04X, new=0x%04X",
-                 (unsigned)value, (unsigned)parameter);
-        res = writeWord(LC_REG_CHANGE_PARAM, parameter);
-        if (res != 0)
-          return false;
-        f_init_rsoc = true;
+    bool param_written = false;
+    res = updateWord("PARAMETER", LC_REG_CHANGE_PARAM,
+                     change_parameter_value(s_BattProfile.chrg_voltage), &param_written);
+    s_ReinitRsoc |= param_written;
+    if (res != 0)
+      return false;
 
-        // Need delay after write 0x12 command (Figure 18 in the LC709203F datasheet):
-        vTaskDelay(pdMS_TO_TICKS(FG_POWER_ON_DELAY_MS));
-      }
-    }
+    // Need delay after write 0x12 command (Figure 18 in the LC709203F datasheet):
+    if (param_written)
+      vTaskDelay(pdMS_TO_TICKS(FG_PARAM_SETTLE_MS));
   }
 
   // Initial RSOC:
-  if (f_init_rsoc)
+  if (s_ReinitRsoc)
   {
     LOG_INFO("[FG] battery parameters changed, re-initialising RSOC");
 
-    // Before RSOC:
-    {
-      res = writeWord(LC_REG_BEFORE_RSOC, 0xAA55);
-      if (res != 0)
-        return false;
+    // RSOC Initialization:
+    res = writeWord(LC_INIT_RSOC_REG, 0xAA55);
+    if (res != 0)
+      return false;
 
-      // Try read RSOC:
-      res = readWord(LC_REG_ITE, &value);
-      if (res != 0)
-        return false;
-      LOG_INFO("[FG] BEFORE_RSOC: rsoc=%u.%u%%", (unsigned)(value / 10), (unsigned)(value % 10));
-    }
+    // Try read RSOC:
+    res = readWord(LC_REG_ITE, &value);
+    if (res != 0)
+      return false;
+    LOG_INFO("[FG] %s: rsoc=%u.%u%%", STRINGIFY(LC_INIT_RSOC_REG), (unsigned)(value / 10), (unsigned)(value % 10));
 
-    // Initial RSOC:
-    {
-      res = writeWord(LC_REG_INITIAL_RSOC, 0xAA55);
-      if (res != 0)
-        return false;
-
-      // Try read RSOC:
-      res = readWord(LC_REG_ITE, &value);
-      if (res != 0)
-        return false;
-      LOG_INFO("[FG] INITIAL_RSOC: rsoc=%u.%u%%", (unsigned)(value / 10), (unsigned)(value % 10));
-    }
+    s_ReinitRsoc = false;   // done - the only place it is cleared
   }
 
   // Thermistor:
@@ -367,8 +362,10 @@ static bool starting_flow(void)
     if (res != 0)
       return false;
 
-    // NTC B constant:
-    if (s_BattProfileValid)
+    /* NTC B constant. Zero is this module's "not stated" - see profileConvert() - and writing that
+     * would poison the very register the IC derives 0x08 from. Left alone, the IC keeps its own
+     * default and read_Temp() refuses the reading anyway. */
+    if (s_BattProfileValid && s_BattProfile.NTC.b_const != 0)
     {
       res = writeWord(LC_REG_THERMISTOR_B, s_BattProfile.NTC.b_const);
       if (res != 0)
@@ -827,7 +824,6 @@ static void fsm_Dispatch(const FuelGaugeEvent_t *_ev)
     {
       LOG_ERROR("[FG] entry chain does not settle, last state %u", (unsigned)next);
       APP_ERROR(APP_ERR);
-      return;
     }
 
     state = next;
