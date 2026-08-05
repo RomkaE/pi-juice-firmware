@@ -411,6 +411,20 @@ static void app_ProcessEvent(const AppEvent_t *_evt)
       app_ApplyChargerChargingConfig(_evt->data.chargerConfig.config, _evt->data.chargerConfig.seq);
       break;
 
+    /*
+     * Everything else the charger publishes. Nothing acts on these yet, so they share one weak
+     * hook rather than seven empty ones - the event type is passed along, so a consumer that
+     * appears later switches on it without the producer side changing at all.
+     */
+    case APP_EVT_CHARGER_STATUS:
+    case APP_EVT_CHARGER_FAULT:
+    case APP_EVT_CHARGER_IN_STAT:
+    case APP_EVT_CHARGER_USB_STAT:
+    case APP_EVT_CHARGER_TS_FAULT:
+    case APP_EVT_CHARGER_DPM:
+      charger_OnEvent_ValueChanged(_evt->type, _evt->data.chargerValue.value);
+      break;
+
     default:
       LOG_ERROR("[APP] Unknown event type %u", _evt->type);
       break;
@@ -467,6 +481,10 @@ void app_FuelGaugeReadConfig(uint8_t data[], uint16_t *len)
 
 void app_ChargerCmdWriteInputsConfig(uint8_t config)
 {
+  /* Stripped here, where the host byte enters, so that NV, the read-back and the charger all carry
+   * the same value. The host's verifying write of a refused bit will fail, and that is the point. */
+  config = charger_SanitizeInputsConfig(config);
+
   uint8_t seq = (uint8_t)(s_ChgReqInputsSeq + 1);
   AppEvent_t evt = { .type = APP_EVT_CHARGER_SET_INPUTS_CONFIG };
   evt.data.chargerConfig.config = config;
@@ -526,21 +544,21 @@ static void TaskApp(void *parameters)
     else
       fuel_gauge_Init(NULL);
 
-    if (valid)
-      charger_SetBatProfile(&batt_profile);
-    else
-      charger_SetBatProfile(NULL);
-  }
+    /* Nor does the charger read NV itself. Both bytes are handed over below, together with the
+     * profile - charger_SetBatProfile() cannot be used before charger_Init() has made the queue. */
+    uint8_t chgInputs, chgCharging;
+    if (nv_read_U8(NV_ADDR_CHARGER_INPUTS_CONFIG, &chgInputs) != NV_OK)
+      chgInputs = CHARGER_INPUTS_CONFIG_DEFAULT;
+    if (nv_read_U8(NV_ADDR_CHARGING_CONFIG, &chgCharging) != NV_OK)
+      chgCharging = CHARGER_CHARGING_CONFIG_DEFAULT;
 
-  /* Nor does the charger. Both bytes are used only on a power-on reset - see charger_Init(). */
-  uint8_t chgInputs, chgCharging;
-  if (nv_read_U8(NV_ADDR_CHARGER_INPUTS_CONFIG, &chgInputs) != NV_OK)
-    chgInputs = CHARGER_INPUTS_CONFIG_DEFAULT;
-  if (nv_read_U8(NV_ADDR_CHARGING_CONFIG, &chgCharging) != NV_OK)
-    chgCharging = CHARGER_CHARGING_CONFIG_DEFAULT;
-  s_ChgInputsReadout = chgInputs;
-  s_ChgChargingReadout = chgCharging;
-  charger_Init(chgInputs, chgCharging);
+    // Whatever NV holds may predate the precedence becoming board policy.
+    chgInputs = charger_SanitizeInputsConfig(chgInputs);
+
+    s_ChgInputsReadout = chgInputs;
+    s_ChgChargingReadout = chgCharging;
+    charger_Init(valid ? &batt_profile : NULL, chgInputs, chgCharging);
+  }
 
 
   /*

@@ -35,6 +35,18 @@ typedef enum
   APP_EVT_FUEL_GAUGE_SET_CONFIG,               // host register 0x93 - app_FuelGaugeCmdSetConfig()
   APP_EVT_CHARGER_SET_INPUTS_CONFIG,           // app_ChargerCmdWriteInputsConfig()
   APP_EVT_CHARGER_SET_CHARGING_CONFIG,         // app_ChargerCmdWriteChargingConfig()
+
+  /*
+   * The rest of what charger.c publishes, one event per value, posted only when that value
+   * actually changed. All carry AppEventChargerValue_t; the comment names how to read the byte.
+   * The two presence events above are the same idea with an older, wider payload.
+   */
+  APP_EVT_CHARGER_STATUS,                      // ChargerStatus_T
+  APP_EVT_CHARGER_FAULT,                       // ChargerFaultStatus_T
+  APP_EVT_CHARGER_IN_STAT,                     // raw INSTAT field
+  APP_EVT_CHARGER_USB_STAT,                    // raw USBSTAT field
+  APP_EVT_CHARGER_TS_FAULT,                    // raw TS_FAULT field
+  APP_EVT_CHARGER_DPM,                         // 0 or 1
 } AppEventType_t;
 
 typedef struct
@@ -84,6 +96,12 @@ typedef struct
   uint8_t seq;
 } AppEventChargerConfig_t;
 
+/* Payload of the six APP_EVT_CHARGER_* value events - the new value, nothing else. */
+typedef struct
+{
+  uint8_t value;
+} AppEventChargerValue_t;
+
 typedef struct
 {
   uint8_t type;    // AppEventType_T
@@ -97,6 +115,7 @@ typedef struct
     AppEventBatteryPresence_t batteryPresence;
     AppEventFuelGaugeConfig_t fuelGaugeConfig;
     AppEventChargerConfig_t chargerConfig;
+    AppEventChargerValue_t chargerValue;
   } data;
 } AppEvent_t;
 

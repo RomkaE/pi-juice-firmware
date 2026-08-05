@@ -45,7 +45,9 @@ static void setPwr5vInDetStatus(uint8_t _status)
     return;
 
   pwr5vInDetStatus = _status;
-  charger_Set5vInDetected(_status == PWR_5V_IN_DETECTION_STATUS_PRESENT);
+  // USB-IN is locked out unconditionally in charger_bq2416x.c - the boost feeds that pin,
+  // so nothing here may unlock it. Revisit if the loop is ever broken in hardware.
+  // charger_Set5vInDetected(_status == PWR_5V_IN_DETECTION_STATUS_PRESENT);
 }
 static uint16_t vbatPwrOffTresh;
 
@@ -305,18 +307,18 @@ void PowerSource5vIoDetectionTask(void)
 			if ( samp < PWR_5V_IO_DET_ADC_THRESHOLD) {
 				if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
 					MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
-					charger_SetUsbILim(CHG_ILIM_STEP_DOWN);
+					// charger_SetUsbILim(CHG_ILIM_STEP_DOWN);
 				}
 				setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT);
 				if (pwr5VChgLoadMaximumReached > 1) pwr5VChgLoadMaximumReached --;
-				charger_SetUsbLockout(CHG_USB_IN_LOCK);
+				// charger_SetUsbLockout(CHG_USB_IN_LOCK);
 				PWR_5V_DET_LDO_ENABLE(0);
 			}
 		} else if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
 			setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_UNKNOWN);
 			if (pwr5VChgLoadMaximumReached > 1) pwr5VChgLoadMaximumReached --;
-			charger_SetUsbLockout(CHG_USB_IN_LOCK);
-			charger_SetUsbILim(CHG_ILIM_STEP_DOWN);
+			// charger_SetUsbLockout(CHG_USB_IN_LOCK);
+			// charger_SetUsbILim(CHG_ILIM_STEP_DOWN);
 			MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 		}
 
@@ -347,7 +349,7 @@ void PowerSource5vIoDetectionTask(void)
 			if ( fetCutoffCount >= 200 ) {//if ( sam >= PWR_5V_IO_DET_ADC_THRESHOLD ) {
 				// turn on usb in if pmos is cutoff
 				setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_PRESENT);
-				charger_SetUsbLockout(CHG_USB_IN_UNLOCK);
+				// charger_SetUsbLockout(CHG_USB_IN_UNLOCK);
 				//pwr5vIoLoadCurrent = 0;
 				MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 			} else {
@@ -363,16 +365,16 @@ void PowerSource5vIoDetectionTask(void)
 		if (volt5 < 4800) {
 			if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
 				MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
-				charger_SetUsbILim(CHG_ILIM_STEP_DOWN);
+				// charger_SetUsbILim(CHG_ILIM_STEP_DOWN);
 			}
 			setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT);
-			charger_SetUsbLockout(CHG_USB_IN_LOCK);
+			// charger_SetUsbLockout(CHG_USB_IN_LOCK);
 			if (pwr5VChgLoadMaximumReached > 1) pwr5VChgLoadMaximumReached --;
 		} else if (pwr5vInDetStatus != PWR_5V_IN_DETECTION_STATUS_PRESENT && MS_TIME_COUNT(pwr5vDetTimeCount) > 500) {
 		  HAL_GPIO_WritePin(PWR_5V_BOOST_EN_PORT, PWR_5V_BOOST_EN_PIN, GPIO_PIN_SET);
 			PWR_5V_DET_LDO_ENABLE(1);
 			setPwr5vInDetStatus(PWR_5V_IN_DETECTION_STATUS_PRESENT);
-			charger_SetUsbLockout(CHG_USB_IN_UNLOCK); // turn on charger in
+			// charger_SetUsbLockout(CHG_USB_IN_UNLOCK); // turn on charger in
 			MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 			//wakeupOnCharge = 0xFFFF;
 		}
@@ -382,7 +384,7 @@ void PowerSource5vIoDetectionTask(void)
 		MS_TIME_COUNTER_INIT(pwr5vPresentCounter);
 		if (pwr5vInDetStatus == PWR_5V_IN_DETECTION_STATUS_PRESENT ) {
 			if (pwr5VChgLoadMaximumReached > 1) {
-				charger_SetUsbILim(CHG_ILIM_STEP_UP);
+				// charger_SetUsbILim(CHG_ILIM_STEP_UP);
 				pwr5VChgLoadMaximumReached = 2;
 			} else if (pwr5VChgLoadMaximumReached == 0) {
 				pwr5VChgLoadMaximumReached = 3;
@@ -390,7 +392,7 @@ void PowerSource5vIoDetectionTask(void)
 		} else if (pwr5vInDetStatus == PWR_5V_IN_DETECTION_STATUS_NOT_PRESENT) {
 			// this means input is disconnected, and flag can be cleared
 			pwr5VChgLoadMaximumReached = 0;
-			charger_SetUsbILim(CHG_ILIM_SET_MIN);
+			// charger_SetUsbILim(CHG_ILIM_SET_MIN);
 		}
 	}
 }
@@ -409,8 +411,8 @@ void PowerSource5vIoDetectionTask(void)
 //		powerInStatus = PWR_SOURCE_NORMAL;
 //	}
 //
-//	if (charger_GetUsbInLockoutStatus() == CHG_USB_IN_UNLOCK) {
-//		pwrStat = charger_GetUsbStat();
+// if (charger_GetUsbInLockoutStatus() == CHG_USB_IN_UNLOCK) {
+// pwrStat = charger_GetUsbStat();
 //		if (/*!CHARGER_IS_USBIN_LOCKED() ||*/ pwrStat == 0x03) {
 //			power5vIoStatus = PWR_SOURCE_NOT_PRESENT;
 //		} else if ( pwrStat == 0x01 || pwrStat == 0x02) {

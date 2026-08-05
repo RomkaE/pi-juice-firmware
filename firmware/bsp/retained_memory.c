@@ -38,12 +38,12 @@
 #include <stdbool.h>
 #include "retained_memory.h"
 
-/* Section bounds, from the linker script. */
+// Section bounds, from the linker script:
 extern uint32_t _snoinit;
 extern uint32_t _enoinit;
 
-#define RETAINED_TOKEN_MAGIC    ((uint32_t)0x6E496552)	/* "ReIn" */
-#define RETAINED_MIX            ((uint32_t)0x9E3779B9)	/* odd, so it does not lose bits */
+#define RETAINED_TOKEN_MAGIC    ((uint32_t)0x6E496552)
+#define RETAINED_MIX            ((uint32_t)0x9E3779B9)	// odd, so it does not lose bits
 
 typedef struct
 {

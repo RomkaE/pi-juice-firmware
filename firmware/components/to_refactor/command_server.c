@@ -12,6 +12,7 @@
 #include "power/power_management.h"
 #include "power/power_source.h"
 #include "power/charger_bq2416x.h"
+#include "driver/i2c/i2c_master.h"
 #include <to_refactor/rtc_ds1339_emu.h>
 #include <to_refactor/io_control.h>
 #include <to_refactor/command_server.h>
@@ -1078,7 +1079,7 @@ void CmdServerReadFirmwareVersion(uint8_t dir, uint8_t *pData, uint16_t *dataLen
 void CmdServerReadBoardFaultStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_READ) {
 		// bit 0 charger i2c fault
-		pData[0] = (hi2c2.ErrorCode || charger_GetI2cErrorCount()) & 0x01;
+		pData[0] = (hi2c2.ErrorCode || i2c_master_GetI2cErrorCount()) & 0x01;
 		// bit 1-3 charger fault status
 		pData[0] |= (((uint8_t)charger_GetFaultStatus()) << 1) & 0xE0;
 		// bit 4 fuel gauge i2c fault

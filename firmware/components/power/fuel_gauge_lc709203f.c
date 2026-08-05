@@ -150,8 +150,6 @@ static uint16_t s_BattRsoc = FUEL_GAUGE_RSOC_UNKNOWN;
 static int8_t s_BattTemp = FUEL_GAUGE_TEMP_UNKNOWN;
 
 // Diagnostic/errors:
-static uint16_t s_HalErrorCount;
-static uint16_t s_CrcErrorCount;
 static uint32_t s_ErrMask;
 static bool s_IcFault;
 
@@ -175,13 +173,11 @@ static int8_t readWord(uint8_t _reg, uint16_t *_word)
   if (i2c_res != I2C_OK)
   {
     LOG_ERROR("[FG] readWord FAILED: reg=0x%02X, res=%d", _reg, i2c_res);
-    FG_COUNT_SATURATING(s_HalErrorCount);
     return 1;
   }
 
   if (Crc8Block(0, buf, 5) != buf[5])
   {
-    FG_COUNT_SATURATING(s_CrcErrorCount);
     return -1;
   }
 
@@ -197,7 +193,6 @@ static int8_t writeWord(uint8_t _reg, uint16_t _word)
   if (i2c_res != I2C_OK)
   {
     LOG_ERROR("[FG] writeWord FAILED: reg=0x%02X, res=%d", _reg, i2c_res);
-    FG_COUNT_SATURATING(s_HalErrorCount);
     return 1;
   }
   return 0;
@@ -762,9 +757,7 @@ static FuelGaugeState_t state_IcLost(const FuelGaugeEvent_t *_ev)
     case FG_EV_ENTRY:
       /* The moment the split between the two counters is worth having: NACKs and timeouts point
        * at the bus or the device, CRC mismatches at noise on the data lines. */
-      LOG_CRITICAL("[FG] IC lost (hal=%u crc=%u), next attempt in %u ms",
-                  (unsigned)s_HalErrorCount, (unsigned)s_CrcErrorCount,
-                  (unsigned)FG_RETRY_PERIOD_MS);
+      LOG_CRITICAL("[FG] IC lost, next attempt in %u ms", (unsigned)FG_RETRY_PERIOD_MS);
       s_StateTimeout = pdMS_TO_TICKS(FG_RETRY_PERIOD_MS);
       s_BattRsoc = FUEL_GAUGE_RSOC_UNKNOWN;
       s_BattTemp = FUEL_GAUGE_TEMP_UNKNOWN;

@@ -65,7 +65,7 @@ void bsp_Pwr5V_Restore(void)
   else
   {
     // TODO - get default state
-    bool def_state = true;
+    bool def_state = false;
     bsp_Pwr5V_SetState(def_state);
   }
 }

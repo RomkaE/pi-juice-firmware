@@ -35,7 +35,7 @@ uint8_t nv_Erase(void)
 uint8_t nv_write_U8(uint16_t _addr, uint8_t _var)
 {
   uint8_t res = NV_ERR;
-  LOG_DEBUG("nv_write_U8: addr=%u, var=%u", _addr, _var);
+  LOG_DEBUG("nv_write_U8: addr=%u, var=%0x02X", _addr, _var);
   uint16_t ee_data = (uint16_t)_var | (((uint16_t)(~_var)) << 8);
   uint16_t ee_res = EE_WriteVariable(_addr, ee_data);
   if (ee_res == 0)
@@ -69,7 +69,7 @@ uint8_t nv_read_U8(uint16_t _addr, uint8_t *_p_var)
 uint8_t nv_write_U16(uint16_t _addr, uint16_t _var)
 {
   uint8_t res = NV_ERR;
-  LOG_DEBUG("nv_write_U16: addr=%u, var=%u", _addr, _var);
+  LOG_DEBUG("nv_write_U16: addr=%u, var=0x%04X", _addr, _var);
   uint16_t ee_res = EE_WriteVariable(_addr, _var);
   if (ee_res == 0)
     res = NV_OK;

@@ -27,4 +27,6 @@ int i2c_master_ReadMem(uint8_t _i2c_addr, uint8_t _mem_addr, uint8_t *_data, uin
 
 int i2c_master_WriteMem(uint8_t _i2c_addr, uint8_t _mem_addr, uint8_t *_data, uint16_t _len);
 
+int i2c_master_GetI2cErrorCount(void);
+
 #endif /* COMPONENTS_DRIVER_I2C_I2C_MASTER_H_ */
