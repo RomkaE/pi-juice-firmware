@@ -352,7 +352,7 @@ static void DevRegsInvalidate(void)
 // rather than reaching for s_Cfg, so what it depends on is in the signature: it writes
 // s_TargetRegs and never touches the bus.
 //
-// Called when the configuration changes and at bring-up, not every round. The image is ours and
+// Called at init and whenever the configuration changes, not every round. The image is ours and
 // lives in RAM, so nothing the device does to itself - a watchdog expiry, a DEFAULT mode entry -
 // can disturb it. Noticing that the device has drifted away from it is RegsMapSync()'s job.
 static void TargetRegsBuild(const ChargerConfig_t *_p_cfg)
@@ -487,15 +487,15 @@ static bool RegWrite(uint8_t _reg)
 
 static bool RegsMapRead(void)
 {
-  bool ok = true;
+  bool res = true;
 
   for (uint8_t r = 0; r < BQ_REG_COUNT; r++)
   {
     if (!RegRead(r))
-      ok = false;
+      res = false;
   }
 
-  return ok;
+  return res;
 }
 
 // WDT reset via read-modify-write:
@@ -537,63 +537,6 @@ static bool RegsMapSync(void)
   }
 
   return res;
-}
-
-static bool DevBringUp(void)
-{
-  // The only two unverified writes in the module - there is no snapshot to verify against yet.
-  // Both images are assigned in full: building one from bits declared elsewhere is how the
-  // documented "500 mA" silently became 800.
-  s_TargetRegs.reg.supply_status.raw = 0;
-  s_TargetRegs.reg.supply_status.rd_wr.otg_lock = BQ_OTG_LOCK_IMAGE;
-  if (i2c_master_WriteMem(BQ_I2C_ADDR, BQ_REG_SUPPLY_STATUS,
-      &s_TargetRegs.reg.supply_status.raw, 1) != I2C_OK)
-  {
-    return false;
-  }
-
-  // Never select high impedance mode - it disables the VSys mosfet and cuts power to the MCU.
-  s_TargetRegs.reg.control.raw = 0;
-  s_TargetRegs.reg.control.rd_wr.iusb_limit = BQ_IUSB_LIMIT_IMAGE;
-  s_TargetRegs.reg.control.rd_wr.en_stat = 1;
-  s_TargetRegs.reg.control.rd_wr.te = 1;
-  s_TargetRegs.reg.control.rd_wr.ce = 1;      // charging off until the first round says otherwise
-  s_TargetRegs.reg.control.rd_wr.hz_mode = 0;
-  if (i2c_master_WriteMem(BQ_I2C_ADDR, BQ_REG_CONTROL, &s_TargetRegs.reg.control.raw,
-      1) != I2C_OK)
-  {
-    return false;
-  }
-
-  // TODO - check
-  TickType_t delay = pdMS_TO_TICKS(1);
-  vTaskDelay(delay > 0 ? delay : 1);
-
-  if (!RegsMapRead())
-    return false;
-
-  // Starts the 30 s window from a known point instead of leaving it to the first round.
-  ResetWatchdog();
-
-  // Published here, not on the way into ACTIVE: a device that has just come back should not wait
-  // out a round before it is announced.
-  {
-    ChargerPublished_t next = DevRegsDecode();
-    PublishChanges(&next);
-  }
-
-  // Read straight out of the snapshot: with LOG_ENABLED 0 the whole statement disappears, and a
-  // local for the vendor register would be left unused.
-  LOG_INFO("[CHG] up: vendor=%u part=%u rev=%u, status=%u fault=%u instat=%u usbstat=%u",
-      (unsigned)s_DeviceRegs.reg.vendor.rd.vendor,
-      (unsigned)s_DeviceRegs.reg.vendor.rd.part,
-      (unsigned)s_DeviceRegs.reg.vendor.rd.revision,
-      (unsigned)s_Pub.status, (unsigned)s_Pub.fault,
-      (unsigned)s_Pub.in_stat, (unsigned)s_Pub.usb_stat);
-
-  // Apply the configuration now rather than a second from now, and take a failure as "not ready":
-  // a device that will not accept a write is not one to hand over to CHG_ST_ACTIVE.
-  return RegsMapSync();
 }
 
 // One standalone operation, then a round in four steps. A snapshot that could not be taken ends
@@ -684,8 +627,14 @@ static ChargerState_t state_Init(const ChargerEvent_t *_ev)
       // Entry left the timeout at zero for an immediate first attempt; from here on it is paced.
       s_StateTimeout = pdMS_TO_TICKS(CHG_INIT_RETRY_MS);
 
-      if (DevBringUp())
+      // A round is all bring-up ever was: read, publish, write the target image back. The device
+      // identity is checked inside RegRead() against s_InvariantMask[BQ_REG_VENDOR], so a round
+      // that completes is itself the proof that a bq24160 is answering.
+      if (DevRound())
+      {
+        LOG_INFO("[CHG] up: rev=%u", (unsigned)s_DeviceRegs.reg.vendor.rd.revision);
         return CHG_ST_ACTIVE;
+      }
 
       LOG_WARNING("[CHG] bring-up attempt %u/%u failed",
           (unsigned)(init_attempts + 1), (unsigned)CHG_INIT_ATTEMPTS);
@@ -694,10 +643,10 @@ static ChargerState_t state_Init(const ChargerEvent_t *_ev)
     break;
 
     case CHG_EV_IRQ:
-    break;   // nothing published yet, the next attempt reads everything anyway
+    break;   // the retry below reads and publishes everything anyway
 
     case CHG_EV_CMD:
-      // Only taken in: the bring-up already in progress reads it when it gets there.
+      // Only taken in: the image is rebuilt here, the round that follows pushes it.
       CmdProcess(_ev);
     break;
 
@@ -715,7 +664,7 @@ static ChargerState_t state_Active(const ChargerEvent_t *_ev)
 
   switch (_ev->type)
   {
-    // The one event that does not end in a round - bring-up already read and published.
+    // The one event that does not end in a round - INIT's round already read and published.
     // "return" here means "stay and skip the round below", not a transition.
     case CHG_EV_ENTRY:
       LOG_INFO("[CHG] state ACTIVE, round every %u ms", (unsigned)CHG_ACTIVE_PERIOD_MS);
@@ -889,7 +838,7 @@ void charger_Init(const BatteryProfile_T *_p_batt_profile,
   SetInputsConfig(_in_cfg);
   SetChargingConfig(_chrg_cfg);
 
-  // The image has to exist before the task runs - bring-up writes it.
+  // The image has to exist before the task runs - the first round writes it.
   TargetRegsBuild(&s_Cfg);
 
   // Nothing has been read from the device yet, and the getters must not pretend otherwise.

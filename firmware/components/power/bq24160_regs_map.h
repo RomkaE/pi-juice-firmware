@@ -50,7 +50,7 @@
 #define BQ_STAT_ENABLE_BIT      0x08  // EN_STAT
 #define BQ_TERM_ENABLE_BIT      0x04  // TE
 #define BQ_CHG_DISABLE_BIT      0x02  // CE: 1 disables charging
-#define BQ_HIGH_IMPEDANCE_BIT   0x01  // HZ_MODE - never set it, see DevBringUp()
+#define BQ_HIGH_IMPEDANCE_BIT   0x01  // HZ_MODE
 
 // Register 3 - Control/Battery Voltage
 #define BQ_VBREG_MASK           0xFC
