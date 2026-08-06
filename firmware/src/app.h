@@ -126,7 +126,7 @@ void app_Init(void);
  * Returns false when the queue is full, which the caller is expected to count as a fault -
  * the event is lost, not retried.
  */
-bool app_PostEvent(const AppEvent_t *_pEvent);
+void app_PostEvent(const AppEvent_t *_pEvent);
 
 /*
  * Host register 0x93 - fuel gauge configuration.

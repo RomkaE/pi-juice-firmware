@@ -15,7 +15,6 @@
 
 // Mask errors:
 #define BUTTON_ERR_QUEUE_FULL   (1UL << 0)  // configuration command dropped, the task did not drain
-#define BUTTON_ERR_EVENT_LOST   (1UL << 1)  // event dropped, the APP event queue was full
 
 // Button event function definitions, special functions 0 - 15, user button event functions 15 - 31, other values reserved
 typedef enum ButtonFunction_T {

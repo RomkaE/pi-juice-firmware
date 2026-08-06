@@ -299,5 +299,6 @@ int i2c_master_WriteMem(uint8_t _i2c_addr, uint8_t _mem_addr, uint8_t *_data, ui
 
 int i2c_master_GetI2cErrorCount(void)
 {
+  // TODO
   return 0;
 }

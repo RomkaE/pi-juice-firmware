@@ -159,20 +159,6 @@ static ButtonFunction_T GetFuncOfEvent(uint8_t b) {
 }
 
 /*
- * Hands a detected event to the APP task, which is where the functional logic runs. Never
- * blocks - this task has to get back to sampling - so a full queue means the event is lost.
- */
-static void PostEvent(const AppEvent_t *_pEvt) {
-	if (app_PostEvent(_pEvt))
-		return;
-
-	LOG_ERROR("[BTN] APP event queue full, type %u dropped", _pEvt->type);
-	taskENTER_CRITICAL();
-	s_ErrMask |= BUTTON_ERR_EVENT_LOST;
-	taskEXIT_CRITICAL();
-}
-
-/*
  * The press/release state machine, unchanged from the polled version - it still works on
  * HAL_GetTick() deltas, it is just no longer called from main_poll(). The only difference is
  * that a matching callback is queued for the APP task instead of being invoked right here.
@@ -246,7 +232,7 @@ static void ProcessButton( uint8_t b, GPIO_PinState pinState ) {
 			 * which one the button is configured with. */
 			AppEvent_t evt = { .type = APP_EVT_BUTTON,
 			                   .data.button = { func, b, buttons[b].event } };
-			PostEvent(&evt);
+		  app_PostEvent(&evt);
 		}
 	}
 }
@@ -275,7 +261,7 @@ static void ProcessAllButtons(void) {
 		 * configuration namespace, and a destructive reset to defaults has no business being
 		 * assignable to an arbitrary button from an I2C write. */
 		AppEvent_t evt = { .type = APP_EVT_BUTTON_RESET_CONFIG, .data.button = { 0, 0, 0 } };
-		PostEvent(&evt);
+	  app_PostEvent(&evt);
 	}
 }
 

@@ -525,33 +525,6 @@ void battery_UpdateChargeLed(void)
   led_SetFuncRGB(LED_CHARGE_STATUS, r, g, b);
 }
 
-/*
- * Hands a profile command to the APP task, where it is actually applied (battery_ApplySetProfile()
- * and friends, called from app_ProcessEvent()) - NV writes must not happen here, this runs under
- * the I2C1 interrupt. Same reasoning as led.c keeping flash access out of the interrupt, just
- * routed through the shared APP event queue instead of a queue of battery's own, since battery
- * has no task to drain one.
- */
-static bool postToApp(const AppEvent_t *_pEvt)
-{
-  if (app_PostEvent(_pEvt))
-    return true;
-
-  if (xPortIsInsideInterrupt() != pdFALSE)
-  {
-    s_ErrMask |= BATTERY_ERR_EVENT_LOST;
-  }
-  else
-  {
-    LOG_ERROR("[BAT] APP event queue full, profile command dropped");
-    taskENTER_CRITICAL();
-    s_ErrMask |= BATTERY_ERR_EVENT_LOST;
-    taskEXIT_CRITICAL();
-  }
-
-  return false;
-}
-
 /*============================ PUBLIC API ====================================*/
 
 void battery_Init(void)
@@ -678,7 +651,8 @@ void battery_CmdSetProfile(uint8_t id)
   evt.data.batterySetProfile.id = id;
   evt.data.batterySetProfile.seq = seq;
 
-  if (postToApp(&evt))
+  app_PostEvent(&evt);
+  // TODO - check
   {
     s_BatProfileStatus = BATTERY_PROFILE_WRITE_BUSY_STATUS;
     s_ProfileReqSeq = seq;
@@ -706,7 +680,8 @@ void battery_CmdWriteCustomProfile(uint8_t *data, uint16_t len)
   evt.data.batteryCustomProfile.profile.ntcB = (((uint16_t)data[11])<<8) | data[10];
   evt.data.batteryCustomProfile.profile.ntcResistance = (((uint16_t)data[13])<<8) | data[12];
 
-  if (postToApp(&evt))
+  app_PostEvent(&evt);
+  // TODO - check
   {
     s_BatProfileStatus = BATTERY_PROFILE_WRITE_BUSY_STATUS;
     s_ProfileReqSeq = seq;
@@ -726,7 +701,7 @@ void battery_CmdWriteCustomExtendedProfile(uint8_t *data, uint16_t len)
   evt.data.batteryCustomExtProfile.profile.r50 = *(uint16_t*)&data[9];
   evt.data.batteryCustomExtProfile.profile.r90 = *(uint16_t*)&data[11];
 
-  postToApp(&evt);
+  app_PostEvent(&evt);
 }
 
 void battery_ReadCurrentProfile(uint8_t *data, uint16_t *len)

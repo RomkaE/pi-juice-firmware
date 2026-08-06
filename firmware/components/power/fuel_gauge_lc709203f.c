@@ -784,7 +784,7 @@ static FuelGaugeState_t state_IcLost(const FuelGaugeEvent_t *_ev)
 }
 
 /* Hands an event to whichever state is current. The only place that maps a state to its handler. */
-static FuelGaugeState_t stateHandle(FuelGaugeState_t _state, const FuelGaugeEvent_t *_ev)
+static FuelGaugeState_t fsm_Handle(FuelGaugeState_t _state, const FuelGaugeEvent_t *_ev)
 {
   switch (_state)
   {
@@ -807,7 +807,7 @@ static void fsm_Dispatch(const FuelGaugeEvent_t *_ev)
   static FuelGaugeState_t state = FG_ST_NO_BATTERY;
 
   // Call FSM:
-  FuelGaugeState_t next = stateHandle(state, _ev);
+  FuelGaugeState_t next = fsm_Handle(state, _ev);
 
   // State transition processing:
   uint8_t guard = FG_ST_COUNT;
@@ -821,7 +821,7 @@ static void fsm_Dispatch(const FuelGaugeEvent_t *_ev)
 
     state = next;
     static const FuelGaugeEvent_t entryEv = { .type = FG_EV_ENTRY };
-    next = stateHandle(state, &entryEv);
+    next = fsm_Handle(state, &entryEv);
   }
 }
 
@@ -830,9 +830,9 @@ static void fsm_Dispatch(const FuelGaugeEvent_t *_ev)
  * here and no "is it time yet" check anywhere - a wakeup either carries an event from APP or is
  * the current state's timeout, which is dispatched as FG_EV_TICK.
  */
-static void Task(void *parameters)
+static void Task(void *_parameters)
 {
-  (void)parameters;
+  (void)_parameters;
 
   LOG_INFO("[FG] task started");
 
@@ -853,40 +853,17 @@ static void Task(void *parameters)
   }
 }
 
-static bool postEvent(const FuelGaugeEvent_t *_ev)
+static bool PostEvent(const FuelGaugeEvent_t *_ev)
 {
-  if (s_QueHandle == NULL)
+  bool sent = utils_PostEvent(s_QueHandle, _ev);
+  if (!sent)
   {
-    LOG_ERROR("[FG] event queue not ready");
-    s_ErrMask |= FUEL_GAUGE_ERR_NOT_READY;
-    return false;
+    LOG_CRITICAL("[FG] event queue full, ev=%u dropped", (unsigned)_ev->type);
+    taskENTER_CRITICAL();
+    s_ErrMask |= FUEL_GAUGE_ERR_QUEUE_FULL;
+    taskEXIT_CRITICAL();
   }
-
-  BaseType_t sent;
-
-  if (xPortIsInsideInterrupt() != pdFALSE)
-  {
-    BaseType_t woken = pdFALSE;
-    sent = xQueueSendFromISR(s_QueHandle, _ev, &woken);
-    portYIELD_FROM_ISR(woken);
-
-    if (sent != pdTRUE)
-      s_ErrMask |= FUEL_GAUGE_ERR_QUEUE_FULL;
-  }
-  else
-  {
-    sent = xQueueSend(s_QueHandle, _ev, 0);
-
-    if (sent != pdTRUE)
-    {
-      LOG_CRITICAL("[FG] event queue full, ev=%u dropped", (unsigned)_ev->type);
-      taskENTER_CRITICAL();
-      s_ErrMask |= FUEL_GAUGE_ERR_QUEUE_FULL;
-      taskEXIT_CRITICAL();
-    }
-  }
-
-  return (sent == pdTRUE);
+  return sent;
 }
 
 void fuel_gauge_Init(BatteryProfile_T *_p_batt_profile)
@@ -913,7 +890,7 @@ void fuel_gauge_SetConfig(uint8_t _config)
   FuelGaugeEvent_t ev = { .type = FG_EV_CMD };
   ev.cmd.id = FG_CMD_SET_CONFIG;
   ev.cmd.config = _config;
-  postEvent(&ev);
+  PostEvent(&ev);
 }
 
 void fuel_gauge_SetBattProfile(const BatteryProfile_T *_p_batt_profile)
@@ -927,13 +904,13 @@ void fuel_gauge_SetBattProfile(const BatteryProfile_T *_p_batt_profile)
     profileConvert(_p_batt_profile, &profile);
   ev.cmd.battProfile = profile;
 
-  postEvent(&ev);
+  PostEvent(&ev);
 }
 
 void fuel_gauge_SetBatteryPresent(bool present)
 {
   FuelGaugeEvent_t ev = { .type = present ? FG_EV_BATTERY_PRESENT : FG_EV_BATTERY_ABSENT };
-  postEvent(&ev);
+  PostEvent(&ev);
 }
 
 uint16_t fuel_gauge_GetRsoc(void)

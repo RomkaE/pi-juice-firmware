@@ -16,7 +16,6 @@
 // Mask errors:
 #define CHARGER_ERR_QUEUE_FULL   (1UL << 0)  // event dropped, the task did not drain in time
 #define CHARGER_ERR_NOT_READY    (1UL << 1)  // event posted before charger_Init() created the queue
-#define CHARGER_ERR_EVENT_LOST   (1UL << 2)  // presence event dropped, the APP event queue was full
 
 typedef enum ChargerStatus_T {
 	CHG_NO_VALID_SOURCE = 0,
@@ -76,8 +75,6 @@ uint8_t charger_GetUsbStat(void);
 bool charger_IsDpmModeActive(void);
 uint8_t charger_GetTsFaultStatus(void);
 ChargerFaultStatus_T charger_GetFaultStatus(void);
-// Failures in a row, cleared by any successful bus operation - a streak, not a total.
-uint8_t charger_GetI2cErrorCount(void);
 bool charger_IsNoBatteryTurnOnEnabled(void);
 
 // Setters, all called from the APP task. Each hands a value to the task and returns - no NV

@@ -391,6 +391,7 @@ static void app_ProcessEvent(const AppEvent_t *_evt)
       break;
 
     case APP_EVT_CHARGER_INPUT_PRESENCE:
+      // TODO - check
       charger_OnEvent_InputPresenceChanged(_evt->data.chargerInput.present);
       break;
 
@@ -431,25 +432,27 @@ static void app_ProcessEvent(const AppEvent_t *_evt)
   }
 }
 
-bool app_PostEvent(const AppEvent_t *_pEvent)
+void app_PostEvent(const AppEvent_t *_pEvent)
 {
   if (s_EvtQueHandle == NULL)
-    return false;
+    return;
 
   BaseType_t sent;
-
+  BaseType_t woken = pdFALSE;
   if (xPortIsInsideInterrupt() != pdFALSE)
-  {
-    BaseType_t woken = pdFALSE;
     sent = xQueueSendFromISR(s_EvtQueHandle, _pEvent, &woken);
-    portYIELD_FROM_ISR(woken);
-  }
   else
-  {
     sent = xQueueSend(s_EvtQueHandle, _pEvent, 0);
+
+  if (!sent)
+  {
+    LOG_CRITICAL("[CHG] APP queue full. Event %u dropped");
+    // TODO!!!
   }
 
-  return (sent == pdTRUE);
+  // Call this at the end of a potential interrupt, because on some FreeRTOS
+  // ports, this function may trigger an immediate context switch:
+  portYIELD_FROM_ISR(woken);
 }
 
 int8_t app_FuelGaugeCmdSetConfig(uint8_t *data, uint16_t len)
@@ -465,9 +468,8 @@ int8_t app_FuelGaugeCmdSetConfig(uint8_t *data, uint16_t len)
   evt.data.fuelGaugeConfig.seq = seq;
 
   s_FgReqConfig = data[0];
-  if (app_PostEvent(&evt))
-    s_FgReqConfigSeq = seq;
-
+  s_FgReqConfigSeq = seq;
+  app_PostEvent(&evt);
   return 0;
 }
 
@@ -491,8 +493,8 @@ void app_ChargerCmdWriteInputsConfig(uint8_t config)
   evt.data.chargerConfig.seq = seq;
 
   s_ChgReqInputsConfig = config;
-  if (app_PostEvent(&evt))
-    s_ChgReqInputsSeq = seq;
+  s_ChgReqInputsSeq = seq;
+  app_PostEvent(&evt);
 }
 
 uint8_t app_ChargerReadInputsConfig(void)
@@ -508,8 +510,8 @@ void app_ChargerCmdWriteChargingConfig(uint8_t config)
   evt.data.chargerConfig.seq = seq;
 
   s_ChgReqChargingConfig = config;
-  if (app_PostEvent(&evt))
-    s_ChgReqChargingSeq = seq;
+  s_ChgReqChargingSeq = seq;
+  app_PostEvent(&evt);
 }
 
 uint8_t app_ChargerReadChargingConfig(void)

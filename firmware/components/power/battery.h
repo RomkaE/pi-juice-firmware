@@ -24,9 +24,6 @@
 #define BATTERY_INVALID_PROFILE_ID ((0x0<<4)|(0x1<<6))//0xEF // stored profile id in eeprom is invalid
 #define BATTERY_PROFILE_WRITE_BUSY_STATUS 0xF0 // profile id/data write not completed
 
-// Mask errors:
-#define BATTERY_ERR_EVENT_LOST   (1UL << 0)  // a profile command was dropped, the APP event queue was full
-
 /* Charge-status LED refresh period - the APP task calls battery_UpdateChargeLed() on this cadence. */
 #define BATTERY_CHARGE_LED_PERIOD_MS  900
 
