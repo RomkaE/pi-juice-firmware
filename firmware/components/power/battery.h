@@ -13,15 +13,17 @@
 
 // bit 0-3: 0 - 0xE profile id, 0xF - custom profile; bit 4-5: source, 0-host or stored,1-dip switch, 2-resistor; bit 6: validity, 0-valid,1-invalid
 // special value 0xFF: default profile id, defined by dip switch or resistor if present
-#define BATTERY_DEFAULT_PROFILE_ID 0xFF
-#define BATTERY_NONEXIST_PROFILE_ID ((0x0<<4)|(0x1<<6))//0xE0 // ored with stored profile id
-#define BATTERY_CUSTOM_PROFILE_ID ((uint8_t)0x0F)//((0x00<<4)|(0x00<<6)|0x0F)//0x80
-#define BATTERY_INVALID_CUSTOM_PROFILE_STATUS ((0x0<<4)|(0x1<<6)|0x0F)//0x8F
-#define BATTERY_CONFIG_RES_PROFILE_ID ((0x2<<4)|(0x0<<6))//0x40 // profile id is selected with resistor, ored with id
-#define BATTERY_CONFIG_SW_PROFILE_ID ((0x1<<4)|(0x0<<6))//0x20 // profile id is selected with dip switch, ored with id
-#define BATTERY_CONFIG_PROFILE_STATUS ((0x2<<4)|(0x0<<6)|0x0F)//0x60 // current profile data are configured with resistor
+#define BATTERY_DEFAULT_PROFILE_ID      0xFF
+#define BATTERY_NONEXIST_PROFILE_ID     ((0x0<<4)|(0x1<<6)) //0xE0 // ored with stored profile id
+#define BATTERY_CUSTOM_PROFILE_ID       ((uint8_t)0x0F)
+#define BATTERY_CONFIG_RES_PROFILE_ID   ((0x2<<4)|(0x0<<6)) //0x40 // profile id is selected with resistor, ored with id
+#define BATTERY_CONFIG_SW_PROFILE_ID    ((0x1<<4)|(0x0<<6)) //0x20 // profile id is selected with dip switch, ored with id
+#define BATTERY_INVALID_PROFILE_ID      ((0x0<<4)|(0x1<<6)) //0xEF // stored profile id in eeprom is invalid
+
+#define BATTERY_CONFIG_PROFILE_STATUS         ((0x2<<4)|(0x0<<6)|0x0F)//0x60 // current profile data are configured with resistor
 #define BATTERY_CONFIG_INVALID_PROFILE_STATUS ((0x2<<4)|(0x1<<6)|0x0F)//0x6F //dip switch/resistor configuration is invalid
-#define BATTERY_INVALID_PROFILE_ID ((0x0<<4)|(0x1<<6))//0xEF // stored profile id in eeprom is invalid
+#define BATTERY_INVALID_CUSTOM_PROFILE_STATUS ((0x0<<4)|(0x1<<6)|0x0F)//0x8F
+
 #define BATTERY_PROFILE_WRITE_BUSY_STATUS 0xF0 // profile id/data write not completed
 
 /* Charge-status LED refresh period - the APP task calls battery_UpdateChargeLed() on this cadence. */
@@ -112,8 +114,8 @@ BatteryStatus_T battery_GetStatus(void);
  * knows it has something to announce. APP calls it on a charger BATSTAT edge and on its own
  * periodic tick, so a slow voltage collapse is noticed as well as a pack being pulled.
  */
-bool battery_UpdatePresence(void);
-bool battery_IsPresent(void);
+//bool battery_UpdatePresence(void);
+//bool battery_IsPresent(void);
 
 /*
  * Same shape for the thermal verdict: the profile's thresholds live here, the temperature comes

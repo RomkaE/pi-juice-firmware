@@ -56,17 +56,9 @@
 #define PWR_VSYS_ILIM_PORT    GPIOF     // PF1
 #define PWR_VSYS_ILIM_PIN     GPIO_PIN_1
 
-/*
- * Shared line, its meaning depends on the board revision. Configured as an open drain
- * output released high, and read back through IDR - so it doubles as an input.
- */
-// HW < 2.3 - fuel gauge interrupt:
+// Fuel gauge interrupt. Open drain output released high, read back through IDR.
 #define FG_INT_PORT           GPIOB     // PB1
 #define FG_INT_PIN            GPIO_PIN_1
-
-// HW >= 2.3 - 5V regulator power good (same pin):
-#define PWR_5V_PG_PORT        FG_INT_PORT
-#define PWR_5V_PG_PIN         FG_INT_PIN
 
 /*============================ HOST (Raspberry Pi) ===========================*/
 

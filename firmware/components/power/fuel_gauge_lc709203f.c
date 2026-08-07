@@ -16,7 +16,6 @@
 #include "app-error/app_assert.h"
 #include "app-error/app_error.h"
 
-
 // FreeRTOS:
 #include "FreeRTOS.h"
 #include "task.h"
@@ -552,6 +551,8 @@ static void publish_Temp(FgReadResult_t _res, int8_t _temp)
     default:
       break;
   }
+
+  // TODO - add callback
 }
 
 static void publish_RSOC(FgReadResult_t _res, uint16_t _rsoc)
@@ -582,6 +583,8 @@ static void publish_RSOC(FgReadResult_t _res, uint16_t _rsoc)
     default:
       break;
   }
+
+  // TODO - add callback
 }
 
 static bool cmdProcess(const FuelGaugeEvent_t *_ev)

@@ -8,7 +8,7 @@
 #ifndef IO_CONTROL_H_
 #define IO_CONTROL_H_
 
-void MX_TIM1_Init(void);
+#include <stdint.h>
 
 void IoControlInit();
 
@@ -17,5 +17,8 @@ void IoGetConfiguarion(uint8_t pin, uint8_t data[], uint16_t *len);
 
 void IoWrite(uint8_t pin, uint8_t data[], uint8_t len);
 void IoRead(uint8_t pin, uint8_t data[], uint16_t *len);
+
+// Park both external IOs and refuse later drive requests. One way - the trip ends in a power off.
+void IoControlShutdown(void);
 
 #endif /* IO_CONTROL_H_ */

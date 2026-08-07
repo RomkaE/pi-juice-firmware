@@ -15,7 +15,6 @@
 #include "utils/utils.h"
 #include "app-error/app_assert.h"
 #include "app-error/app_error.h"
-#include "src/app.h"
 
 // FreeRTOS:
 #include "FreeRTOS.h"
@@ -153,23 +152,8 @@ static const uint8_t s_WritableMask[BQ_REG_COUNT] = BQ_WRITABLE_MASK_INIT;
 static const uint8_t s_InvariantMask[BQ_REG_COUNT]  = { 0x80, 0, 0x80, 0, 0xF8, 0, 0, 0 };
 static const uint8_t s_InvariantValue[BQ_REG_COUNT] = { 0x00, 0, 0x80, 0, 0x40, 0, 0, 0 };
 
-// What the getters answer with. One structure so that "what changed" is one comparison against
-// one object. Byte-sized members: each is read whole from another task or from the I2C1 ISR.
-// Enums held as uint8_t so one publishValue(uint8_t*) serves all nine - an enum here is 4 bytes.
-typedef struct
-{
-  uint8_t status;           // ChargerStatus_T
-  uint8_t fault;            // ChargerFaultStatus_T
-  uint8_t in_stat;
-  uint8_t usb_stat;
-  uint8_t ts_fault;
-  uint8_t dpm_active;       // 0 or 1
-  uint8_t input_present;    // 0 or 1
-  uint8_t battery_present;  // 0 or 1
-} ChargerPublished_t;
-
-static ChargerPublished_t s_Pub = {
-    .status = CHG_NA,
+static ChargerSnapshot_t s_Snapshot = {
+    .status = CHG_STATUS_NA,
     .fault = CHG_FAULT_UNKNOWN };
 
 // Everything that decides what the device should hold. Written by cmdProcess() and read by
@@ -198,6 +182,51 @@ static StackType_t s_TaskStack[CHG_TASK_STACK_WORDS];
 static QueueHandle_t s_QueHandle;
 static StaticQueue_t s_Que;
 static ChargerEvent_t s_QueBuf[CHG_QUE_LEN];
+
+static char* ChargerStatus2Str(ChargerStatus_t _status)
+{
+  switch (_status)
+  {
+    case CHG_STATUS_NO_VALID_SOURCE:    return "NO_VALID_SOURCE";
+    case CHG_STATUS_IN_READY:           return "IN_READY";
+    case CHG_STATUS_USB_READY:          return "USB_READY";
+    case CHG_STATUS_CHARGING_FROM_IN:   return "CHARGING_FROM_IN";
+    case CHG_STATUS_CHARGING_FROM_USB:  return "CHARGING_FROM_USB";
+    case CHG_STATUS_CHARGE_DONE:        return "CHARGE_DONE";
+    case CHG_STATUS_NA:                 return "NA";
+    case CHG_STATUS_FAULT:              return "FAULT";
+    default:                            return "wrong arg";
+  }
+}
+
+static char* ChargerFaultStatus2Str(ChargerFaultStatus_t _fault_status)
+{
+  switch (_fault_status)
+  {
+    case CHG_FAULT_NORMAL:                    return "NORMAL";
+    case CHG_FAULT_THERMAL_SHUTDOWN:          return "THERMAL_SHUTDOWN";
+    case CHG_FAULT_BATTERY_TEMPERATURE_FAULT: return "BATTERY_TEMPERATURE_FAULT";
+    case CHG_FAULT_WATCHDOG_TIMER_EXPIRED:    return "WATCHDOG_TIMER_EXPIRED";
+    case CHG_FAULT_SAFETY_TIMER_EXPIRED:      return "SAFETY_TIMER_EXPIRED";
+    case CHG_FAULT_IN_SUPPLY_FAULT:           return "IN_SUPPLY_FAULT";
+    case CHG_FAULT_USB_SUPPLY_FAULT:          return "USB_SUPPLY_FAULT";
+    case CHG_FAULT_BATTERY_FAULT:             return "BATTERY_FAULT";
+    case CHG_FAULT_UNKNOWN:                   return "UNKNOWN";
+    default:                                  return "wrong arg";
+  }
+}
+
+static char* ChargerInStatus2Str(ChargerInputStatus_t _in_status)
+{
+  switch (_in_status)
+  {
+    case CHG_IN_NORMAL: return "NORMAL";
+    case CHG_IN_OVP:    return "OVP";
+    case CHG_IN_WEAK:   return "WEAK";
+    case CHG_IN_UVLO:   return "UVLO";
+    default:            return "wrong arg";
+  }
+}
 
 // Foreign profile -> the three codes, range-checked here and nowhere else.
 // Currents saturate; battery.c's resistor profile really does reach 28 against a limit of 26.
@@ -239,63 +268,59 @@ static uint8_t RegulationVoltage(const ChargerConfig_t *_p_cfg)
   return (uint8_t)code;
 }
 
-// The one place s_Pub is written and the one place a charger event is posted.
-// Store before post, so a handler that calls a getter straight away reads the new value.
-static void PublishValue(uint8_t *_p_dst, uint8_t _val, uint8_t _evt_type, const char *_name)
+static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
 {
-  if (*_p_dst == _val)
-    return;
+  bool not_equal = false;
 
-  LOG_INFO("[CHG] Publish <%s>: %u->%u", _name, (unsigned)*_p_dst, (unsigned)_val);
-  *_p_dst = _val;
+  if (s_Snapshot.status != _p_snapshot->status)
+  {
+    LOG_INFO("[CHG] Status: %s->%s", ChargerStatus2Str(s_Snapshot.status ),
+                                     ChargerStatus2Str(_p_snapshot->status));
+    not_equal = true;
+  }
 
-  AppEvent_t evt = { .type = _evt_type, .data.chargerValue = { _val } };
-  app_PostEvent(&evt);
-}
+  if (s_Snapshot.fault != _p_snapshot->fault)
+  {
+    LOG_INFO("[CHG] Fault: %s->%s", ChargerFaultStatus2Str(s_Snapshot.fault ),
+                                    ChargerFaultStatus2Str(_p_snapshot->fault));
+    not_equal = true;
+  }
 
-// Same compare-store-post, older payload - these two already have consumers.
-static void PublishPresence(uint8_t *_p_dst, bool _present, uint8_t _evt_type, const char *_name)
-{
-  if (*_p_dst == (uint8_t)_present)
-    return;
+  if (s_Snapshot.in_stat != _p_snapshot->in_stat)
+  {
+    LOG_INFO("[CHG] Input: %s->%s", ChargerInStatus2Str(s_Snapshot.in_stat ),
+                                    ChargerInStatus2Str(_p_snapshot->in_stat));
+    not_equal = true;
+  }
 
-  LOG_INFO("[CHG] Publish presense <%s>: %u->%u", _name, (unsigned)*_p_dst, (unsigned)_present);
-  *_p_dst = (uint8_t)_present;
+  if (s_Snapshot.batt_present != _p_snapshot->batt_present)
+  {
+    LOG_INFO("[CHG] Batt present: %u->%u", (unsigned)s_Snapshot.batt_present,
+                                           (unsigned)_p_snapshot->batt_present);
+    not_equal = true;
+  }
 
-  AppEvent_t evt = { .type = _evt_type };
-  if (_evt_type == APP_EVT_CHARGER_INPUT_PRESENCE)
-    evt.data.chargerInput.present = _present;
-  else
-    evt.data.batteryPresence.present = _present;
+  if (s_Snapshot.dpm_stat != _p_snapshot->dpm_stat)
+  {
+    LOG_INFO("[CHG] DPM status: %u->%u", (unsigned)s_Snapshot.dpm_stat,
+                                         (unsigned)_p_snapshot->dpm_stat);
+    not_equal = true;
+  }
 
-  app_PostEvent(&evt);
-}
-
-// Take the decoded values as the published ones, telling APP about each that moved.
-static void PublishChanges(const ChargerPublished_t *_p_next)
-{
-  PublishValue(&s_Pub.status,      _p_next->status,      APP_EVT_CHARGER_STATUS,      "status");
-  PublishValue(&s_Pub.fault,       _p_next->fault,       APP_EVT_CHARGER_FAULT,       "fault");
-  PublishValue(&s_Pub.in_stat,     _p_next->in_stat,     APP_EVT_CHARGER_IN_STAT,     "instat");
-  PublishValue(&s_Pub.usb_stat,    _p_next->usb_stat,    APP_EVT_CHARGER_USB_STAT,    "usbstat");
-  PublishValue(&s_Pub.ts_fault,    _p_next->ts_fault,    APP_EVT_CHARGER_TS_FAULT,    "tsfault");
-  PublishValue(&s_Pub.dpm_active,  _p_next->dpm_active,  APP_EVT_CHARGER_DPM,         "dpm");
-
-  PublishPresence(&s_Pub.input_present, _p_next->input_present != 0,
-      APP_EVT_CHARGER_INPUT_PRESENCE, "input");
-  PublishPresence(&s_Pub.battery_present, _p_next->battery_present != 0,
-      APP_EVT_BATTERY_PRESENCE, "battery");
+  // Callback:
+  if (not_equal)
+  {
+    s_Snapshot = *_p_snapshot;
+    charger_OnSnapshotChanged(_p_snapshot);
+  }
 }
 
 // Nothing is known about the device. Same publisher as a normal round, so losing it announces
 // itself on every value rather than only on the two presence flags.
 static void PublishUnknown(void)
 {
-  ChargerPublished_t next = {
-      .status = CHG_NA,
-      .fault = CHG_FAULT_UNKNOWN };
-
-  PublishChanges(&next);
+  ChargerSnapshot_t snapshot = { .status = CHG_STATUS_NA };
+  PublishChanges(&snapshot);
 }
 
 // CHG_INCFG_PRECEDENCE and CHG_INCFG_GPIO_IN_EN are deliberately not read - both are fixed by the
@@ -320,29 +345,22 @@ static void SetChargingConfig(uint8_t _config)
 // Snapshot in, values out. Touches no static, posts no event.
 // Each register is read into a local once, so no value mixes two moments of a sweep.
 // Returns rather than fills: every member is set here, and the caller cannot forget that.
-static ChargerPublished_t DevRegsDecode(void)
+static ChargerSnapshot_t DeviceRegsDecode(void)
 {
   BQ24160Reg_StatusControl_t reg_status = s_DeviceRegs.reg.status_control;
   BQ24160Reg_SupplyStatus_t reg_supply = s_DeviceRegs.reg.supply_status;
-  ChargerPublished_t decoded;
 
+  ChargerSnapshot_t decoded;
   decoded.status = reg_status.rd.status;
   decoded.fault = reg_status.rd.fault;
   decoded.in_stat = reg_supply.rd.in_status;
-  decoded.usb_stat = reg_supply.rd.usb_status;
-  decoded.dpm_active = (s_DeviceRegs.reg.vin_dpm.rd.dpm_status != 0);
-  decoded.ts_fault = s_DeviceRegs.reg.safety_ntc.rd.ts_fault;
-
-  // Present when the status names a source: "ready" through "done", nothing outside that.
-  decoded.input_present = (decoded.status > CHG_NO_VALID_SOURCE) && (decoded.status < CHG_NA);
-
-  // Half the story - battery.c combines it with the pack voltage.
-  decoded.battery_present = (reg_supply.rd.bat_stat != BQ_BATSTAT_NOT_PRESENT);
+  decoded.batt_present = (reg_supply.rd.batt_stat != BQ_BATSTAT_NOT_PRESENT);
+  decoded.dpm_stat =  s_DeviceRegs.reg.vin_dpm.rd.dpm_status;
 
   return decoded;
 }
 
-static void DevRegsInvalidate(void)
+static void DeviceRegsInvalidate(void)
 {
   for (uint8_t r = 0; r < BQ_REG_COUNT; r++)
     s_DeviceRegs.raw[r] = 0;
@@ -542,7 +560,7 @@ static bool RegsMapSync(void)
 // One standalone operation, then a round in four steps. A snapshot that could not be taken ends
 // it: nothing is published, so the values keep standing until either the next round succeeds or
 // CHG_ST_LOST blanks them.
-static bool DevRound(void)
+static bool DeviceRound(void)
 {
   // 0. Reset ICs watchdog timer:
   ResetWatchdog();
@@ -556,12 +574,12 @@ static bool DevRound(void)
       s_DeviceRegs.raw[4], s_DeviceRegs.raw[5], s_DeviceRegs.raw[6], s_DeviceRegs.raw[7]);
 
   // 2. Snapshot -> values, no side effects:
-  ChargerPublished_t decoded = DevRegsDecode();
+  ChargerSnapshot_t snapshot = DeviceRegsDecode();
 
   // 3. Compare and publish:
-  PublishChanges(&decoded);
+  PublishChanges(&snapshot);
 
-  // 4. write back what differs
+  // 4. Write back what differs
   return RegsMapSync();
 }
 
@@ -630,7 +648,7 @@ static ChargerState_t state_Init(const ChargerEvent_t *_ev)
       // A round is all bring-up ever was: read, publish, write the target image back. The device
       // identity is checked inside RegRead() against s_InvariantMask[BQ_REG_VENDOR], so a round
       // that completes is itself the proof that a bq24160 is answering.
-      if (DevRound())
+      if (DeviceRound())
       {
         LOG_INFO("[CHG] up: rev=%u", (unsigned)s_DeviceRegs.reg.vendor.rd.revision);
         return CHG_ST_ACTIVE;
@@ -686,7 +704,7 @@ static ChargerState_t state_Active(const ChargerEvent_t *_ev)
   }
 
   // Everything else ends the same way: push whatever changed into the device now.
-  if (DevRound())
+  if (DeviceRound())
   {
     err_count = 0;
     return CHG_ST_ACTIVE;
@@ -712,7 +730,7 @@ static ChargerState_t state_Lost(const ChargerEvent_t *_ev)
 
       // Stop answering from a snapshot we can no longer refresh, and tell APP now - this is the
       // moment the input and the pack stopped being visible.
-      DevRegsInvalidate();
+      DeviceRegsInvalidate();
       PublishUnknown();
 
       // No watchdog kick from here on: if we cannot talk to the device, the best it can do is
@@ -842,7 +860,7 @@ void charger_Init(const BatteryProfile_T *_p_batt_profile,
   TargetRegsBuild(&s_Cfg);
 
   // Nothing has been read from the device yet, and the getters must not pretend otherwise.
-  DevRegsInvalidate();
+  DeviceRegsInvalidate();
   PublishUnknown();
 
   s_QueHandle = xQueueCreateStatic(sizeof(s_QueBuf) / sizeof(s_QueBuf[0]),
@@ -865,44 +883,29 @@ void charger_NotifyFromISR(void)
   PostEvent(&ev);
 }
 
-ChargerStatus_T charger_GetStatus(void)
+ChargerStatus_t charger_GetStatus(void)
 {
-  return (ChargerStatus_T)s_Pub.status;
+  return (ChargerStatus_t)s_Snapshot.status;
 }
 
 bool charger_IsBatteryPresent(void)
 {
-  return s_Pub.battery_present != 0;
+  return s_Snapshot.batt_present != 0;
 }
 
 bool charger_IsInputPresent(void)
 {
-  return s_Pub.input_present != 0;
+  return (s_Snapshot.status > CHG_STATUS_NO_VALID_SOURCE) && (s_Snapshot.status < CHG_STATUS_NA);
 }
 
 uint8_t charger_GetInStat(void)
 {
-  return s_Pub.in_stat;
+  return s_Snapshot.in_stat;
 }
 
-uint8_t charger_GetUsbStat(void)
+ChargerFaultStatus_t charger_GetFaultStatus(void)
 {
-  return s_Pub.usb_stat;
-}
-
-bool charger_IsDpmModeActive(void)
-{
-  return s_Pub.dpm_active != 0;
-}
-
-uint8_t charger_GetTsFaultStatus(void)
-{
-  return s_Pub.ts_fault;
-}
-
-ChargerFaultStatus_T charger_GetFaultStatus(void)
-{
-  return (ChargerFaultStatus_T)s_Pub.fault;
+  return (ChargerFaultStatus_t)s_Snapshot.fault;
 }
 
 bool charger_IsNoBatteryTurnOnEnabled(void)
@@ -949,13 +952,7 @@ uint32_t charger_GetErrMask(bool _clear)
   return mask;
 }
 
-__attribute__((weak)) void charger_OnEvent_InputPresenceChanged(bool present)
+__attribute__((weak)) void charger_OnSnapshotChanged(const ChargerSnapshot_t *_p_snapshot)
 {
-  (void)present;
-}
-
-__attribute__((weak)) void charger_OnEvent_ValueChanged(uint8_t _type, uint8_t _value)
-{
-  (void)_type;
-  (void)_value;
+  (void)_p_snapshot;
 }

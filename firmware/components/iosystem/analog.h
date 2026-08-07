@@ -11,16 +11,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Board hardware revision, detected at runtime from the CS1/CS2 analog signals.
-#define HARD_REV_UNKNOWN          0xFF
-#define HARD_REV_BELOW_2_3	      0
-#define HARD_REV_2_3_AND_ABOVE	  1 // introduced current sensor amp NCS213
-
-// TODO ?!
-#define ADC_CONT_MODE_NORMAL	    0
-#define ADC_CONT_MODE_LOW_VOLTAGE 1 // In this mode one channel in scan group is internal reference
-
-
 /*
  * Battery sense divider on PA2: Vbat = Vpin * VBAT_DIVIDER_NUM / VBAT_DIVIDER_DEN.
  * Single definition for every VBAT conversion in the firmware - before this there were four
@@ -51,8 +41,6 @@
 
 void analog_Init(void);
 
-uint8_t analog_GetHwRev(void);
-
 uint16_t analog_GetTempMCU(void);
 
 uint16_t analog_GetAvdd(void);
@@ -68,5 +56,12 @@ uint16_t analog_Get5vPi(void);
 uint16_t analog_GetRawPWR(void);
 
 uint32_t analog_GetErrMask(bool _clear);
+
+/*
+ * Weak no-op, called once per half ring (~64 ms) after every value above is updated.
+ * Runs in the ANALOG task, which must drain the next DMA half in time: do not block, do not take
+ * a lock another task can hold across a flash write. Read and post an event, nothing more.
+ */
+void analog_OnEvent_SamplesReady(void);
 
 #endif /* ANALOG_H_ */

@@ -388,12 +388,6 @@ void button_NotifyFromISR(void) {
 	portYIELD_FROM_ISR(woken);
 }
 
-int8_t button_IsActive(void) {
-	//return buttons[0].tempEvent || buttons[1].tempEvent || buttons[2].tempEvent;
-	return MS_TIME_COUNT(buttons[0].pressTimer) < 2000 || MS_TIME_COUNT(buttons[1].pressTimer) < 2000 || MS_TIME_COUNT(buttons[2].pressTimer) < 2000
-			|| buttons[0].state || buttons[1].state || buttons[2].state;
-}
-
 ButtonEvent_T button_GetEvent(uint8_t _b) {
 	return buttons[_b].event;
 }
@@ -417,7 +411,10 @@ void button_SetConfig(uint8_t _b, uint8_t _pData[], uint8_t _len) {
 	 * ten emulated EEPROM writes that can trigger a flash page transfer.
 	 */
 	if (s_CmdQueHandle == NULL)
+	{
+	  ASSERT(0);
 		return;   // posted before button_Init(), there is no queue yet
+	}
 
 	ButtonCfg_t cmd;
 	cmd.index = _b;

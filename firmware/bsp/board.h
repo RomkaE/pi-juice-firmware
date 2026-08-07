@@ -28,6 +28,9 @@ void bsp_ClockConfig(void);
 
 void bsp_Pwr5V_SetState(bool _state);
 
+// Last commanded state, not a pin read: PA10 is held by an RC and reads back stale.
+bool bsp_Pwr5V_GetState(void);
+
 void bsp_Pwr5V_Restore(void);
 
 #endif /* BOARD_H_ */

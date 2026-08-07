@@ -23,6 +23,10 @@ uint16_t ioParam1[2] __attribute__((section("no_init")));
 uint16_t ioParam2[2] __attribute__((section("no_init")));
 uint16_t pwmLevel[2] __attribute__((section("no_init")));
 
+// Latched by IoControlShutdown(). Set from the ANALOG task, read from the I2C1 interrupt - one
+// byte, so no lock needed.
+static volatile uint8_t ioShutdown;
+
 
 /* TIM1 init function */
 void MX_TIM1_Init(void)
@@ -142,6 +146,8 @@ void MX_TIM14_Init(void)
 }
 
 void IoConfigure(uint8_t pin) {
+	if (ioShutdown) return;   // parked for the battery, see ioShutdown
+
 	if (pin == 1) {
 		gpioInitStruct.Pin = EXT_IO1_PIN;
 		gpioInitStruct.Alternate = EXT_IO1_GPIO_AF;
@@ -261,6 +267,24 @@ void IoControlInit() {
 	IoConfigure(2);
 }
 
+// Locals only, not IoConfigure(): that walks the shared gpioInitStruct/ioPort/htim scratch, which
+// the I2C1 interrupt writes too.
+void IoControlShutdown(void)
+{
+	ioShutdown = 1;   // first, so a later IoWrite() from the interrupt bails out
+
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Stop(&htim14, TIM_CHANNEL_1);
+
+	GPIO_InitTypeDef io = {0};
+	io.Mode = GPIO_MODE_ANALOG;   // lowest leakage idle state
+	io.Pull = GPIO_NOPULL;
+	io.Pin = EXT_IO1_PIN;
+	HAL_GPIO_Init(EXT_IO1_PORT, &io);
+	io.Pin = EXT_IO2_PIN;
+	HAL_GPIO_Init(EXT_IO2_PORT, &io);
+}
+
 void IoSetConfiguarion(uint8_t pin, uint8_t data[], uint8_t len) {
 
 	ioConfig[pin-1] = data[0];
@@ -294,6 +318,8 @@ void IoGetConfiguarion(uint8_t pin, uint8_t data[], uint16_t *len) {
 void IoWrite(uint8_t pin, uint8_t data[], uint8_t len)
 {
 	uint16_t val;
+	if (ioShutdown) return;   // parked for the battery, see ioShutdown
+
 	if (pin == 1) {
 		gpioInitStruct.Pin = EXT_IO1_PIN;
 		ioPort = EXT_IO1_PORT;

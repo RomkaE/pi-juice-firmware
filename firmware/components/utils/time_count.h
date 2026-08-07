@@ -11,8 +11,8 @@
 #include "stdint.h"
 #include "stm32f0xx_hal.h"
 
-#define MS_TIME_COUNTER_INIT(c)      (c=HAL_GetTick())
-#define MS_TIME_COUNT(c)             (HAL_GetTick()-c)
+#define MS_TIME_COUNTER_INIT(c)      (c = HAL_GetTick())
+#define MS_TIME_COUNT(c)             ((uint32_t)(HAL_GetTick() - c))
 
 /**
  * @brief  Delays for amount of micro seconds

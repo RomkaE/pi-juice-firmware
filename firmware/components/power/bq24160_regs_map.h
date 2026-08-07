@@ -120,7 +120,7 @@ typedef union
   struct
   {
     unsigned            : 1;
-    unsigned bat_stat   : 2;  // 2:1
+    unsigned batt_stat  : 2;  // 2:1
     unsigned            : 1;  // 3
     unsigned usb_status : 2;  // 5:4
     unsigned in_status  : 2;  // 7:6

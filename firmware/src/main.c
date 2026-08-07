@@ -41,7 +41,8 @@ int main(void)
   #endif
   app_Init();
   vTaskStartScheduler();
-  while (1);  // TODO - reboot!
+  APP_ERROR(APP_ERR);
+  while (1);
 }
 
 // TODO: remove

@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "analog.h"
-#include <to_refactor/config_switch_resistor.h>
 #include "nv.h"
 #include "app-error/app_error.h"
 #include "app-error/app_assert.h"
@@ -89,7 +88,6 @@ static uint16_t s_BufADC[ADC_BUFFER_LENGTH];  // raw data from ADC
 static uint16_t s_AVDD;
 
 // Measured parameters:
-static uint8_t s_HwRev = HARD_REV_UNKNOWN;
 static int16_t s_TempMCU = INT16_MAX;         // TODO remove magic number
 static uint16_t s_RawBatt;
 static uint16_t s_VBatt;      // in mV
@@ -177,21 +175,6 @@ static void updateAVDD(uint32_t _raw_vrefint)
   }
 }
 
-// TODO
-/*
-static void DetectHardwareRev(void)
-{
-  if (s_HwRev != HARD_REV_UNKNOWN)
-    return;
-  if (!AnalogSamplesReady() || analog_Get5vPi() <= 4500)
-    return;
-
-  int32_t d = (int32_t) GetSample(ADC_CS1_CHN_IDX)
-      - (int32_t) GetSample(ADC_CS2_CHN_IDX);
-  s_HwRev = (d > 500) ? HARD_REV_2_3_AND_ABOVE : HARD_REV_BELOW_2_3;
-}
-*/
-
 /*
  * Average one half of the ring (ADC_HALF_FRAMES frames) into the published values.
  * One pass, one accumulator per channel, then a shift - see ADC_HALF_SHIFT.
@@ -221,7 +204,7 @@ static void ProcessHalf(const uint16_t *half)
   s_VBatt = VBAT_FROM_PIN_MV(vbatPinMv);
   s_VBattAvg = s_VBatt;           // the 32-frame average already is the smoothed value
 
-  // PWR_DET raw counts, consumed by the 5V-in detection in power_source.c.
+  // PWR_DET raw counts. Unread since the 5V-IO detection was removed, still costs a scan slot.
   s_RawPWR = acc[ADC_PWR_CHN_IDX] >> ADC_HALF_SHIFT;
 
   // 5V PI rail sensed through a /2 divider: >>11 == /4096 * 2.
@@ -232,6 +215,8 @@ static void ProcessHalf(const uint16_t *half)
   int32_t vtemp = (((uint32_t)(acc[ADC_TEMP_INT_CHN_IDX] >> ADC_HALF_SHIFT)) * s_AVDD * 10) >> 12;
   int32_t v30 = (((uint32_t)*TEMP30_CAL_ADDR) * TEMPSENSOR_CAL_VREFANALOG) >> 12;
   s_TempMCU = (v30 - vtemp) / 43 + 30;
+
+  analog_OnEvent_SamplesReady();   // last, so the hook sees a complete set
 }
 
 static void Task(void *parameters)
@@ -239,8 +224,6 @@ static void Task(void *parameters)
   (void)parameters;
 
   LOG_INFO("ANALOG task started");
-
-  // TODO - read HW revision
 
   // Init measurement system:
   MX_ADC_Init();
@@ -317,11 +300,6 @@ void analog_Init(void)
   ASSERT(s_QueHandle != NULL);
 }
 
-uint8_t analog_GetHwRev(void)
-{
-  return s_HwRev;
-}
-
 uint16_t analog_GetTempMCU(void)
 {
   return s_TempMCU;
@@ -365,4 +343,8 @@ uint32_t analog_GetErrMask(bool _clear)
     s_ErrMask &= ~mask;
   taskEXIT_CRITICAL();
   return mask;
+}
+
+__attribute__((weak)) void analog_OnEvent_SamplesReady(void)
+{
 }

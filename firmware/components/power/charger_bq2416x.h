@@ -17,16 +17,38 @@
 #define CHARGER_ERR_QUEUE_FULL   (1UL << 0)  // event dropped, the task did not drain in time
 #define CHARGER_ERR_NOT_READY    (1UL << 1)  // event posted before charger_Init() created the queue
 
-typedef enum ChargerStatus_T {
-	CHG_NO_VALID_SOURCE = 0,
-	CHG_IN_READY,
-	CHG_USB_READY,
-	CHG_CHARGING_FROM_IN,
-	CHG_CHARGING_FROM_USB,
-	CHG_CHARGE_DONE,
-	CHG_NA,
-	CHG_FAULT
-} ChargerStatus_T;
+typedef enum
+{
+	CHG_STATUS_NO_VALID_SOURCE = 0,
+	CHG_STATUS_IN_READY,
+	CHG_STATUS_USB_READY,
+	CHG_STATUS_CHARGING_FROM_IN,
+	CHG_STATUS_CHARGING_FROM_USB,
+	CHG_STATUS_CHARGE_DONE,
+	CHG_STATUS_NA,
+	CHG_STATUS_FAULT
+} ChargerStatus_t;
+
+typedef enum
+{
+  CHG_FAULT_NORMAL = 0,
+  CHG_FAULT_THERMAL_SHUTDOWN,
+  CHG_FAULT_BATTERY_TEMPERATURE_FAULT,
+  CHG_FAULT_WATCHDOG_TIMER_EXPIRED,
+  CHG_FAULT_SAFETY_TIMER_EXPIRED,
+  CHG_FAULT_IN_SUPPLY_FAULT,
+  CHG_FAULT_USB_SUPPLY_FAULT,
+  CHG_FAULT_BATTERY_FAULT,
+  CHG_FAULT_UNKNOWN
+} ChargerFaultStatus_t;
+
+typedef enum
+{
+  CHG_IN_NORMAL = 0,
+  CHG_IN_OVP,
+  CHG_IN_WEAK,
+  CHG_IN_UVLO
+} ChargerInputStatus_t;
 
 // Codes of the IUSB_LIMIT field. Only the minimum is ever written now - see BQ_IUSB_LIMIT_IMAGE.
 typedef enum ChargerUsbInCurrentLimit_T {
@@ -38,17 +60,17 @@ typedef enum ChargerUsbInCurrentLimit_T {
 	CHG_IUSB_LIMIT_1500MA,
 } ChargerUsbInCurrentLimit_T;
 
-typedef enum ChargerFaultStatus_T {
-	CHG_FAULT_NORMAL = 0,
-	CHG_FAULT_THERMAL_SHUTDOWN,
-	CHG_FAULT_BATTERY_TEMPERATURE_FAULT,
-	CHG_FAULT_WATCHDOG_TIMER_EXPIRED,
-	CHG_FAULT_SAFETY_TIMER_EXPIRED,
-	CHG_FAULT_IN_SUPPLY_FAULT,
-	CHG_FAULT_USB_SUPPLY_FAULT,
-	CHG_FAULT_BATTERY_FAULT,
-	CHG_FAULT_UNKNOWN
-} ChargerFaultStatus_T;
+typedef struct
+{
+  ChargerStatus_t status;
+  ChargerFaultStatus_t fault;
+  ChargerInputStatus_t in_stat;
+  bool batt_present;
+  bool dpm_stat;
+//  uint8_t ts_fault;
+//  uint8_t usb_stat;
+//  uint8_t input_present;    // 0 or 1
+} ChargerSnapshot_t;
 
 // Used when NV holds nothing usable: no turn-on without a battery, 2.5 A IN limit, VIN-DPM 4.2 V,
 // charging enabled. The precedence and USB-IN bits are clear and stay clear.
@@ -67,14 +89,11 @@ uint8_t charger_SanitizeInputsConfig(uint8_t _config);
 void charger_NotifyFromISR(void);
 
 // Published status, safe to read from any task or from the I2C1 interrupt:
-ChargerStatus_T charger_GetStatus(void);
+ChargerStatus_t charger_GetStatus(void);
 bool charger_IsBatteryPresent(void);
 bool charger_IsInputPresent(void);
 uint8_t charger_GetInStat(void);
-uint8_t charger_GetUsbStat(void);
-bool charger_IsDpmModeActive(void);
-uint8_t charger_GetTsFaultStatus(void);
-ChargerFaultStatus_T charger_GetFaultStatus(void);
+ChargerFaultStatus_t charger_GetFaultStatus(void);
 bool charger_IsNoBatteryTurnOnEnabled(void);
 
 // Setters, all called from the APP task. Each hands a value to the task and returns - no NV
@@ -89,12 +108,6 @@ void charger_SetThermalState(BatteryThermalState_T state);
 
 uint32_t charger_GetErrMask(bool _clear);
 
-// Hook for the APP task, called on an edge of "is an input source present". Weak no-op.
-void charger_OnEvent_InputPresenceChanged(bool present);
-
-// The same for the rest of the published state. One function rather than seven because nothing
-// consumes them yet: _type is the APP_EVT_CHARGER_* that fired, _value the new value.
-// uint8_t, not AppEventType_t, so this header does not have to pull in app.h.
-void charger_OnEvent_ValueChanged(uint8_t _type, uint8_t _value);
+void charger_OnSnapshotChanged(const ChargerSnapshot_t *_p_snapshot);
 
 #endif /* CHARGER_BQ2416X_H_ */

@@ -25,13 +25,14 @@
  */
 typedef enum
 {
-  APP_EVT_BUTTON = 1,                          // a button event that has a configured function
+  APP_EVT_SM_ENTRY = 0,
+  APP_EVT_BUTTON,                             // a button event that has a configured function
   APP_EVT_BUTTON_RESET_CONFIG,                 // both power buttons held down: reset the configuration
   APP_EVT_BATTERY_SET_PROFILE,                 // host register 0x82 - battery_CmdSetProfile()
   APP_EVT_BATTERY_WRITE_CUSTOM_PROFILE,        // host register 0x86 - battery_CmdWriteCustomProfile()
   APP_EVT_BATTERY_WRITE_CUSTOM_EXTENDED_PROFILE, // host register 0x87 - battery_CmdWriteCustomExtendedProfile()
   APP_EVT_CHARGER_INPUT_PRESENCE,              // charger.c detected an edge on "is an input source present"
-  APP_EVT_BATTERY_PRESENCE,                    // charger.c detected an edge on the bq2416x BATSTAT
+  APP_EVT_CHRGR_BATT_PRESENCE,                 // charger.c detected an edge on the bq2416x BATSTAT
   APP_EVT_FUEL_GAUGE_SET_CONFIG,               // host register 0x93 - app_FuelGaugeCmdSetConfig()
   APP_EVT_CHARGER_SET_INPUTS_CONFIG,           // app_ChargerCmdWriteInputsConfig()
   APP_EVT_CHARGER_SET_CHARGING_CONFIG,         // app_ChargerCmdWriteChargingConfig()
@@ -47,6 +48,8 @@ typedef enum
   APP_EVT_CHARGER_USB_STAT,                    // raw USBSTAT field
   APP_EVT_CHARGER_TS_FAULT,                    // raw TS_FAULT field
   APP_EVT_CHARGER_DPM,                         // 0 or 1
+
+  APP_EVT_POWER_PROTECTION,                    // undervoltage or 5V fault, from the ANALOG task
 } AppEventType_t;
 
 typedef struct
@@ -104,7 +107,7 @@ typedef struct
 
 typedef struct
 {
-  uint8_t type;    // AppEventType_T
+  AppEventType_t type;
   union
   {
     AppEventButton_t button;
@@ -116,6 +119,7 @@ typedef struct
     AppEventFuelGaugeConfig_t fuelGaugeConfig;
     AppEventChargerConfig_t chargerConfig;
     AppEventChargerValue_t chargerValue;
+//    PowerTrip_t powerTrip;
   } data;
 } AppEvent_t;
 

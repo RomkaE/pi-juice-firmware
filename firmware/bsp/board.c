@@ -58,6 +58,11 @@ void bsp_Pwr5V_SetState(bool _state)
   }
 }
 
+bool bsp_Pwr5V_GetState(void)
+{
+  return s_StatePwr5V;
+}
+
 void bsp_Pwr5V_Restore(void)
 {
   if (retained_mem_GetStatus())

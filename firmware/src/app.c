@@ -1,44 +1,11 @@
-/**
-  ******************************************************************************
-  * File Name          : main.c
-  * Description        : Main program body
-  ******************************************************************************
-  *
-  * COPYRIGHT(c) 2016 STMicroelectronics
-  *
-  * Redistribution and use in source and binary forms, with or without modification,
-  * are permitted provided that the following conditions are met:
-  *   1. Redistributions of source code must retain the above copyright notice,
-  *      this list of conditions and the following disclaimer.
-  *   2. Redistributions in binary form must reproduce the above copyright notice,
-  *      this list of conditions and the following disclaimer in the documentation
-  *      and/or other materials provided with the distribution.
-  *   3. Neither the name of STMicroelectronics nor the names of its contributors
-  *      may be used to endorse or promote products derived from this software
-  *      without specific prior written permission.
-  *
-  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-  * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-  * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-  *
-  ******************************************************************************
-  */
-/* Includes ------------------------------------------------------------------*/
+
 #include <stdint.h>
 #include <stdbool.h>
 
 #include "iosystem/analog.h"
 #include "iosystem/button.h"
 #include "power/fuel_gauge_lc709203f.h"
-#include "power/power_management.h"
-#include "power/power_source.h"
+#include "power/power_manager.h"
 #include "power/charger_bq2416x.h"
 
 #include <to_refactor/command_server.h>
@@ -110,21 +77,21 @@ static volatile uint8_t s_ChgReqChargingSeq, s_ChgAppliedChargingSeq;
 static void app_OnButtonPowerOn(uint8_t b, ButtonEvent_T event)
 {
   (void)event;
-  power_HostTurnOn();
+  pwr_mngr_HostTurnOn();
   button_ClearEvent(b);
 }
 
 static void app_OnButtonPowerOff(uint8_t b, ButtonEvent_T event)
 {
   (void)event;
-  power_HostTurnOff();
+  pwr_mngr_HostTurnOff();
   button_ClearEvent(b);
 }
 
 static void app_OnButtonPowerReset(uint8_t b, ButtonEvent_T event)
 {
   (void)event;
-  power_HostReset();
+  pwr_mngr_HostReset();
   button_ClearEvent(b);
 }
 
@@ -135,7 +102,8 @@ static const ButtonEventCb_T buttonEventCbs[BUTTON_EVENT_FUNC_NUMBER] = {
   app_OnButtonPowerReset,       // BUTTON_EVENT_FUNC_POWER_RESET
 };
 
-static void button_OnEvent_DualLongPress(void) {
+static void button_OnEvent_DualLongPress(void)
+{
 	// Reset to default
 	nv_Erase();
 
@@ -160,7 +128,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   }
   else if (GPIO_Pin == EXT_IO2_PIN)
   {
-    ioWakeupEvent = 1;			    // TODO - change to notify
+    // TODO
+//    pwr_mngr_SetIoWakeupEvent();
   }
   else if (GPIO_Pin == BTN_SW1_PIN || GPIO_Pin == BTN_SW2_PIN || GPIO_Pin == BTN_SW3_PIN)
   {
@@ -168,102 +137,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     button_NotifyFromISR();
   }
 }
-
-static bool main_init(void)
-{
-	if (retained_mem_GetStatus())
-	  LOG_INFO("Retained Memory is VALID!");
-	else
-    LOG_WARNING("Retained Memory is INVALID!");
-
-	// Reset reason:
-  bool reset_init = false;        // TODO - check/remove
-  // TODO add logs and processing all reset reasons:
-  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))
-    reset_init = true;
-  __HAL_RCC_CLEAR_RESET_FLAGS();
-
-	/* Not fatal, but worth shouting about: with no usable emulated EEPROM every nv_read_U8()
-	 * fails and the whole configuration silently falls back to its compile time default -
-	 * including the I2C own addresses, which makes the board look dead to the host. */
-	if (nv_Init() != NV_OK)
-	  LOG_ERROR("[NV] Init failed, configuration falls back to defaults");
-
-	// Initialize all configured peripherals
-  // TODO:
-	MX_RTC_Init();
-	MX_TIM1_Init();
-
-	// TODO - move/remove
-	extern void MX_TIM14_Init(void);
-	MX_TIM14_Init();
-
-	HAL_InitTick(TICK_INT_PRIORITY);
-
-//	MS_TIME_COUNTER_INIT(lastHostCommandTimer);
-//	MS_TIME_COUNTER_INIT(mainPollMsCounter);
-//	MS_TIME_COUNTER_INIT(lowPowerDealyTimer);
-
-	// TODO - move to bsp/drivers
-//	MX_IWDG_Init();
-
-	PowerSourceInit(reset_init);
-	PowerManagementInit(reset_init);
-
-	IoControlInit();
-
-	// EEPROM IC management:
-	HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, GPIO_PIN_SET); // ee write protect
-	uint8_t eeAddr = 0;   // nothing valid stored -> 0, which selects the default ee address
-	(void)nv_read_U8(NV_ADDR_ID_EEPROM_ADR, &eeAddr);
-	HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN,
-	                  (eeAddr & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-
-	// I2C master init - battery/fuel_gauge/charger do their own device init once their tasks
-	// are created, see TaskApp()'s subsystem-init block below.
-  i2c_master_Init();
-
-  // I2C slave and device init:
-  {
-    i2c_slave_Init();
-    RtcInit(reset_init);
-  }
-
-  return reset_init;
-}
-
-//static void main_poll(void)
-//{
-  // TODO - move to rtc
-  /*
-  extern RTC_HandleTypeDef hrtc;
-  if (alarmEventFlag || __HAL_RTC_ALARM_GET_FLAG(&hrtc, RTC_FLAG_ALRAF) != RESET)
-  {
-    EvaluateAlarm();
-    alarmEventFlag = 0;
-    __HAL_RTC_ALARM_CLEAR_FLAG(&hrtc, RTC_FLAG_ALRAF);
-  }
-  */
-
-  // TODO - move to i2c slave proto/logic
-  /*
-  if (extiFlag == 2)
-  {
-    MS_TIME_COUNTER_INIT(lastHostCommandTimer);
-  }
-  extiFlag = 0;
-  */
-
-  // Refresh IWDG: reload counter
-  // TODO - move to bsp/drivers
-  /*
-  extern IWDG_HandleTypeDef hiwdg;
-  if (HAL_IWDG_Refresh(&hiwdg) != HAL_OK)
-  {
-    Error_Handler(); // Refresh Error
-  }
-  */
-//}
 
 /*
  * Battery applied a profile change (in whichever of the three app_ProcessEvent() cases below);
@@ -280,30 +153,10 @@ static void app_FanOutBatteryProfile(void)
   const BatteryProfile_T *p = valid ? &profile : NULL;
   charger_SetBatProfile(p);
   fuel_gauge_SetBattProfile(p);
-  PowerSourceSetBatProfile(p);
+  // TODO
+//  pwr_mngr_SetBatProfile(p);
 }
 
-/*
- * Battery presence: battery.c aggregates it, this hands the answer to whoever needs to act on it.
- * Called both on the charger's BATSTAT edge and on the periodic tick below, because the second
- * source of the aggregate - the pack voltage - has no edge of its own.
- */
-static void app_UpdateBatteryPresence(void)
-{
-  if (battery_UpdatePresence())
-    fuel_gauge_SetBatteryPresent(battery_IsPresent());
-}
-
-/*
- * Battery temperature verdict: battery.c combines the profile's thresholds with whatever
- * temperature source is alive, and the charger is told the answer. The charger never reads the
- * fuel gauge itself - that was the last cross-dependency inside components/power.
- */
-static void app_UpdateThermalState(void)
-{
-  if (battery_UpdateThermalState())
-    charger_SetThermalState(battery_GetThermalState());
-}
 
 /*
  * Persist the fuel gauge configuration and only then hand it to the driver. The read-back is what
@@ -386,18 +239,19 @@ static void app_ProcessEvent(const AppEvent_t *_evt)
       break;
 
     case APP_EVT_BATTERY_WRITE_CUSTOM_EXTENDED_PROFILE:
-      battery_ApplyWriteCustomExtendedProfile(&_evt->data.batteryCustomExtProfile.profile);
+//      battery_ApplyWriteCustomExtendedProfile(&_evt->data.batteryCustomExtProfile.profile);
       app_FanOutBatteryProfile();
       break;
 
     case APP_EVT_CHARGER_INPUT_PRESENCE:
-      // TODO - check
-      charger_OnEvent_InputPresenceChanged(_evt->data.chargerInput.present);
+      //
+//      TODO
+//      charger_OnEvent_InputPresenceChanged(_evt->data.chargerInput.present);
       break;
 
-    case APP_EVT_BATTERY_PRESENCE:
+    case APP_EVT_CHRGR_BATT_PRESENCE:
       // The flag itself is one of two sources - battery.c re-reads both and decides:
-      app_UpdateBatteryPresence();
+//      app_UpdateBatteryPresence();
       break;
 
     case APP_EVT_FUEL_GAUGE_SET_CONFIG:
@@ -423,7 +277,12 @@ static void app_ProcessEvent(const AppEvent_t *_evt)
     case APP_EVT_CHARGER_USB_STAT:
     case APP_EVT_CHARGER_TS_FAULT:
     case APP_EVT_CHARGER_DPM:
-      charger_OnEvent_ValueChanged(_evt->type, _evt->data.chargerValue.value);
+//      TODO
+//      charger_OnEvent_ValueChanged(_evt->type, _evt->data.chargerValue.value);
+      break;
+
+    case APP_EVT_POWER_PROTECTION:
+//      pwr_mngr_OnEvent_Protection(_evt->data.powerTrip.trip);
       break;
 
     default:
@@ -432,6 +291,7 @@ static void app_ProcessEvent(const AppEvent_t *_evt)
   }
 }
 
+// TODO - set static and move
 void app_PostEvent(const AppEvent_t *_pEvent)
 {
   if (s_EvtQueHandle == NULL)
@@ -520,17 +380,64 @@ uint8_t app_ChargerReadChargingConfig(void)
       ? s_ChgReqChargingConfig : s_ChgChargingReadout;
 }
 
-static void TaskApp(void *parameters)
+static bool Init(void)
 {
-  (void)parameters;
+  bool cold_start = false;
+  if (retained_mem_GetStatus())
+    LOG_INFO("Retained Memory is VALID!");
+  else
+  {
+    LOG_WARNING("Retained Memory is INVALID!");
+    cold_start = true;
+  }
 
-  // Configure the system clock after SysTick initialization
-  // because the HAL tick and delay functions depend on the FreeRTOS tick:
-  bsp_ClockConfig();
+  // TODO - move to BSP:
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))
+  {
+    // TODO add logs and processing all reset reasons
+  }
+  __HAL_RCC_CLEAR_RESET_FLAGS();
 
-  LOG_INFO("APP task started");
+  /* Not fatal, but worth shouting about: with no usable emulated EEPROM every nv_read_U8()
+   * fails and the whole configuration silently falls back to its compile time default -
+   * including the I2C own addresses, which makes the board look dead to the host. */
+  if (nv_Init() != NV_OK)
+    LOG_ERROR("[NV] Init failed, configuration falls back to defaults");
 
-  main_init();
+  // Initialize all configured peripherals
+  // TODO move:
+  MX_RTC_Init();
+  extern void MX_TIM1_Init(void);
+  MX_TIM1_Init();
+
+  // TODO - move/remove
+  extern void MX_TIM14_Init(void);
+  MX_TIM14_Init();
+
+  // TODO - move to bsp/drivers
+//  MX_IWDG_Init();
+
+  pwr_mngr_Init(cold_start);
+
+  IoControlInit();
+
+  // EEPROM IC management:
+  HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, GPIO_PIN_SET); // ee write protect
+  uint8_t eeAddr = 0;   // nothing valid stored -> 0, which selects the default ee address
+  (void)nv_read_U8(NV_ADDR_ID_EEPROM_ADR, &eeAddr);
+  HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN,
+                    (eeAddr & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+  // I2C master init - battery/fuel_gauge/charger do their own device init once their tasks
+  // are created, see TaskApp()'s subsystem-init block below.
+  i2c_master_Init();
+
+  // I2C slave and device init:
+  {
+    i2c_slave_Init();
+    RtcInit(cold_start);
+  }
+
   analog_Init();
   led_Init();
   button_Init();
@@ -560,31 +467,65 @@ static void TaskApp(void *parameters)
     s_ChgInputsReadout = chgInputs;
     s_ChgChargingReadout = chgCharging;
     charger_Init(valid ? &batt_profile : NULL, chgInputs, chgCharging);
+
+    // TODO
+    // pwr_mngr_Init() ran in main_init(), before battery_Init(), so its cutoff is still the default.
+//    pwr_mngr_SetBatProfile(valid ? &batt_profile : NULL);
   }
 
+  return cold_start;
+}
 
-  /*
-   * No dedicated battery task to drive the charge-status LED anymore (see battery.h) - APP does
-   * it here, deadline driven exactly like led.c's own blink phases, so the event queue wait is
-   * a heartbeat rather than the only pacing.
-   */
-  TickType_t ledDeadline = xTaskGetTickCount() + pdMS_TO_TICKS(BATTERY_CHARGE_LED_PERIOD_MS);
+typedef enum
+{
+  SM_APP_OFF = 0,
+  SM_APP_ON,
+  SM_APP_LOW_BATT
+} SM_App_t;
 
+static void TaskApp(void *parameters)
+{
+  (void)parameters;
+
+  // Clock configuration after SysTick initialization, since in this project
+  // the HAL tick and delay functions depend on the FreeRTOS system tick:
+  bsp_ClockConfig();
+
+  LOG_INFO("APP task started");
+  Init();
+
+  // Init app fsm:
+  static SM_App_t state = SM_APP_OFF;
+  if (bsp_Pwr5V_GetState())
+    state = SM_APP_ON;
+  SM_App_t next = SM_APP_OFF;
   while(1)
   {
     AppEvent_t evt;
-    int32_t remain = (int32_t)(ledDeadline - xTaskGetTickCount());
-    TickType_t wait = (remain > 0) ? (TickType_t)remain : 0;
+    BaseType_t res = xQueueReceive(s_EvtQueHandle, &evt, portMAX_DELAY);
+    if (res != pdPASS)
+      continue;
 
-    if (xQueueReceive(s_EvtQueHandle, &evt, wait) == pdTRUE)
-      app_ProcessEvent(&evt);
+    bool repeat;
+    do {
+      repeat = false;
+      switch (state)
+      {
+        case SM_APP_OFF:
+        break;
+        case SM_APP_ON:
+        break;
+        case SM_APP_LOW_BATT:
+        break;
+      }
 
-    if ((int32_t)(xTaskGetTickCount() - ledDeadline) >= 0) {
-      app_UpdateBatteryPresence();
-      app_UpdateThermalState();
-      battery_UpdateChargeLed();
-      ledDeadline = xTaskGetTickCount() + pdMS_TO_TICKS(BATTERY_CHARGE_LED_PERIOD_MS);
-    }
+      if (state != next)
+      {
+        state = next;
+        repeat = true;
+        evt.type = APP_EVT_SM_ENTRY;
+      }
+    } while(repeat);
   }
 }
 
