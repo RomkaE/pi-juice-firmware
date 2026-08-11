@@ -461,14 +461,14 @@ void CmdServerReadStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 
 void CmdServerReadWriteEventFaultStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_READ) {
-		uint8_t ev = pwr_mngr_GetFaultFlags();   // bits 0-3
+		uint8_t ev = pwr_mngr_GetStatusFlags();   // bits 0-3
 		ev |= !battery_GetProfile(NULL) ? 0x20 : 0;
 // TODO charger_GetTsFaultStatus
 //		ev |= charger_GetTsFaultStatus() << 6;
 		pData[0] = ev;
 		*dataLen = 1;
 	} else {
-		pwr_mngr_KeepFaultFlags(pData[1]);
+		pwr_mngr_KeepStatusFlags(pData[1]);
 	}
 }
 
@@ -606,9 +606,9 @@ void CmdServerReadWriteBatRegVoltage(uint8_t dir, uint8_t *pData, uint16_t *data
 
 void CmdServerReadWriteChargingConfig(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		app_ChargerCmdWriteChargingConfig(pData[1]);
+		app_OnCmdSetChargingConfig(pData[1]);
 	} else {
-		pData[0] = app_ChargerReadChargingConfig();
+		pData[0] = app_OnCmdGetChargingConfig();
 		*dataLen = 1;
 	}
 }
@@ -775,21 +775,18 @@ void CmdServerReadWriteRtcAlarmCtrlStatus(uint8_t dir, uint8_t *pData, uint16_t 
 
 void CmdServerReadWriteInputsConfig(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		app_ChargerCmdWriteInputsConfig(pData[1]);
+		app_OnCmdSetChargerInputsConfig(pData[1]);
 	} else {
-		pData[0] = app_ChargerReadInputsConfig();
+		pData[0] = app_OnCmdGetChargerInputsConfig();
 		*dataLen = 1;
 	}
 }
 
-// TODO
 void CmdServerReadWriteScheduledPowerOff(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		//if (pData[1] == ~pData[2]) {
-		pwr_mngr_CmdSchedulePowerOff(pData[1]);
-		//}
+		app_OnCmdSchedulePowerOff(pData[1]);
 	} else {
-		pData[0] = pwr_mngr_CmdGetPowerOffCounter();
+		pData[0] = app_OnCmdGetPowerOffCounter();
 		*dataLen = 1;
 	}
 }
@@ -806,11 +803,11 @@ void CmdServerReadWriteVSysSwitchState(uint8_t dir, uint8_t *pData, uint16_t *da
 void CmdServerReadWriteWakeupOnCharge(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
 		//wakeupOnCharge = (pData[1]&0x7F) <= 100 ? (pData[1]&0x7F) * 10 : 0xFFFF;
-		pwr_mngr_CmdSetWakeupOnCharge(pData+1, *dataLen - 1);
+		app_OnCmdSetWakeupOnCharge(pData+1, *dataLen - 1);
 	} else {
 		//pData[0] = wakeupOnCharge <= 1000 ? wakeupOnCharge / 10 : 0xFF;
 		//*dataLen = 1;
-		pwr_mngr_CmdGetWakeupOnCharge(pData, dataLen);
+		app_OnCmdGetWakeupOnCharge(pData, dataLen);
 	}
 }
 
@@ -896,9 +893,9 @@ void CmdServerReadWriteRunPinConfiguration(uint8_t dir, uint8_t *pData, uint16_t
 
 void CmdServerReadWriteWDGConfiguration(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		pwr_mngr_CmdConfigureWatchdog(pData+1, *dataLen - 1);
+		app_OnCmdSetHostWDTConfig(pData+1, *dataLen - 1);
 	} else {
-		pwr_mngr_CmdGetWatchdogConfiguration(pData, dataLen);
+		app_OnCmdGetHostWDTConfig(pData, dataLen);
 	}
 }
 

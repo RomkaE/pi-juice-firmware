@@ -92,7 +92,8 @@ void charger_NotifyFromISR(void);
 ChargerStatus_t charger_GetStatus(void);
 bool charger_IsBatteryPresent(void);
 bool charger_IsInputPresent(void);
-uint8_t charger_GetInStat(void);
+bool charger_GetDpmStatus(void);
+ChargerInputStatus_t charger_GetInStatus(void);
 ChargerFaultStatus_t charger_GetFaultStatus(void);
 bool charger_IsNoBatteryTurnOnEnabled(void);
 

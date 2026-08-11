@@ -114,8 +114,8 @@ BatteryStatus_T battery_GetStatus(void);
  * knows it has something to announce. APP calls it on a charger BATSTAT edge and on its own
  * periodic tick, so a slow voltage collapse is noticed as well as a pack being pulled.
  */
-//bool battery_UpdatePresence(void);
-//bool battery_IsPresent(void);
+bool battery_UpdatePresence(void);
+bool battery_IsPresent(void);
 
 /*
  * Same shape for the thermal verdict: the profile's thresholds live here, the temperature comes

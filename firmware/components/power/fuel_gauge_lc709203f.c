@@ -171,12 +171,13 @@ static int8_t readWord(uint8_t _reg, uint16_t *_word)
   int i2c_res = i2c_master_ReadMem(LC_I2C_ADDR, _reg, buf + 3, 3);
   if (i2c_res != I2C_OK)
   {
-    LOG_ERROR("[FG] readWord FAILED: reg=0x%02X, res=%d", _reg, i2c_res);
+    LOG_ERROR("[FG] readWord FAILED. i2c bus err: reg=0x%02X, res=%d", _reg, i2c_res);
     return 1;
   }
 
   if (Crc8Block(0, buf, 5) != buf[5])
   {
+    LOG_WARNING("[FG] readWord FAILED. CRC mismatch: reg=0x%02X, res=%d", _reg, i2c_res);
     return -1;
   }
 
@@ -312,22 +313,31 @@ static bool starting_flow(void)
   {
     // APA:
     bool apa_written = false;
-    res = updateWord("APA", LC_REG_APA, apa_value(s_BattProfile.capacity), &apa_written);
+    uint16_t value;
+    value = apa_value(s_BattProfile.capacity);
+    res = updateWord("APA", LC_REG_APA, value, &apa_written);
     s_ReinitRsoc |= apa_written;
     if (res != 0)
       return false;
 
+    if (apa_written)
+      LOG_INFO("[FG] Сonfigured profile: capacity=%umAh", s_BattProfile.capacity);
+
     // Set Battery profile:
     bool param_written = false;
-    res = updateWord("PARAMETER", LC_REG_CHANGE_PARAM,
-                     change_parameter_value(s_BattProfile.chrg_voltage), &param_written);
+    value = change_parameter_value(s_BattProfile.chrg_voltage);
+    res = updateWord("PARAMETER", LC_REG_CHANGE_PARAM, value, &param_written);
     s_ReinitRsoc |= param_written;
     if (res != 0)
       return false;
 
+
     // Need delay after write 0x12 command (Figure 18 in the LC709203F datasheet):
     if (param_written)
+    {
+      LOG_INFO("[FG] Сonfigured profile: chrg_voltage=%umV", s_BattProfile.chrg_voltage);
       vTaskDelay(pdMS_TO_TICKS(FG_PARAM_SETTLE_MS));
+    }
   }
 
   // Initial RSOC:
@@ -364,6 +374,7 @@ static bool starting_flow(void)
       res = writeWord(LC_REG_THERMISTOR_B, s_BattProfile.NTC.b_const);
       if (res != 0)
         return false;
+      LOG_INFO("[FG] Сonfigured profile: NTC B=%u", s_BattProfile.NTC.b_const);
     }
 
     // Adjustment Pack Thermistor:
@@ -542,7 +553,7 @@ static void publish_Temp(FgReadResult_t _res, int8_t _temp)
         stale_cnt++;
         if (stale_cnt == FG_STALE_LIMIT)
         {
-          LOG_WARNING("[FG] No usable temperature: currently UNKNOWN");
+          LOG_WARNING("[FG] No usable temperature. Set UNKNOWN");
           s_BattTemp = FUEL_GAUGE_TEMP_UNKNOWN;
         }
       }
@@ -943,10 +954,7 @@ bool fuel_gauge_IsTempSenseFault(void)
 
 bool fuel_gauge_IsConfigValid(uint8_t config)
 {
-  /* Only the temperature field is checked: the RSOC field's one non-default code selected the
-   * removed software model, and a write carrying it is accepted and ignored rather than failed,
-   * so that existing host software keeps working. */
-  return (config & FUEL_GAUGE_CONFIG_TEMP_SENSE_MASK) < BAT_TEMP_SENSE_CONFIG_END;
+  return (config & FUEL_GAUGE_CONFIG_TEMP_SENSE_MASK) == BAT_TEMP_SENSE_CONFIG_NTC;
 }
 
 uint8_t fuel_gauge_GetConfig(void)

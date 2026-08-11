@@ -6,6 +6,7 @@
  */
 // linux driver for rtc and alarm config.txt: dtoverlay=i2c-rtc,ds1339,wakeup-source
 #include "power/power_manager.h"
+#include "src/app.h"
 #include <to_refactor/rtc_ds1339_emu.h>
 #include "stm32f0xx_hal.h"
 #include "main.h"
@@ -105,33 +106,33 @@ void EvaluateAlarm(void)
 					sTime.TimeFormat = (uint8_t)((tempReg & (RTC_TR_PM)) >> 16);
 					if (hrtc.Init.HourFormat == RTC_HOURFORMAT_24) {
 						if ( (0x00000001 << sTime.Hours) & hoursSelection ) {
-							if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) pwr_mngr_SetRtcWakeupEvent();
+							if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) app_SetRtcWakeupEvent();
 							rtc_buffer[0x0F] |= 0x01; // set alarm 1 flag
 						}
 					} else if ( sTime.TimeFormat == RTC_HOURFORMAT12_AM ) {
 						if (sTime.Hours < 12) {
 							if ( (0x00000001 << sTime.Hours) & hoursSelection ) {
-								if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) pwr_mngr_SetRtcWakeupEvent();
+								if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) app_SetRtcWakeupEvent();
 								rtc_buffer[0x0F] |= 0x01; // set alarm 1 flag
 							}
 						} else if ( 0x00000001 & hoursSelection ) {
-							if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) pwr_mngr_SetRtcWakeupEvent();
+							if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) app_SetRtcWakeupEvent();
 							rtc_buffer[0x0F] |= 0x01; // set alarm 1 flag
 						}
 					} else {
 						if (sTime.Hours < 12) {
 							if ( (0x00010000 << sTime.Hours) & hoursSelection ) {
-								if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) pwr_mngr_SetRtcWakeupEvent();
+								if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) app_SetRtcWakeupEvent();
 								rtc_buffer[0x0F] |= 0x01; // set alarm 1 flag
 							}
 						} else if ( 0x00010000 & hoursSelection ) {
-							if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) pwr_mngr_SetRtcWakeupEvent();
+							if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) app_SetRtcWakeupEvent();
 							rtc_buffer[0x0F] |= 0x01; // set alarm 1 flag
 						}
 					}
 				}
 			} else {
-				if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) pwr_mngr_SetRtcWakeupEvent();
+				if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) ) app_SetRtcWakeupEvent();
 				rtc_buffer[0x0F] |= 0x01; // set alarm 1 flag
 			}
 		}

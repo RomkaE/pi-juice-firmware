@@ -261,6 +261,8 @@ void IoNvReadConfig(uint8_t pin) {
 }
 
 void IoControlInit() {
+  MX_TIM1_Init();
+  MX_TIM14_Init();
   IoNvReadConfig(1);
 	IoNvReadConfig(2);
 	IoConfigure(1);

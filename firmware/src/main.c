@@ -12,7 +12,7 @@
 #include "retained_memory.h"
 #include "board.h"
 #include "app-error/app_error.h"
-//#include "app-error/app_assert.h"
+#include "app-error/app_assert.h"
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
@@ -45,7 +45,6 @@ int main(void)
   while (1);
 }
 
-// TODO: remove
 // adapter for logs:
 uint32_t app_timer_get_ms(void)
 {

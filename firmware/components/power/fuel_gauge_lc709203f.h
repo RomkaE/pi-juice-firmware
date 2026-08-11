@@ -31,24 +31,24 @@
 #define FUEL_GAUGE_CONFIG_RSOC_MASK         0x30
 #define FUEL_GAUGE_CONFIG_RSOC_SHIFT        4
 #define FUEL_GAUGE_CONFIG_DEFAULT \
-    ((uint8_t)((RSOC_MEASUREMENT_DIRECT_DV << FUEL_GAUGE_CONFIG_RSOC_SHIFT) | BAT_TEMP_SENSE_CONFIG_NTC))
+    ((uint8_t)((RSOC_MEASUREMENT_AUTO_DETECT << FUEL_GAUGE_CONFIG_RSOC_SHIFT) | BAT_TEMP_SENSE_CONFIG_NTC))
 
 // TODO - move to the app:
 typedef enum
 {
-//  BAT_TEMP_SENSE_CONFIG_NOT_USED = 0,
+  BAT_TEMP_SENSE_CONFIG_NOT_USED = 0,
   BAT_TEMP_SENSE_CONFIG_NTC,
-//  BAT_TEMP_SENSE_CONFIG_ON_BOARD,
-//  BAT_TEMP_SENSE_CONFIG_AUTO_DETECT,
-  BAT_TEMP_SENSE_CONFIG_END
+  BAT_TEMP_SENSE_CONFIG_ON_BOARD,
+  BAT_TEMP_SENSE_CONFIG_AUTO_DETECT,
 } BatteryTempSenseConfig_t;
 
 // TODO - move to the app:
+/* RSOC comes from the LC709203F itself - the software OCV model that the DIRECT_BY_MCU code used
+ * to select is gone, so the IC is the only estimator left. */
 typedef enum
 {
-//  RSOC_MEASUREMENT_AUTO_DETECT = 0,
-  RSOC_MEASUREMENT_DIRECT_DV,
-  RSOC_MEASUREMENT_CONFIG_END
+  RSOC_MEASUREMENT_AUTO_DETECT = 0,
+//  RSOC_MEASUREMENT_DIRECT_DV = 1,
 } RsocMeasurementConfig_t;
 
 void fuel_gauge_Init(BatteryProfile_T *_p_batt_profile);

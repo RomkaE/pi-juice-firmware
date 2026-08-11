@@ -227,9 +227,18 @@ static void ProcessButton( uint8_t b, GPIO_PinState pinState ) {
 		ButtonFunction_T func = GetFuncOfButton(b);
 		if ( func > BUTTON_EVENT_NO_FUNC && func < BUTTON_EVENT_FUNC_NUMBER )
 		{
-		  button_ButtonCallback(func);
+		  LOG_DEBUG("[BTN] Button event: btn=%u, event=%u, func=%u",
+		      (unsigned)b, (unsigned)buttons[b].event, (unsigned)func);
+		  button_ButtonFuncCallback(func);
+	    button_ClearEvent(b);
+		}
+		else
+		{
+      LOG_WARNING("[BTN] Unhundled button event: btn=%u, event=%u, func=%u",
+          (unsigned)b, (unsigned)buttons[b].event, (unsigned)func);
 		}
 	}
+
 }
 
 static void ProcessAllButtons(void) {
@@ -462,7 +471,7 @@ uint32_t button_GetErrMask(bool _clear) {
 	return mask;
 }
 
-__attribute__((weak)) void button_ButtonCallback(ButtonFunction_T _btn_func)
+__attribute__((weak)) void button_ButtonFuncCallback(ButtonFunction_T _btn_func)
 {
   (void)_btn_func;
 }

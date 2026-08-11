@@ -295,7 +295,7 @@ static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
 
   if (s_Snapshot.batt_present != _p_snapshot->batt_present)
   {
-    LOG_INFO("[CHG] Batt present: %u->%u", (unsigned)s_Snapshot.batt_present,
+    LOG_WARNING("[CHG] Batt present: %u->%u", (unsigned)s_Snapshot.batt_present,
                                            (unsigned)_p_snapshot->batt_present);
     not_equal = true;
   }
@@ -898,7 +898,12 @@ bool charger_IsInputPresent(void)
   return (s_Snapshot.status > CHG_STATUS_NO_VALID_SOURCE) && (s_Snapshot.status < CHG_STATUS_NA);
 }
 
-uint8_t charger_GetInStat(void)
+bool charger_GetDpmStatus(void)
+{
+  return s_Snapshot.dpm_stat;
+}
+
+ChargerInputStatus_t charger_GetInStatus(void)
 {
   return s_Snapshot.in_stat;
 }

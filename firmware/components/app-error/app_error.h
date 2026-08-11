@@ -24,6 +24,9 @@ typedef enum {
   APP_ERR_BUSY      = -6,
   APP_ERR_TIMEOUT   = -7,
 
+  APP_ERR_RTOS_QUEUE = -8,
+  APP_ERR_RTOS_TIMER = -9,
+
   APP_HAL_OK        = -16,  // don't use!
   APP_HAL_ERROR     = -17,
   APP_HAL_BUSY      = -18,

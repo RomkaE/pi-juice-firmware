@@ -32,62 +32,52 @@ typedef enum
 	RUN_PIN_INSTALLED,
 } RunPinInstallationStatus_t;
 
-// Carried by APP_EVT_POWER_PROTECTION.
-typedef enum
-{
-	PWR_TRIP_NONE = 0,
-	PWR_TRIP_VBAT_CUTOFF,   // pack under cutoff, no input source
-	PWR_TRIP_5V_FAULT       // boost collapsed or 5V regulator power bad
-} PowerTrip_t;
-
 // Register 0x45 bits 0-3. Bits 5 and 6 belong to battery.c and the charger.
-#define PWR_FAULT_POWER_OFF_BTN     0x01
-#define PWR_FAULT_FORCED_POWER_OFF  0x02
-#define PWR_FAULT_FORCED_VSYS_OFF   0x04
-#define PWR_FAULT_WATCHDOG_EXPIRED  0x08
+#define PWR_STATUS_POWER_OFF_BTN     0x01
+#define PWR_STATUS_FORCED_POWER_OFF  0x02
+#define PWR_STATUS_FORCED_VSYS_OFF   0x04
+#define PWR_STATUS_HOST_WDT_EXPIRED  0x08
 
 #define PWR_REGULATOR_MODE_DCDC     2
 
-// The FSM runs in the APP task - see the contract in src/app.h. Moved by events and pwr_mngr_Tick().
+// Carried by APP_EVT_POWER_PROTECTION:
+#define PWR_FAULT_5V_MASK           0x01
+#define PWR_FAULT_AVDD              0x02
+#define PWR_FAULT_VBAT_CUTOFF       0x04
+
 void pwr_mngr_Init(bool _cold_start);
 
-// Runs what is due, returns ms until it wants the next call. Deadlines inside are absolute, so a
-// late call moves on later, never wrongly - APP can block for tens of ms in a flash write.
-uint32_t pwr_mngr_Tick(void);
+bool pwr_mngr_HostOn(void);
 
-// Host power requests, from the APP task. Each answers whether it did anything.
-bool pwr_mngr_HostTurnOn(void);
-bool pwr_mngr_HostTurnOff(void);
-bool pwr_mngr_HostReset(void);
+bool pwr_mngr_HostOff(void);
 
-void pwr_mngr_OnEvent_Protection(uint8_t _trip);
+uint32_t pwr_mngr_HostRestart(void);
 
-void pwr_mngr_HostPollEvent(void);
-void pwr_mngr_SetRtcWakeupEvent(void);
-void pwr_mngr_SetIoWakeupEvent(void);
 void pwr_mngr_SetBatProfile(const BatteryProfile_T *_p_profile);
+
+void pwr_mngr_Arm5vCheck(bool _armed);
 
 // Published state, safe to read from any task or from the I2C1 interrupt.
 PowerSourceStatus_t pwr_mngr_GetInStatus(void);
 PowerSourceStatus_t pwr_mngr_Get5vIoStatus(void);
 bool pwr_mngr_IsHostPowered(void);
-uint8_t pwr_mngr_GetFaultFlags(void);
-void pwr_mngr_KeepFaultFlags(uint8_t _mask);   // host write to 0x45: keep only the masked bits
+uint8_t pwr_mngr_GetStatusFlags(void);
+void pwr_mngr_SetStatusFlags(uint8_t _flags);   // OR-ed in by whoever knows the cause
+void pwr_mngr_KeepStatusFlags(uint8_t _mask);   // host write to 0x45: keep only the masked bits
 
 // Host commands, called from command_server in the I2C1 interrupt.
-void pwr_mngr_CmdSchedulePowerOff(uint8_t _delayCode);
-uint8_t pwr_mngr_CmdGetPowerOffCounter(void);
+/* Register 0x5F, kept for host compatibility: the RUN pin is not wired on this board, so the
+ * stored value is handed back and nothing else. */
 void pwr_mngr_CmdSetRunPinConfig(uint8_t data[], uint8_t len);
 void pwr_mngr_CmdGetRunPinConfig(uint8_t data[], uint16_t *len);
-void pwr_mngr_CmdConfigureWatchdog(uint8_t data[], uint16_t len);
-void pwr_mngr_CmdGetWatchdogConfiguration(uint8_t data[], uint16_t *len);
-void pwr_mngr_CmdSetWakeupOnCharge(uint8_t data[], uint16_t len);
-void pwr_mngr_CmdGetWakeupOnCharge(uint8_t data[], uint16_t *len);
 void pwr_mngr_CmdSetVSysSwitchState(uint8_t _state);
 uint8_t pwr_mngr_CmdGetVSysSwitchState(void);
 
 // Register 0x96, kept for host compatibility: writes ignored, reads answer DC-DC.
 void pwr_mngr_CmdSetRegulatorConfig(uint8_t data[], uint8_t len);
 void pwr_mngr_CmdGetRegulatorConfig(uint8_t data[], uint16_t *len);
+
+// The delay a power cycle needs, so APP can arm its timer - see pwr_mngr_HostRestart().
+#define PWR_POWER_CYCLE_MS  250
 
 #endif /* POWER_MANAGER_H_ */

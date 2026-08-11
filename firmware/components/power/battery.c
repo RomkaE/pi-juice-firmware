@@ -629,22 +629,22 @@ bool battery_GetProfile(BatteryProfile_T *out)
   return valid;
 }
 
-//bool battery_UpdatePresence(void)
-//{
-//  bool present = charger_IsBatteryPresent() && (analog_GetVBattAvg() > BATTERY_PRESENT_MV);
-//
-//  if (present == s_Present)
-//    return false;
-//
-//  s_Present = present;
-//  LOG_INFO("[BAT] battery %s", present ? "present" : "absent");
-//  return true;
-//}
-//
-//bool battery_IsPresent(void)
-//{
-//  return s_Present;
-//}
+bool battery_UpdatePresence(void)
+{
+  bool present = charger_IsBatteryPresent() && (analog_GetVBattAvg() > BATTERY_PRESENT_MV);
+
+  if (present == s_Present)
+    return false;
+
+  s_Present = present;
+  LOG_WARNING("[BAT] battery %s", present ? "PRESENT" : "ABSENT");
+  return true;
+}
+
+bool battery_IsPresent(void)
+{
+  return s_Present;
+}
 
 /*
  * The thresholds nest as tCold < tCool < tWarm < tHot, so the tests run coldest-first and the
@@ -703,11 +703,13 @@ BatteryStatus_T battery_GetStatus(void)
 
 void battery_CmdSetProfile(uint8_t id)
 {
+  LOG_WARNING("[BATT] Rcvd CMD SetProfile: id=%u", (unsigned)id);
+
   if (s_BatProfileStatus == id)
     return;
 
   uint8_t seq = (uint8_t)(s_ProfileReqSeq + 1);
-  AppEvent_t evt = { .type = APP_EVT_BATTERY_SET_PROFILE };
+  AppEvent_t evt = { .type = APP_EVT_CMD_BATT_SET_PROFILE };
   evt.batterySetProfile.id = id;
   evt.batterySetProfile.seq = seq;
 
@@ -721,10 +723,11 @@ void battery_CmdSetProfile(uint8_t id)
 
 void battery_CmdWriteCustomProfile(uint8_t *data, uint16_t len)
 {
+  LOG_WARNING("[BATT] Rcvd CMD WriteCustomProfile: len=%u", (unsigned)len);
   (void)len;
 
   uint8_t seq = (uint8_t)(s_ProfileReqSeq + 1);
-  AppEvent_t evt = { .type = APP_EVT_BATTERY_WRITE_CUSTOM_PROFILE };
+  AppEvent_t evt = { .type = APP_EVT_CMD_BATT_WRITE_CUSTOM_PROFILE };
   evt.batteryCustomProfile.seq = seq;
 
   uint16_t var = (((uint16_t)data[1])<<8) | data[0];
@@ -750,9 +753,10 @@ void battery_CmdWriteCustomProfile(uint8_t *data, uint16_t len)
 
 void battery_CmdWriteCustomExtendedProfile(uint8_t *data, uint16_t len)
 {
+  LOG_WARNING("[BATT] Rcvd CMD WriteCustomExtendedProfile: len=%u", (unsigned)len);
   (void)len;
 
-  AppEvent_t evt = { .type = APP_EVT_BATTERY_WRITE_CUSTOM_EXTENDED_PROFILE };
+  AppEvent_t evt = { .type = APP_EVT_CMD_BATT_WRITE_CUSTOM_EXTENDED_PROFILE };
   evt.batteryCustomExtProfile.profile.chemistry = data[0];
   evt.batteryCustomExtProfile.profile.ocv10 = *(uint16_t*)&data[1];
   evt.batteryCustomExtProfile.profile.ocv50 = *(uint16_t*)&data[3];
