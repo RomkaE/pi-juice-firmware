@@ -430,7 +430,6 @@ static void Task(void *parameters)
 
   LOG_INFO("LED task started");
 
-  // Init the PWM timer here, not in led_Init(), the same way the ANALOG task owns its ADC:
   MX_TIM3_Init();
   startPwm();
 

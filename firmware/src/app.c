@@ -1,3 +1,9 @@
+/*
+ * main.c
+ *
+ *  Created on: Jul 20, 2026
+ *      Author: Roman Egoshin
+ */
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -68,57 +74,6 @@ static volatile uint8_t s_ChgReqInputsSeq, s_ChgAppliedInputsSeq;
 static uint8_t s_ChgReqChargingConfig, s_ChgChargingReadout;
 static volatile uint8_t s_ChgReqChargingSeq, s_ChgAppliedChargingSeq;
 
-/*
- * What a configured button function does. The mapping lives here rather than in button.c on
- * purpose: the button module detects and knows how a button is configured, this decides what
- * that configuration means. Indexed by ButtonFunction_T, which is host visible - the codes
- * arrive raw from registers 0x110/0x112/0x114.
- */
-static void app_OnButtonPowerOn(uint8_t b, ButtonEvent_T event)
-{
-  (void)event;
-  pwr_mngr_HostTurnOn();
-  button_ClearEvent(b);
-}
-
-static void app_OnButtonPowerOff(uint8_t b, ButtonEvent_T event)
-{
-  (void)event;
-  pwr_mngr_HostTurnOff();
-  button_ClearEvent(b);
-}
-
-static void app_OnButtonPowerReset(uint8_t b, ButtonEvent_T event)
-{
-  (void)event;
-  pwr_mngr_HostReset();
-  button_ClearEvent(b);
-}
-
-static const ButtonEventCb_T buttonEventCbs[BUTTON_EVENT_FUNC_NUMBER] = {
-  NULL,                         // BUTTON_EVENT_NO_FUNC
-  app_OnButtonPowerOn,          // BUTTON_EVENT_FUNC_POWER_ON
-  app_OnButtonPowerOff,         // BUTTON_EVENT_FUNC_POWER_OFF
-  app_OnButtonPowerReset,       // BUTTON_EVENT_FUNC_POWER_RESET
-};
-
-static void button_OnEvent_DualLongPress(void)
-{
-	// Reset to default
-	nv_Erase();
-
-	/* Terminal indication: never returns, and HAL_Delay() spins at the APP task priority, so
-	 * the IWDG is no longer refreshed and resets the board after ~8 s. Pre-existing - TODO.
-	 * led_SetRGB() only queues, but the LED task outranks APP and applies it right away. */
-	// TODO - non return! WDT - is DISABLED!!!
-	while(1) {
-	  led_SetRGB(LED_D1, 150, 0, 0);
-	  HAL_Delay(500);
-	  led_SetRGB(LED_D1, 0, 0, 150);
-	  HAL_Delay(500);
-	}
-}
-
 // TODO - move to bsp:
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
@@ -136,6 +91,27 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     // A press edge, wake the button task out of its idle block.
     button_NotifyFromISR();
   }
+}
+
+void button_ButtonCallback(ButtonFunction_T _btn_func)
+{
+  LOG_INFO("[APP]: Button event: func=%d", _btn_func);
+  AppEvent_t event = { .type = APP_EVT_BUTTON,
+                       .button.func = _btn_func };
+  app_PostEvent(&event);
+}
+
+void button_ButtonRstCfgCallback(void)
+{
+  LOG_INFO("[APP]: Button RESET_CONFIG event");
+  AppEvent_t event = { .type = APP_EVT_BUTTON_RESET_CONFIG,
+                       .button.func = BUTTON_EVENT_NO_FUNC };
+  app_PostEvent(&event);
+}
+
+void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot)
+{
+  // TODO
 }
 
 /*
@@ -163,7 +139,7 @@ static void app_FanOutBatteryProfile(void)
  * decides: whatever ends up in NV is what the fuel gauge is told to run with, so a store that
  * silently went wrong cannot leave the two disagreeing.
  */
-static void app_ApplyFuelGaugeConfig(uint8_t config, uint8_t seq)
+static void ApplyFuelGaugeConfig(uint8_t config, uint8_t seq)
 {
   if (nv_write_U8(NV_ADDR_FUEL_GAUGE_CONFIG_MASK, config) != NV_OK)
     LOG_ERROR("[APP] NV write of the fuel gauge config failed");
@@ -211,41 +187,35 @@ static void app_ApplyChargerChargingConfig(uint8_t config, uint8_t seq)
   s_ChgAppliedChargingSeq = seq;
 }
 
-static void app_ProcessEvent(const AppEvent_t *_evt)
+static void ProcessEvent(const AppEvent_t *_evt)
 {
   switch (_evt->type)
   {
-    case APP_EVT_BUTTON:
-    {
-      uint8_t func = _evt->data.button.func;
-      if (func < BUTTON_EVENT_FUNC_NUMBER && buttonEventCbs[func] != NULL)
-        buttonEventCbs[func](_evt->data.button.index,
-                             (ButtonEvent_T)_evt->data.button.event);
-      break;
-    }
-
     case APP_EVT_BUTTON_RESET_CONFIG:
-      button_OnEvent_DualLongPress();
-      break;
+    {
+      // Reset to default
+      nv_Erase();
+      bsp_ResetCPU();
+    }
+    break;
 
     case APP_EVT_BATTERY_SET_PROFILE:
-      battery_ApplySetProfile(_evt->data.batterySetProfile.id, _evt->data.batterySetProfile.seq);
+      battery_ApplySetProfile(_evt->batterySetProfile.id, _evt->batterySetProfile.seq);
       app_FanOutBatteryProfile();
       break;
 
     case APP_EVT_BATTERY_WRITE_CUSTOM_PROFILE:
-      battery_ApplyWriteCustomProfile(&_evt->data.batteryCustomProfile.profile, _evt->data.batteryCustomProfile.seq);
+      battery_ApplyWriteCustomProfile(&_evt->batteryCustomProfile.profile, _evt->batteryCustomProfile.seq);
       app_FanOutBatteryProfile();
       break;
 
     case APP_EVT_BATTERY_WRITE_CUSTOM_EXTENDED_PROFILE:
-//      battery_ApplyWriteCustomExtendedProfile(&_evt->data.batteryCustomExtProfile.profile);
+      battery_ApplyWriteCustomExtendedProfile(&_evt->batteryCustomExtProfile.profile);
       app_FanOutBatteryProfile();
       break;
 
+      /*
     case APP_EVT_CHARGER_INPUT_PRESENCE:
-      //
-//      TODO
 //      charger_OnEvent_InputPresenceChanged(_evt->data.chargerInput.present);
       break;
 
@@ -253,32 +223,18 @@ static void app_ProcessEvent(const AppEvent_t *_evt)
       // The flag itself is one of two sources - battery.c re-reads both and decides:
 //      app_UpdateBatteryPresence();
       break;
+  */
 
-    case APP_EVT_FUEL_GAUGE_SET_CONFIG:
-      app_ApplyFuelGaugeConfig(_evt->data.fuelGaugeConfig.config, _evt->data.fuelGaugeConfig.seq);
+    case APP_EVT_CMD_FUEL_GAUGE_SET_CONFIG:
+      ApplyFuelGaugeConfig(_evt->fuelGaugeConfig.config, _evt->fuelGaugeConfig.seq);
       break;
 
     case APP_EVT_CHARGER_SET_INPUTS_CONFIG:
-      app_ApplyChargerInputsConfig(_evt->data.chargerConfig.config, _evt->data.chargerConfig.seq);
+      app_ApplyChargerInputsConfig(_evt->chargerConfig.config, _evt->chargerConfig.seq);
       break;
 
     case APP_EVT_CHARGER_SET_CHARGING_CONFIG:
-      app_ApplyChargerChargingConfig(_evt->data.chargerConfig.config, _evt->data.chargerConfig.seq);
-      break;
-
-    /*
-     * Everything else the charger publishes. Nothing acts on these yet, so they share one weak
-     * hook rather than seven empty ones - the event type is passed along, so a consumer that
-     * appears later switches on it without the producer side changing at all.
-     */
-    case APP_EVT_CHARGER_STATUS:
-    case APP_EVT_CHARGER_FAULT:
-    case APP_EVT_CHARGER_IN_STAT:
-    case APP_EVT_CHARGER_USB_STAT:
-    case APP_EVT_CHARGER_TS_FAULT:
-    case APP_EVT_CHARGER_DPM:
-//      TODO
-//      charger_OnEvent_ValueChanged(_evt->type, _evt->data.chargerValue.value);
+      app_ApplyChargerChargingConfig(_evt->chargerConfig.config, _evt->chargerConfig.seq);
       break;
 
     case APP_EVT_POWER_PROTECTION:
@@ -292,7 +248,7 @@ static void app_ProcessEvent(const AppEvent_t *_evt)
 }
 
 // TODO - set static and move
-void app_PostEvent(const AppEvent_t *_pEvent)
+void app_PostEvent(const AppEvent_t *_p_event)
 {
   if (s_EvtQueHandle == NULL)
     return;
@@ -300,9 +256,9 @@ void app_PostEvent(const AppEvent_t *_pEvent)
   BaseType_t sent;
   BaseType_t woken = pdFALSE;
   if (xPortIsInsideInterrupt() != pdFALSE)
-    sent = xQueueSendFromISR(s_EvtQueHandle, _pEvent, &woken);
+    sent = xQueueSendFromISR(s_EvtQueHandle, _p_event, &woken);
   else
-    sent = xQueueSend(s_EvtQueHandle, _pEvent, 0);
+    sent = xQueueSend(s_EvtQueHandle, _p_event, 0);
 
   if (!sent)
   {
@@ -315,7 +271,7 @@ void app_PostEvent(const AppEvent_t *_pEvent)
   portYIELD_FROM_ISR(woken);
 }
 
-int8_t app_FuelGaugeCmdSetConfig(uint8_t *data, uint16_t len)
+int8_t app_OnCmdSetFuelGaugeConfig(uint8_t *data, uint16_t len)
 {
   (void)len;
 
@@ -323,9 +279,9 @@ int8_t app_FuelGaugeCmdSetConfig(uint8_t *data, uint16_t len)
     return 1;
 
   uint8_t seq = (uint8_t)(s_FgReqConfigSeq + 1);
-  AppEvent_t evt = { .type = APP_EVT_FUEL_GAUGE_SET_CONFIG };
-  evt.data.fuelGaugeConfig.config = data[0];
-  evt.data.fuelGaugeConfig.seq = seq;
+  AppEvent_t evt = { .type = APP_EVT_CMD_FUEL_GAUGE_SET_CONFIG };
+  evt.fuelGaugeConfig.config = data[0];
+  evt.fuelGaugeConfig.seq = seq;
 
   s_FgReqConfig = data[0];
   s_FgReqConfigSeq = seq;
@@ -333,11 +289,9 @@ int8_t app_FuelGaugeCmdSetConfig(uint8_t *data, uint16_t len)
   return 0;
 }
 
-void app_FuelGaugeReadConfig(uint8_t data[], uint16_t *len)
+void app_OnCmdGetFuelGaugeConfig(uint8_t data[], uint16_t *len)
 {
-  data[0] = (s_FgReqConfigSeq != s_FgAppliedConfigSeq)
-      ? s_FgReqConfig
-      : fuel_gauge_GetConfig();
+  data[0] = fuel_gauge_GetConfig();
   *len = 1;
 }
 
@@ -349,8 +303,8 @@ void app_ChargerCmdWriteInputsConfig(uint8_t config)
 
   uint8_t seq = (uint8_t)(s_ChgReqInputsSeq + 1);
   AppEvent_t evt = { .type = APP_EVT_CHARGER_SET_INPUTS_CONFIG };
-  evt.data.chargerConfig.config = config;
-  evt.data.chargerConfig.seq = seq;
+  evt.chargerConfig.config = config;
+  evt.chargerConfig.seq = seq;
 
   s_ChgReqInputsConfig = config;
   s_ChgReqInputsSeq = seq;
@@ -366,8 +320,8 @@ void app_ChargerCmdWriteChargingConfig(uint8_t config)
 {
   uint8_t seq = (uint8_t)(s_ChgReqChargingSeq + 1);
   AppEvent_t evt = { .type = APP_EVT_CHARGER_SET_CHARGING_CONFIG };
-  evt.data.chargerConfig.config = config;
-  evt.data.chargerConfig.seq = seq;
+  evt.chargerConfig.config = config;
+  evt.chargerConfig.seq = seq;
 
   s_ChgReqChargingConfig = config;
   s_ChgReqChargingSeq = seq;
@@ -486,6 +440,8 @@ typedef enum
 static void TaskApp(void *parameters)
 {
   (void)parameters;
+  static SM_App_t state = SM_APP_OFF;
+  SM_App_t next = SM_APP_OFF;
 
   // Clock configuration after SysTick initialization, since in this project
   // the HAL tick and delay functions depend on the FreeRTOS system tick:
@@ -495,16 +451,19 @@ static void TaskApp(void *parameters)
   Init();
 
   // Init app fsm:
-  static SM_App_t state = SM_APP_OFF;
+  AppEvent_t evt;
   if (bsp_Pwr5V_GetState())
     state = SM_APP_ON;
-  SM_App_t next = SM_APP_OFF;
+  evt.type = APP_EVT_SM_ENTRY;
+
   while(1)
   {
-    AppEvent_t evt;
     BaseType_t res = xQueueReceive(s_EvtQueHandle, &evt, portMAX_DELAY);
     if (res != pdPASS)
       continue;
+
+    // Common event processing:
+    ProcessEvent(&evt);
 
     bool repeat;
     do {
@@ -512,10 +471,51 @@ static void TaskApp(void *parameters)
       switch (state)
       {
         case SM_APP_OFF:
+        {
+          if (evt.type == APP_EVT_SM_ENTRY)
+          {
+            LOG_INFO("[APP] FSM state OFF");
+            bsp_Pwr5V_SetState(false);
+          }
+          else if (evt.type == APP_EVT_BUTTON)
+          {
+            if (evt.button.func == BUTTON_EVENT_FUNC_POWER_ON)
+            {
+              state = SM_APP_ON;
+            }
+          }
+        }
         break;
+
         case SM_APP_ON:
+        {
+          if (evt.type == APP_EVT_SM_ENTRY)
+          {
+            LOG_INFO("[APP] FSM state ON");
+            bsp_Pwr5V_SetState(true);
+          }
+          else if (evt.type == APP_EVT_BUTTON)
+          {
+            if (evt.button.func == BUTTON_EVENT_FUNC_POWER_OFF)
+            {
+              // TODO
+            }
+            else if (evt.button.func == BUTTON_EVENT_FUNC_POWER_RESET)
+            {
+              state = SM_APP_OFF;
+            }
+          }
+        }
         break;
+
         case SM_APP_LOW_BATT:
+        {
+          if (evt.type == APP_EVT_SM_ENTRY)
+          {
+            LOG_INFO("[APP] FSM state LOW_BATT");
+            bsp_Pwr5V_SetState(false);
+          }
+        }
         break;
       }
 

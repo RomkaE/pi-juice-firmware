@@ -38,15 +38,9 @@ typedef enum ButtonEvent_T {
 	BUTTON_EVENT_LONG_PRESS2
 } ButtonEvent_T;
 
-typedef void (*ButtonEventCb_T)(uint8_t b, ButtonEvent_T event);
-
-/*
- * Creates the button task and its queues, nothing else: the NV configuration is read inside
- * the task body, so this must be called after nv_Init().
- */
 void button_Init(void);
 
-/* Wakes the task from an EXTI edge. Safe from an interrupt only. */
+// Wakes the task from an EXTI edge. Safe from an interrupt only:
 void button_NotifyFromISR(void);
 
 ButtonEvent_T button_GetEvent(uint8_t _b);
@@ -65,5 +59,8 @@ int8_t button_IsActive(void);
 
 uint32_t button_GetErrMask(bool _clear);
 
+void button_ButtonCallback(ButtonFunction_T _btn_func);
+
+void button_ButtonRstCfgCallback(void);
 
 #endif /* BUTTON_H_ */

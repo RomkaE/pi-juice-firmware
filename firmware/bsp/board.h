@@ -33,4 +33,6 @@ bool bsp_Pwr5V_GetState(void);
 
 void bsp_Pwr5V_Restore(void);
 
+void bsp_ResetCPU(void);
+
 #endif /* BOARD_H_ */

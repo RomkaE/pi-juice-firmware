@@ -10,7 +10,6 @@
 #include "iosystem/button.h"
 #include "nv.h"
 #include "app-error/app_assert.h"
-#include "src/app.h"
 #include "board.h"
 #include "utils/time_count.h"
 
@@ -139,7 +138,7 @@ static ButtonCfg_t s_CmdQueBuf[4];        // TODO - remove magic number
 
 /*============================ TASK PRIVATE ==================================*/
 
-static ButtonFunction_T GetFuncOfEvent(uint8_t b) {
+static ButtonFunction_T GetFuncOfButton(uint8_t b) {
 	switch (buttons[b].event) {
 	case BUTTON_EVENT_PRESS:
 		return buttons[b].pressFunc;
@@ -222,46 +221,31 @@ static void ProcessButton( uint8_t b, GPIO_PinState pinState ) {
 		buttons[b].tempEvent = 0;
 	}
 
-	if ( buttons[b].event  > oldEv ) {
-		ButtonFunction_T func = GetFuncOfEvent(b);
-		/* Only the special functions below BUTTON_EVENT_FUNC_NUMBER have an action attached.
-		 * The USER/SYS event codes are reported to the host through button_GetEvent() and
-		 * nothing else, so posting them would just churn the queue. */
-		if ( func > BUTTON_EVENT_NO_FUNC && func < BUTTON_EVENT_FUNC_NUMBER ) {
-			/* What the function code means is the APP task's business - this module only knows
-			 * which one the button is configured with. */
-			AppEvent_t evt = { .type = APP_EVT_BUTTON,
-			                   .data.button = { func, b, buttons[b].event } };
-		  app_PostEvent(&evt);
+	// Callback:
+	if ( buttons[b].event  > oldEv )
+	{
+		ButtonFunction_T func = GetFuncOfButton(b);
+		if ( func > BUTTON_EVENT_NO_FUNC && func < BUTTON_EVENT_FUNC_NUMBER )
+		{
+		  button_ButtonCallback(func);
 		}
 	}
 }
 
 static void ProcessAllButtons(void) {
-	uint8_t oldDualLongPressStatus = buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent;
 
-	/*
-	 * TODO(hw): index 0 is SW1 for the host - command 0x110 maps straight to
-	 * button_SetConfig(0, ...) - and buttons[0] carries the POWER_ON/POWER_OFF
-	 * defaults. But index 0 is read from SW2, and SW1, the only button actually
-	 * populated, lands on index 1 whose defaults are USER_EVENT only.
-	 *
-	 * So either the schematic labels are swapped relative to this mapping, or the
-	 * populated button genuinely cannot power the board on or off. Needs a hardware
-	 * check before touching - swapping the two lines below changes behaviour.
-	 */
+  const uint8_t oldDualLongPressStatus = buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent;
+
 	ProcessButton(0, HAL_GPIO_ReadPin(BTN_SW2_PORT, BTN_SW2_PIN)); // host-facing sw1
 
 	ProcessButton(1, HAL_GPIO_ReadPin(BTN_SW1_PORT, BTN_SW1_PIN)); // host-facing sw2
 
 	ProcessButton(2, HAL_GPIO_ReadPin(BTN_SW3_PORT, BTN_SW3_PIN));  // host-facing sw3
 
-	if ((buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent) > oldDualLongPressStatus) {
-		/* Its own event type, not a ButtonFunction_T code: that enum is the host visible
-		 * configuration namespace, and a destructive reset to defaults has no business being
-		 * assignable to an arbitrary button from an I2C write. */
-		AppEvent_t evt = { .type = APP_EVT_BUTTON_RESET_CONFIG, .data.button = { 0, 0, 0 } };
-	  app_PostEvent(&evt);
+	if ((buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent) > oldDualLongPressStatus)
+	{
+	  // Callback:
+	  button_ButtonRstCfgCallback();
 	}
 }
 
@@ -379,7 +363,9 @@ void button_Init(void) {
 	ASSERT(s_TaskHandle != NULL);
 }
 
-void button_NotifyFromISR(void) {
+void button_NotifyFromISR(void)
+{
+  ASSERT(s_TaskHandle != NULL);
 	if (s_TaskHandle == NULL)
 		return;
 
@@ -474,4 +460,13 @@ uint32_t button_GetErrMask(bool _clear) {
 		s_ErrMask &= ~mask;
 	taskEXIT_CRITICAL();
 	return mask;
+}
+
+__attribute__((weak)) void button_ButtonCallback(ButtonFunction_T _btn_func)
+{
+  (void)_btn_func;
+}
+
+__attribute__((weak)) void button_ButtonRstCfgCallback(void)
+{
 }

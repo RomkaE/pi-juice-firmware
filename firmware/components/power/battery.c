@@ -708,8 +708,8 @@ void battery_CmdSetProfile(uint8_t id)
 
   uint8_t seq = (uint8_t)(s_ProfileReqSeq + 1);
   AppEvent_t evt = { .type = APP_EVT_BATTERY_SET_PROFILE };
-  evt.data.batterySetProfile.id = id;
-  evt.data.batterySetProfile.seq = seq;
+  evt.batterySetProfile.id = id;
+  evt.batterySetProfile.seq = seq;
 
   app_PostEvent(&evt);
   // TODO - check
@@ -725,20 +725,20 @@ void battery_CmdWriteCustomProfile(uint8_t *data, uint16_t len)
 
   uint8_t seq = (uint8_t)(s_ProfileReqSeq + 1);
   AppEvent_t evt = { .type = APP_EVT_BATTERY_WRITE_CUSTOM_PROFILE };
-  evt.data.batteryCustomProfile.seq = seq;
+  evt.batteryCustomProfile.seq = seq;
 
   uint16_t var = (((uint16_t)data[1])<<8) | data[0];
-  evt.data.batteryCustomProfile.profile.capacity = UNPACK_CAPACITY_U16(var); // correction for large capacities over 32767
-  evt.data.batteryCustomProfile.profile.chargeCurrent = data[2];
-  evt.data.batteryCustomProfile.profile.terminationCurr = data[3];
-  evt.data.batteryCustomProfile.profile.regulationVoltage = data[4];
-  evt.data.batteryCustomProfile.profile.cutoffVoltage = data[5];
-  evt.data.batteryCustomProfile.profile.tCold = data[6];
-  evt.data.batteryCustomProfile.profile.tCool = data[7];
-  evt.data.batteryCustomProfile.profile.tWarm = data[8];
-  evt.data.batteryCustomProfile.profile.tHot = data[9];
-  evt.data.batteryCustomProfile.profile.ntcB = (((uint16_t)data[11])<<8) | data[10];
-  evt.data.batteryCustomProfile.profile.ntcResistance = (((uint16_t)data[13])<<8) | data[12];
+  evt.batteryCustomProfile.profile.capacity = UNPACK_CAPACITY_U16(var); // correction for large capacities over 32767
+  evt.batteryCustomProfile.profile.chargeCurrent = data[2];
+  evt.batteryCustomProfile.profile.terminationCurr = data[3];
+  evt.batteryCustomProfile.profile.regulationVoltage = data[4];
+  evt.batteryCustomProfile.profile.cutoffVoltage = data[5];
+  evt.batteryCustomProfile.profile.tCold = data[6];
+  evt.batteryCustomProfile.profile.tCool = data[7];
+  evt.batteryCustomProfile.profile.tWarm = data[8];
+  evt.batteryCustomProfile.profile.tHot = data[9];
+  evt.batteryCustomProfile.profile.ntcB = (((uint16_t)data[11])<<8) | data[10];
+  evt.batteryCustomProfile.profile.ntcResistance = (((uint16_t)data[13])<<8) | data[12];
 
   app_PostEvent(&evt);
   // TODO - check
@@ -753,13 +753,13 @@ void battery_CmdWriteCustomExtendedProfile(uint8_t *data, uint16_t len)
   (void)len;
 
   AppEvent_t evt = { .type = APP_EVT_BATTERY_WRITE_CUSTOM_EXTENDED_PROFILE };
-  evt.data.batteryCustomExtProfile.profile.chemistry = data[0];
-  evt.data.batteryCustomExtProfile.profile.ocv10 = *(uint16_t*)&data[1];
-  evt.data.batteryCustomExtProfile.profile.ocv50 = *(uint16_t*)&data[3];
-  evt.data.batteryCustomExtProfile.profile.ocv90 = *(uint16_t*)&data[5];
-  evt.data.batteryCustomExtProfile.profile.r10 = *(uint16_t*)&data[7];
-  evt.data.batteryCustomExtProfile.profile.r50 = *(uint16_t*)&data[9];
-  evt.data.batteryCustomExtProfile.profile.r90 = *(uint16_t*)&data[11];
+  evt.batteryCustomExtProfile.profile.chemistry = data[0];
+  evt.batteryCustomExtProfile.profile.ocv10 = *(uint16_t*)&data[1];
+  evt.batteryCustomExtProfile.profile.ocv50 = *(uint16_t*)&data[3];
+  evt.batteryCustomExtProfile.profile.ocv90 = *(uint16_t*)&data[5];
+  evt.batteryCustomExtProfile.profile.r10 = *(uint16_t*)&data[7];
+  evt.batteryCustomExtProfile.profile.r50 = *(uint16_t*)&data[9];
+  evt.batteryCustomExtProfile.profile.r90 = *(uint16_t*)&data[11];
 
   app_PostEvent(&evt);
 }

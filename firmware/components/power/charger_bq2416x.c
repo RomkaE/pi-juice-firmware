@@ -311,7 +311,7 @@ static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
   if (not_equal)
   {
     s_Snapshot = *_p_snapshot;
-    charger_OnSnapshotChanged(_p_snapshot);
+    charger_SnapshotChangedCallback(_p_snapshot);
   }
 }
 
@@ -952,7 +952,7 @@ uint32_t charger_GetErrMask(bool _clear)
   return mask;
 }
 
-__attribute__((weak)) void charger_OnSnapshotChanged(const ChargerSnapshot_t *_p_snapshot)
+__attribute__((weak)) void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot)
 {
   (void)_p_snapshot;
 }

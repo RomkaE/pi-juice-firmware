@@ -639,9 +639,9 @@ void CmdServerReadWriteBatteryProfileId(uint8_t dir, uint8_t *pData, uint16_t *d
 
 void CmdServerReadWriteFuelGaugeConfig(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		app_FuelGaugeCmdSetConfig(pData+1, *dataLen - 1);
+		app_OnCmdSetFuelGaugeConfig(pData+1, *dataLen - 1);
 	} else {
-		app_FuelGaugeReadConfig(pData, dataLen);
+		app_OnCmdGetFuelGaugeConfig(pData, dataLen);
 	}
 }
 

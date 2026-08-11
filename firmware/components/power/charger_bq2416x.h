@@ -108,6 +108,6 @@ void charger_SetThermalState(BatteryThermalState_T state);
 
 uint32_t charger_GetErrMask(bool _clear);
 
-void charger_OnSnapshotChanged(const ChargerSnapshot_t *_p_snapshot);
+void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot);
 
 #endif /* CHARGER_BQ2416X_H_ */

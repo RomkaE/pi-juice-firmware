@@ -75,3 +75,8 @@ void bsp_Pwr5V_Restore(void)
   }
 }
 
+__NO_RETURN void bsp_ResetCPU(void)
+{
+  NVIC_SystemReset();
+  while(1);
+}
