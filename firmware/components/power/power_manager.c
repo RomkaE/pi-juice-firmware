@@ -188,7 +188,7 @@ PowerSourceStatus_t pwr_mngr_GetInStatus(void)
   ChargerInputStatus_t status = charger_GetInStatus();
   if (status == CHG_IN_UVLO)
     return PWR_SOURCE_NOT_PRESENT;
-  if (status == CHG_IN_OVP || CHG_IN_WEAK == CHG_IN_WEAK)
+  if (status == CHG_IN_OVP || status == CHG_IN_WEAK)
     return PWR_SOURCE_BAD;
   if (charger_GetDpmStatus())
     return PWR_SOURCE_WEAK;

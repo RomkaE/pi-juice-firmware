@@ -169,7 +169,7 @@ void button_ButtonFuncCallback(ButtonFunction_T _btn_func)
 void button_ButtonRstCfgCallback(void)
 {
   LOG_INFO("[APP]: Button RESET_CONFIG event");
-  AppEvent_t event = { .type = APP_EVT_CHRGR_SNAPSHOT,
+  AppEvent_t event = { .type = APP_EVT_BUTTON_RESET_CONFIG,
                        .button.func = BUTTON_EVENT_NO_FUNC };
   app_PostEvent(&event);
 }
@@ -398,7 +398,7 @@ static bool Init(void)
       nv_res = nv_read_U8(NV_ADDR_HOST_WDT_CONFIGH, &valueH);
 
     if (nv_res == NV_OK)
-      s_WdtHostConfig = valueH << 8 & valueL;
+      s_WdtHostConfig = valueH << 8 | valueL;
     else
     {
       LOG_WARNING("[APP] Set default WDT HOST config");
