@@ -20,7 +20,7 @@ Purpose : User configuration file for RTT.
 #ifndef SEGGER_RTT_CONF_H
 #define SEGGER_RTT_CONF_H
 
-/* Override parameters form SEGGER_RTT_ConfDefaults.h */
+/* Override default settings from SEGGER_RTT_ConfDefaults.h */
 
 #define SEGGER_RTT_MAX_NUM_UP_BUFFERS             ( 1 )
 

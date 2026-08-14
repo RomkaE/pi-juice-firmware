@@ -109,6 +109,15 @@ void charger_SetThermalState(BatteryThermalState_T state);
 
 uint32_t charger_GetErrMask(bool _clear);
 
-void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot);
+// Which fields of the snapshot changed - the argument of charger_SnapshotChangedCallback().
+#define CHG_CHANGED_STATUS        0x01
+#define CHG_CHANGED_FAULT         0x02
+#define CHG_CHANGED_IN_STATUS     0x04
+#define CHG_CHANGED_BATT_PRESENT  0x08
+#define CHG_CHANGED_DPM_STATUS    0x10
+
+/* The mask is what the publisher already computes to log the transitions, so the consumer does not
+ * have to keep a second mirror of the snapshot just to rediscover it. */
+void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot, uint8_t _changed);
 
 #endif /* CHARGER_BQ2416X_H_ */

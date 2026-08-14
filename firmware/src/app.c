@@ -111,19 +111,19 @@ static StaticTimer_t s_TimerPowerUp;
 */
 
 #define APP_WAKEUP_ON_CHARGE_OFF  0xFFFF
-#define APP_WAKEUP_ON_CHARGE_MIN  5      // RSOC 5%, armed when a protection cuts the rail
+#define APP_WAKEUP_ON_CHARGE_MIN  5     // RSOC 5%, armed when a protection cuts the rail
 
-static uint8_t s_WakeupOnChargeConfig;            // register 0x63 byte
-static uint16_t s_WakeupOnCharge;                 // armed RSOC x10
+static uint8_t s_WakeupOnChargeConfig;      // register 0x63 byte
+static bool s_WakeupOnChargeArmed __attribute__((section("no_init")));
 
-static uint16_t s_WdtHostConfig;                  // persisted minutes
+static uint16_t s_WdtHostConfig;        // persisted minutes
 static uint32_t s_WdtHostPeriodMs;
 static uint32_t s_WdtHostTimer;
 
 // System wide event queue - see the contract in app.h:
 static QueueHandle_t s_EvtQueHandle;
 static StaticQueue_t s_EvtQue;
-static AppEvent_t s_EvtQueBuf[16];   // TODO - remove magic number
+static AppEvent_t s_EvtQueBuf[16];      // TODO - remove magic number
 
 /*
  * Request mirror for the fuel gauge configuration register, same idiom as led.c/charger.c: a host
@@ -174,11 +174,34 @@ void button_ButtonRstCfgCallback(void)
   app_PostEvent(&event);
 }
 
-void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot)
+void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot, uint8_t _changed)
 {
-  LOG_INFO("[APP]: Charger SNAPSHOT event");
-  AppEvent_t event = { .type = APP_EVT_CHRGR_SNAPSHOT,
-                       .chrgr_snapshot = *_p_snapshot };
+  if (_changed & CHG_CHANGED_BATT_PRESENT)
+  {
+    AppEvent_t event = { .type = APP_EVT_CHRGR_BATT_PRESENCE,
+                         .batteryPresence.present = _p_snapshot->batt_present };
+    app_PostEvent(&event);
+  }
+
+  if (_changed & CHG_CHANGED_STATUS)
+  {
+    AppEvent_t event = { .type = APP_EVT_CHRGR_STATUS,
+                         .chargerStatus.status = _p_snapshot->status };
+    app_PostEvent(&event);
+  }
+}
+
+void fuel_gauge_Temp_Callback(int8_t _temp)
+{
+  AppEvent_t event = { .type = APP_EVT_FG_TEMP,
+                       .fg.temperature = _temp };
+  app_PostEvent(&event);
+}
+
+void fuel_gauge_Rsoc_Callback(uint16_t _rsoc)
+{
+  AppEvent_t event = { .type = APP_EVT_FG_RSOC,
+                       .fg.rsoc = _rsoc };
   app_PostEvent(&event);
 }
 
@@ -277,18 +300,39 @@ static void ApplyChargerChargingConfig(uint8_t config, uint8_t seq)
   s_ChgAppliedChargingSeq = seq;
 }
 
-/*============================ WAKE POLICY ===================================*/
-
-/* The configured threshold, back from the register byte. 0x7F in it means "never". */
-static uint16_t WakeupOnChargeFromConfig(uint8_t _config)
+/*
+ * The configured threshold in x10 percent, back from the register byte. 0x7F in it means "never".
+ * Bit 7 says the value lives in NV: the host sets it to ask for a store and reads it back as
+ * "non volatile". It says nothing about the wake policy - see CheckWakeupOnCharge().
+ */
+static uint16_t WakeupChargeConfig2Percent(uint8_t _config)
 {
-  return (_config & 0x7F) <= 100
-      ? (uint16_t)(_config & 0x7F) * 10 : APP_WAKEUP_ON_CHARGE_OFF;
+  uint8_t cfg = _config & 0x7F;
+  return cfg <= 100 ? (uint16_t)(cfg) * 10 : APP_WAKEUP_ON_CHARGE_OFF;
 }
 
-static void CancelPendingWakeups(void)
+static void SetWakeupOnChargeArmed(bool _state)
 {
-  s_WakeupOnCharge = APP_WAKEUP_ON_CHARGE_OFF;
+  if (s_WakeupOnChargeArmed == _state)
+    return;
+
+  LOG_DEBUG("[APP] Wakeup On Charge: %s", _state ? "ARMED" : "DISARMED");
+  s_WakeupOnChargeArmed = _state;
+}
+
+/* Check only. State machine controls arming and wake-up action.
+ * Arming prevents continuous wake-up while charging remains active. */
+static bool IsWakeupOnChargeAllowed(ChargerStatus_t _chrgr_status, uint16_t _rsoc)
+{
+  if (!s_WakeupOnChargeArmed)
+    return false;
+
+  if (_chrgr_status != CHG_STATUS_CHARGING_FROM_IN && _chrgr_status != CHG_STATUS_CHARGE_DONE)
+    return false;
+
+  // FUEL_GAUGE_RSOC_UNKNOWN and "never" are the same value, so it has to be ruled out first.
+  return _rsoc != FUEL_GAUGE_RSOC_UNKNOWN
+      && _rsoc >= WakeupChargeConfig2Percent(s_WakeupOnChargeConfig);
 }
 
 /*
@@ -308,21 +352,6 @@ static bool HostRestart(void)
   }
 
   return true;
-}
-
-static void OnWakeAccepted(void)
-{
-  CancelPendingWakeups();
-}
-
-/* Re-arm the charge wake once the source is gone, so plugging back in wakes the host. */
-static void RearmWakeupOnCharge(void)
-{
-  if (s_WakeupOnCharge == APP_WAKEUP_ON_CHARGE_OFF && !charger_IsInputPresent()
-      && (s_WakeupOnChargeConfig & 0x80))
-  {
-    s_WakeupOnCharge = WakeupOnChargeFromConfig(s_WakeupOnChargeConfig);
-  }
 }
 
 /* Arms the one shot for what the host asked for. APP task only - it talks to the timer service. */
@@ -356,6 +385,13 @@ static bool Init(void)
     cold_start = true;
   }
 
+  // Initialize retained variables on cold start:
+  if (cold_start)
+  {
+    s_WakeupOnChargeArmed = true;   // Force initial state log
+    SetWakeupOnChargeArmed(false);
+  }
+
   // TODO - move to BSP:
   if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))
   {
@@ -372,22 +408,19 @@ static bool Init(void)
   else
     LOG_ERROR("NV init failed, configuration falls back to defaults");
 
-  // Get WakeUP config:
+  // Get WakeupOnCharge config:
   {
     nv_res = nv_read_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, &s_WakeupOnChargeConfig);
-    if (nv_res == NV_OK && s_WakeupOnChargeConfig <= 100)
-      s_WakeupOnChargeConfig |= 0x80;
-
-    if (s_WakeupOnChargeConfig & 0x80)
-      s_WakeupOnCharge = WakeupOnChargeFromConfig(s_WakeupOnChargeConfig);
-
     if (nv_res != NV_OK)
     {
       LOG_WARNING("[APP] Set default WAKEUP ON CHARGE config");
-      s_WakeupOnCharge = APP_WAKEUP_ON_CHARGE_OFF;
       s_WakeupOnChargeConfig = 0x7F;
       nv_write_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, s_WakeupOnChargeConfig);
     }
+    else if ((s_WakeupOnChargeConfig & 0x7F) > 100)
+      s_WakeupOnChargeConfig = 0x7F;   // out of range reads as "never"
+    else
+      s_WakeupOnChargeConfig |= 0x80;  // came out of NV, so the host reads it back as non-volatile
   }
 
   // Get HostWDT config:
@@ -493,20 +526,26 @@ static void ProcessEvent(const AppEvent_t *_evt)
     }
     break;
 
-    case APP_EVT_CHRGR_SNAPSHOT:
-    {
-      static ChargerSnapshot_t s_Snapshot = { 0 };
-      const ChargerSnapshot_t *new_snapshot = &(_evt->chrgr_snapshot);
+    case APP_EVT_FG_TEMP:
+      break;   // TODO - nothing consumes the battery temperature yet
 
-      // TODO complettly process of the snapshot
-      if (s_Snapshot.batt_present != new_snapshot->batt_present)
-      {
-        s_Snapshot.batt_present = new_snapshot->batt_present;
-        LOG_WARNING("[APP] Batter present status=%u", (unsigned)s_Snapshot.batt_present);
-        fuel_gauge_SetBatteryPresent(s_Snapshot.batt_present);
-        battery_UpdatePresence();
-      }
-    }
+    case APP_EVT_FG_RSOC:
+      break;   // the wake policy owns it, see state_Off()
+
+    case APP_EVT_CHRGR_BATT_PRESENCE:
+      LOG_WARNING("[APP] Batter present status=%u", (unsigned)_evt->batteryPresence.present);
+
+      // Forward battery present status:
+      fuel_gauge_SetBatteryPresent(_evt->batteryPresence.present);
+      battery_UpdatePresence();
+    break;
+
+    case APP_EVT_CHRGR_STATUS:
+      LOG_WARNING("[APP] Charger status=%u", (unsigned)_evt->chargerStatus.status);
+
+      // Check incorrect charging status:
+      if (_evt->chargerStatus.status == CHG_STATUS_CHARGING_FROM_USB)
+        LOG_CRITICAL("[APP] Rcvd charger status: CHARGING_FROM_USB");
     break;
 
     case APP_EVT_CMD_BATT_SET_PROFILE:
@@ -544,6 +583,7 @@ static void ProcessEvent(const AppEvent_t *_evt)
 
 static AppState_t state_Off(const AppEvent_t *_evt)
 {
+  AppState_t next = SM_APP_OFF;
   switch (_evt->type)
   {
     case APP_EVT_SM_ENTRY:
@@ -553,14 +593,37 @@ static AppState_t state_Off(const AppEvent_t *_evt)
 
     case APP_EVT_BUTTON:
       if (_evt->button.func == BUTTON_EVENT_FUNC_POWER_ON)
-        return SM_APP_POWER_UP;
+      {
+        LOG_INFO("[APP] POWER UP triggered by button");
+        next = SM_APP_POWER_UP;
+      }
+    break;
+
+    case APP_EVT_CHRGR_STATUS:
+      // The source is gone, so the next one that appears may raise the host:
+      if (_evt->chargerStatus.status == CHG_STATUS_NO_VALID_SOURCE)
+        SetWakeupOnChargeArmed(true);
+      else if (IsWakeupOnChargeAllowed(_evt->chargerStatus.status, fuel_gauge_GetRsoc()))
+      {
+        LOG_INFO("[APP] POWER UP triggered by charge");
+        next = SM_APP_POWER_UP;
+      }
+    break;
+
+    case APP_EVT_FG_RSOC:
+      // The charge may have grown past the threshold with the charger already in:
+      if (IsWakeupOnChargeAllowed(charger_GetStatus(), _evt->fg.rsoc))
+      {
+        LOG_INFO("[APP] POWER UP triggered by charge");
+        next = SM_APP_POWER_UP;
+      }
     break;
 
     default:
     break;
   }
 
-  return SM_APP_OFF;
+  return next;
 }
 
 static AppState_t state_PowerUp(const AppEvent_t *_evt)
@@ -571,6 +634,9 @@ static AppState_t state_PowerUp(const AppEvent_t *_evt)
     case APP_EVT_SM_ENTRY:
     {
       LOG_INFO("[APP] state POWER_UP");
+
+      // Wake-up handled, clear the arm:
+      SetWakeupOnChargeArmed(false);
 
       // Enable 5V boost:
       pwr_mngr_HostOn();
@@ -601,6 +667,11 @@ static AppState_t state_On(const AppEvent_t *_evt)
   AppState_t next = SM_APP_ON;
   switch (_evt->type)
   {
+    case APP_EVT_CHRGR_STATUS:
+      // While the host is up, arm follows the source:
+      SetWakeupOnChargeArmed(_evt->chargerStatus.status == CHG_STATUS_NO_VALID_SOURCE);
+    break;
+
     case APP_EVT_SM_ENTRY:
       LOG_INFO("[APP] state ON");
       // TODO - enable 5V power protection
@@ -738,8 +809,8 @@ static void Task(void *parameters)
   const AppEvent_t entry_evt = { .type = APP_EVT_SM_ENTRY };
   fsm_Dispatch(&entry_evt);
 
-  if (xTimerStart(s_PolicyTimerHandle, 0) != pdPASS)
-    LOG_ERROR("[APP] power policy timer start failed, wake triggers will not run");
+//  if (xTimerStart(s_PolicyTimerHandle, 0) != pdPASS)
+//    LOG_ERROR("[APP] power policy timer start failed, wake triggers will not run");
 
   while(1)
   {
@@ -929,29 +1000,16 @@ void app_OnCmdSetWakeupOnCharge(uint8_t _data[], uint16_t _len)
       (unsigned)_data[0], (unsigned)_len);
   (void)_len;
 
-  if (!(_data[0] & 0x80))
-  {
-    s_WakeupOnCharge = WakeupOnChargeFromConfig(_data[0]);
-    return;
-  }
-
+  bool store = _data[0] & 0x80;   // MSB is used for "store to NV" status
   s_WakeupOnChargeConfig = (_data[0] & 0x7F) <= 100 ? _data[0] : 0x7F;
-  nv_write_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, s_WakeupOnChargeConfig);
-  if (nv_read_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, &s_WakeupOnChargeConfig) != NV_OK)
-    s_WakeupOnChargeConfig = 0x7F;
-
-  if (s_WakeupOnChargeConfig == 0x7F)
-    s_WakeupOnCharge = APP_WAKEUP_ON_CHARGE_OFF;
+  if (store)
+    nv_write_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, s_WakeupOnChargeConfig);
 }
 
 void app_OnCmdGetWakeupOnCharge(uint8_t _data[], uint16_t *_p_len)
 {
   LOG_DEBUG("[APP] Rcvd CMD GetWakeupOnCharge");
-  if (s_WakeupOnChargeConfig & 0x80)
-    _data[0] = s_WakeupOnChargeConfig;
-  else
-    _data[0] = s_WakeupOnCharge <= 1000 ? s_WakeupOnCharge / 10 : 0x7F;
-
+  _data[0] = s_WakeupOnChargeConfig;
   *_p_len = 1;
 }
 

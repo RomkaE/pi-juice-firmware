@@ -270,48 +270,48 @@ static uint8_t RegulationVoltage(const ChargerConfig_t *_p_cfg)
 
 static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
 {
-  bool not_equal = false;
+  uint8_t changed = 0;
 
   if (s_Snapshot.status != _p_snapshot->status)
   {
     LOG_INFO("[CHG] Status: %s->%s", ChargerStatus2Str(s_Snapshot.status ),
                                      ChargerStatus2Str(_p_snapshot->status));
-    not_equal = true;
+    changed |= CHG_CHANGED_STATUS;
   }
 
   if (s_Snapshot.fault != _p_snapshot->fault)
   {
     LOG_INFO("[CHG] Fault: %s->%s", ChargerFaultStatus2Str(s_Snapshot.fault ),
                                     ChargerFaultStatus2Str(_p_snapshot->fault));
-    not_equal = true;
+    changed |= CHG_CHANGED_FAULT;
   }
 
   if (s_Snapshot.in_stat != _p_snapshot->in_stat)
   {
     LOG_INFO("[CHG] Input: %s->%s", ChargerInStatus2Str(s_Snapshot.in_stat ),
                                     ChargerInStatus2Str(_p_snapshot->in_stat));
-    not_equal = true;
+    changed |= CHG_CHANGED_IN_STATUS;
   }
 
   if (s_Snapshot.batt_present != _p_snapshot->batt_present)
   {
     LOG_WARNING("[CHG] Batt present: %u->%u", (unsigned)s_Snapshot.batt_present,
                                            (unsigned)_p_snapshot->batt_present);
-    not_equal = true;
+    changed |= CHG_CHANGED_BATT_PRESENT;
   }
 
   if (s_Snapshot.dpm_stat != _p_snapshot->dpm_stat)
   {
     LOG_INFO("[CHG] DPM status: %u->%u", (unsigned)s_Snapshot.dpm_stat,
                                          (unsigned)_p_snapshot->dpm_stat);
-    not_equal = true;
+    changed |= CHG_CHANGED_DPM_STATUS;
   }
 
   // Callback:
-  if (not_equal)
+  if (changed)
   {
     s_Snapshot = *_p_snapshot;
-    charger_SnapshotChangedCallback(_p_snapshot);
+    charger_SnapshotChangedCallback(_p_snapshot, changed);
   }
 }
 
@@ -319,7 +319,8 @@ static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
 // itself on every value rather than only on the two presence flags.
 static void PublishUnknown(void)
 {
-  ChargerSnapshot_t snapshot = { .status = CHG_STATUS_NA };
+  ChargerSnapshot_t snapshot = { .status = CHG_STATUS_NA,
+                                 .fault = CHG_FAULT_UNKNOWN };
   PublishChanges(&snapshot);
 }
 
@@ -957,7 +958,9 @@ uint32_t charger_GetErrMask(bool _clear)
   return mask;
 }
 
-__attribute__((weak)) void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot)
+__attribute__((weak)) void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot,
+                                                           uint8_t _changed)
 {
   (void)_p_snapshot;
+  (void)_changed;
 }

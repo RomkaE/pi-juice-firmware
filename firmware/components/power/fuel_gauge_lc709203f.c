@@ -374,7 +374,7 @@ static bool starting_flow(void)
       res = writeWord(LC_REG_THERMISTOR_B, s_BattProfile.NTC.b_const);
       if (res != 0)
         return false;
-      LOG_INFO("[FG] Сonfigured profile: NTC B=%u", s_BattProfile.NTC.b_const);
+      LOG_INFO("[FG] Configured profile: NTC B=%u", (unsigned)s_BattProfile.NTC.b_const);
     }
 
     // Adjustment Pack Thermistor:
@@ -543,8 +543,11 @@ static void publish_Temp(FgReadResult_t _res, int8_t _temp)
     case FG_READ_OK:
       stale_cnt = 0;
       if (s_BattTemp != _temp)
+      {
+        s_BattTemp = _temp;
         LOG_INFO("[FG] Read batt temp: %d grad.", (int)_temp);
-      s_BattTemp = _temp;
+        fuel_gauge_Temp_Callback(_temp);
+      }
       break;
 
     case FG_READ_NO_DATA:
@@ -575,8 +578,11 @@ static void publish_RSOC(FgReadResult_t _res, uint16_t _rsoc)
     case FG_READ_OK:
       stale_cnt = 0;
       if (s_BattRsoc != _rsoc)
+      {
+        s_BattRsoc = _rsoc;
         LOG_INFO("[FG] Read batt RSOC: %d.%d%%", (unsigned)(_rsoc / 10), (unsigned)(_rsoc % 10));
-      s_BattRsoc = _rsoc;
+        fuel_gauge_Rsoc_Callback(_rsoc);
+      }
       break;
 
     case FG_READ_NO_DATA:
@@ -970,4 +976,14 @@ uint32_t fuel_gauge_GetErrMask(bool _clear)
     s_ErrMask &= ~mask;
   taskEXIT_CRITICAL();
   return mask;
+}
+
+__attribute__ ((weak)) void fuel_gauge_Temp_Callback(int8_t _temp)
+{
+  (void)_temp;
+}
+
+__attribute__ ((weak)) void fuel_gauge_Rsoc_Callback(uint16_t _rsoc)
+{
+  (void)_rsoc;
 }

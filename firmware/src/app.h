@@ -22,7 +22,10 @@ typedef enum
   APP_EVT_SM_ENTRY = 0,
   APP_EVT_BUTTON,                                 // a button event that has a configured function
   APP_EVT_BUTTON_RESET_CONFIG,                    // both power buttons held down: reset the configuration
-  APP_EVT_CHRGR_SNAPSHOT,
+  APP_EVT_CHRGR_STATUS,                           // charger.c reported a new ChargerStatus_t
+
+  APP_EVT_FG_TEMP,
+  APP_EVT_FG_RSOC,
 
   APP_EVT_CMD_SCHEDULE_POWER_OFF,                 // host register 0x62 - app_OnCmdSchedulePowerOff()
 //  APP_EVT_POWER_POLICY,                           // see the power policy timer in app.c
@@ -110,15 +113,27 @@ typedef struct
 
 typedef struct
 {
+  int8_t temperature;
+  uint16_t rsoc;
+} AppEventFG_t;
+
+/* The charger's new status - see ChargerStatus_t. */
+typedef struct
+{
+  uint8_t status;
+} AppEventChargerStatus_t;
+
+typedef struct
+{
   AppEventType_t type;
   union
   {
+    AppEventFG_t fg;
     AppEventButton_t button;
     AppEventBatterySetProfile_t batterySetProfile;
     AppEventBatteryCustomProfile_t batteryCustomProfile;
     AppEventBatteryCustomExtProfile_t batteryCustomExtProfile;
-
-    ChargerSnapshot_t chrgr_snapshot;
+    AppEventChargerStatus_t chargerStatus;
     AppEventChargerInput_t chargerInput;
     AppEventBatteryPresence_t batteryPresence;
     AppEventFuelGaugeConfig_t fuelGaugeConfig;

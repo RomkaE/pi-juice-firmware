@@ -74,4 +74,8 @@ uint8_t fuel_gauge_GetConfig(void);
 
 uint32_t fuel_gauge_GetErrMask(bool _clear);
 
+void fuel_gauge_Temp_Callback(int8_t _temp);
+
+void fuel_gauge_Rsoc_Callback(uint16_t _rsoc);
+
 #endif /* FUEL_GAUGE_LC709203F_H_ */
