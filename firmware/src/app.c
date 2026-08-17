@@ -114,6 +114,9 @@ static StaticTimer_t s_TimerFaultForgive;
  */
 #define APP_WDT_REFRESH_MS  250
 
+/* Measurement telemetry period, emitted from the WDT timer callback. */
+#define APP_MEAS_LOG_MS     15000
+
 static TimerHandle_t s_TimerWdtHandle;
 static StaticTimer_t s_TimerWdt;
 
@@ -245,6 +248,21 @@ static void OnTimerWdt(TimerHandle_t _timer)
   (void)_timer;
 
   bsp_WdtRefresh();
+
+#if LOG_ENABLED
+  {
+    static uint16_t cnt;
+    if (++cnt >= (APP_MEAS_LOG_MS / APP_WDT_REFRESH_MS))
+    {
+      cnt = 0;
+      uint16_t avdd = analog_GetAvdd();
+      uint16_t vbat = analog_GetVBatt();
+      uint16_t bus5v = analog_Get5vPi();
+      LOG_INFO("[APP] Meas: avdd=%umV, vbat=%umV, bus5v=%umV",
+          (unsigned)avdd, (unsigned)vbat, (unsigned)bus5v);
+    }
+  }
+#endif /* LOG_ENABLED */
 }
 
 static void UpdateThermalState(void)
