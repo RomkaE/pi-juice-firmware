@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+
+#include "config.h"
 #include "iosystem/button.h"
 #include "nv.h"
 #include "app-error/app_assert.h"
@@ -129,12 +131,12 @@ static Button_T buttons[BUTTON_COUNT] = {
 // FreeRTOS task:
 static TaskHandle_t s_TaskHandle;
 static StaticTask_t TaskTCB;
-static StackType_t TaskStack[256];        // TODO - remove magic number
+static StackType_t TaskStack[TASK_BTN_STACK];
 
 // Configuration command queue, host -> task:
 static QueueHandle_t s_CmdQueHandle;
 static StaticQueue_t s_CmdQue;
-static ButtonCfg_t s_CmdQueBuf[4];        // TODO - remove magic number
+static ButtonCfg_t s_CmdQueBuf[TASK_BTN_QUEUE_LEN];
 
 /*============================ TASK PRIVATE ==================================*/
 
@@ -362,13 +364,15 @@ static void Task(void *parameters)
 void button_Init(void) {
 	LOG_INFO("button_Init...");
 
-	// Create the queue first: the task outranks APP and preempts inside xTaskCreateStatic().
+	// Create the queue first. BTN sits below APP (see config.h) and button_Init() runs in the
+	// APP task, so no preemption happens here - but the ordering costs nothing and survives a
+	// future priority change.
 	s_CmdQueHandle = xQueueCreateStatic(sizeof(s_CmdQueBuf) / sizeof(s_CmdQueBuf[0]),
 	                          sizeof(s_CmdQueBuf[0]), (uint8_t*)s_CmdQueBuf, &s_CmdQue);
 	ASSERT(s_CmdQueHandle != NULL);
 
 	s_TaskHandle = xTaskCreateStatic(Task, "BTN", sizeof(TaskStack) / sizeof(StackType_t),
-	                          NULL, 6, TaskStack, &TaskTCB);
+	                          NULL, TASK_BTN_PRIO, TaskStack, &TaskTCB);
 	ASSERT(s_TaskHandle != NULL);
 }
 

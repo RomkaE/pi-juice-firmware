@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+
+#include "config.h"
 #include "led.h"
 #include "nv.h"
 #include "app-error/app_error.h"
@@ -129,12 +131,12 @@ static volatile uint8_t s_AppliedStateSeq, s_AppliedBlinkSeq, s_AppliedCfgSeq;
 // FreeRTOS task:
 static TaskHandle_t s_TaskHandle;
 static StaticTask_t TaskTCB;
-static StackType_t TaskStack[512];   // TODO - remove magic number
+static StackType_t TaskStack[TASK_LED_STACK];
 
 // Command queue:
 static QueueHandle_t s_QueHandle;
 static StaticQueue_t s_Que;
-static LedCmd_T s_QueBuf[8];         // TODO - remove magic number
+static LedCmd_T s_QueBuf[TASK_LED_QUEUE_LEN];
 
 // HAL instances:
 extern TIM_HandleTypeDef htim3;
@@ -514,15 +516,16 @@ void led_Init(void)
 {
   LOG_INFO("led_Init...");
 
-  // Create command queue. Must come first: the task outranks APP, so it preempts inside
-  // xTaskCreateStatic() below and blocks on this queue before this function returns.
+  // Create the command queue first. LED sits below APP (see config.h) and led_Init() runs in
+  // the APP task, so nothing preempts here - but the ordering costs nothing and survives a future
+  // priority change.
   s_QueHandle = xQueueCreateStatic(sizeof(s_QueBuf) / sizeof(s_QueBuf[0]),
                             sizeof(s_QueBuf[0]), (uint8_t*)s_QueBuf, &s_Que);
   ASSERT(s_QueHandle != NULL);
 
   // Create task:
   s_TaskHandle = xTaskCreateStatic(Task, "LED", sizeof(TaskStack) / sizeof(StackType_t),
-                            NULL, 6, TaskStack, &TaskTCB);
+                            NULL, TASK_LED_PRIO, TaskStack, &TaskTCB);
   ASSERT(s_TaskHandle != NULL);
 }
 

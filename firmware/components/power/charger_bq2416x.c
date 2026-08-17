@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "config.h"
 #include "charger_bq2416x.h"
 #include "bq24160_regs_map.h"
 #include "driver/i2c/i2c_master.h"
@@ -65,8 +66,6 @@
 #define CHG_INIT_ATTEMPTS       5      // bring-up tries before the device is declared absent
 #define CHG_ERR_LIMIT           5      // consecutive failed rounds that drop ACTIVE to LOST
 
-#define CHG_TASK_STACK_WORDS    256   // deepest measured frame is 56 bytes, see the .su file
-#define CHG_QUE_LEN             8
 
 _Static_assert(pdMS_TO_TICKS(CHG_ACTIVE_PERIOD_MS) >= 1,
                "CHG_ACTIVE_PERIOD_MS must be at least one RTOS tick");
@@ -177,11 +176,11 @@ static ChargerConfig_t s_Cfg = { .thermal_state = BAT_TEMP_UNKNOWN };
 
 static TaskHandle_t s_TaskHandle;
 static StaticTask_t s_TaskTCB;
-static StackType_t s_TaskStack[CHG_TASK_STACK_WORDS];
+static StackType_t s_TaskStack[TASK_CHG_STACK];
 
 static QueueHandle_t s_QueHandle;
 static StaticQueue_t s_Que;
-static ChargerEvent_t s_QueBuf[CHG_QUE_LEN];
+static ChargerEvent_t s_QueBuf[TASK_CHG_QUEUE_LEN];
 
 static char* ChargerStatus2Str(ChargerStatus_t _status)
 {
@@ -887,7 +886,7 @@ void charger_Init(const BatteryProfile_T *_p_batt_profile,
   ASSERT(s_QueHandle != NULL);
 
   s_TaskHandle = xTaskCreateStatic(Task, "CHG", sizeof(s_TaskStack) / sizeof(StackType_t),
-      NULL, 6, s_TaskStack, &s_TaskTCB);
+      NULL, TASK_CHG_PRIO, s_TaskStack, &s_TaskTCB);
   ASSERT(s_TaskHandle != NULL);
 }
 

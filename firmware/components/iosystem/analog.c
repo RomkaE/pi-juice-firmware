@@ -105,12 +105,12 @@ static uint16_t s_5VPI;       // in mV
 // FreeRTOS task:
 static TaskHandle_t s_TaskHandle;
 static StaticTask_t TaskTCB;
-static StackType_t TaskStack[512];  // TODO - remove magic number
+static StackType_t TaskStack[TASK_ANALOG_STACK];
 
 // Event queue:
 static QueueHandle_t s_QueHandle;
 static StaticQueue_t s_Que;
-static EventWrapper_t s_QueBuf[10];   // TODO - remove magic number
+static EventWrapper_t s_QueBuf[TASK_ANALOG_QUEUE_LEN];
 
 // HAL instances:
 extern ADC_HandleTypeDef hadc;
@@ -291,7 +291,7 @@ void analog_Init(void)
 
   // Create task:
   s_TaskHandle = xTaskCreateStatic(Task, "ANALOG", sizeof(TaskStack)/sizeof(StackType_t),
-                            NULL, 8, TaskStack, &TaskTCB);
+                            NULL, TASK_ANALOG_PRIO, TaskStack, &TaskTCB);
   ASSERT(s_TaskHandle != NULL);
 
   // Create queue:

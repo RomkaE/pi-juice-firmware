@@ -43,6 +43,9 @@
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
+/* Task priorities, stacks and queue lengths live in one place */
+#include "config.h"
+
 /******************************************************************************/
 /* Hardware description related definitions. **********************************/
 /******************************************************************************/
@@ -112,13 +115,13 @@
 /* configMAX_PRIORITIES Sets the number of available task priorities.  Tasks can
  * be assigned priorities of 0 to (configMAX_PRIORITIES - 1).  Zero is the
  * lowest priority. */
-#define configMAX_PRIORITIES                       10
+#define configMAX_PRIORITIES                       TASK_MAX_PRIORITIES
 
 /* configMINIMAL_STACK_SIZE defines the size of the stack used by the Idle task
  * (in words, not in bytes!).  The kernel does not use this constant for any
  * other purpose.  Demo applications use the constant to make the demos somewhat
  * portable across hardware architectures. */
-#define configMINIMAL_STACK_SIZE                   128
+#define configMINIMAL_STACK_SIZE                   TASK_IDLE_STACK
 
 /* configMAX_TASK_NAME_LEN sets the maximum length (in characters) of a task's
  * human readable name.  Includes the NULL terminator. */
@@ -230,23 +233,21 @@
  * task, so its priority is set like any other task.  See
  * https://www.freertos.org/RTOS-software-timer-service-daemon-task.html  Only
  * used if configUSE_TIMERS is set to 1. */
-#define configTIMER_TASK_PRIORITY       ( configMAX_PRIORITIES - 1 )
+#define configTIMER_TASK_PRIORITY       TASK_TIMER_SVC_PRIO
 
 /* configTIMER_TASK_STACK_DEPTH sets the size of the stack allocated to the
  * timer task (in words, not in bytes!).  The timer task is a standard FreeRTOS
  * task.  See
  * https://www.freertos.org/RTOS-software-timer-service-daemon-task.html Only
  * used if configUSE_TIMERS is set to 1. */
-/* Raised above configMINIMAL_STACK_SIZE: a failed ASSERT now logs before resetting, and it logs on
- * the stack of whoever failed it. configASSERT() maps to ASSERT, so a kernel assert reached from a
- * timer callback pays the LOG_CRITICAL + vsnprintf chain (~300-400 bytes) here. */
-#define configTIMER_TASK_STACK_DEPTH    192
+/* Sized in config.h, together with the stack budget rule. */
+#define configTIMER_TASK_STACK_DEPTH    TASK_TIMER_SVC_STACK
 
 /* configTIMER_QUEUE_LENGTH sets the length of the queue (the number of discrete
  * items the queue can hold) used to send commands to the timer task.  See
  * https://www.freertos.org/RTOS-software-timer-service-daemon-task.html  Only
  * used if configUSE_TIMERS is set to 1. */
-#define configTIMER_QUEUE_LENGTH        10
+#define configTIMER_QUEUE_LENGTH        TASK_TIMER_SVC_QUEUE_LEN
 
 /******************************************************************************/
 /* Event Group related definitions. *******************************************/

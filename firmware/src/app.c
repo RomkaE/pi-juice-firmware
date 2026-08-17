@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "config.h"
 #include "iosystem/analog.h"
 #include "iosystem/button.h"
 #include "power/fuel_gauge_lc709203f.h"
@@ -55,7 +56,7 @@ extern uint8_t alarmEventFlag;
 
 static TaskHandle_t s_TaskHandleApp;
 static StaticTask_t TaskTCBApp;
-static StackType_t TaskStackApp[256];
+static StackType_t TaskStackApp[TASK_APP_STACK];
 
 /*
  * One shot, armed for exactly the delay the host asked for in register 0x62 - there is nothing to
@@ -133,7 +134,7 @@ static uint32_t s_WdtHostPeriodMs;
 // System wide event queue - see the contract in app.h:
 static QueueHandle_t s_EvtQueHandle;
 static StaticQueue_t s_EvtQue;
-static AppEvent_t s_EvtQueBuf[16];      // TODO - remove magic number
+static AppEvent_t s_EvtQueBuf[TASK_APP_QUEUE_LEN];
 
 /*
  * Request mirror for the fuel gauge configuration register, same idiom as led.c/charger.c: a host
@@ -943,7 +944,7 @@ void app_Init(void)
   ASSERT(s_TimerWdtHandle != NULL);
 
   s_TaskHandleApp = xTaskCreateStatic(Task, "APP", sizeof(TaskStackApp)/sizeof(StackType_t),
-                           NULL, 7,
+                           NULL, TASK_APP_PRIO,
                            TaskStackApp, &TaskTCBApp);
   ASSERT(s_TaskHandleApp != NULL);
 }

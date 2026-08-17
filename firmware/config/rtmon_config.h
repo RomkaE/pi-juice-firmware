@@ -2,6 +2,8 @@
 #ifndef RTMON_CONFIG_H_
 #define RTMON_CONFIG_H_
 
+#include "config.h"
+
 #define RTMON_ENABLED                       ( 1 )
 
 #define RTMON_RTT_BUFF_IDX                  ( 0 )   // RTT up-channel (shared with log)
@@ -11,7 +13,9 @@
 
 #define RTMON_CFG_USE_STATIC_ALOCATION      ( 1 )
 
-#define RTMON_CFG_TASK_STACK_DEPTH          ( 512 )
+#define RTMON_CFG_TASK_PRIO                 TASK_RTMON_PRIO
+
+#define RTMON_CFG_TASK_STACK_DEPTH          TASK_RTMON_STACK
 
 #define RTMON_CFG_TASKS_MAX_COUNT           ( 16 )
 

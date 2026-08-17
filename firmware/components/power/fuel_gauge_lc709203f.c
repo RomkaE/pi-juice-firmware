@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "config.h"
 #include "fuel_gauge_lc709203f.h"
 #include "iosystem/analog.h"
 #include "driver/i2c/i2c_master.h"
@@ -71,8 +72,6 @@
 
 #define LC_INIT_RSOC_REG        LC_REG_BEFORE_RSOC  // LC_REG_BEFORE_RSOC or LC_REG_INITIAL_RSOC
 
-#define FG_TASK_STACK_WORDS     256
-#define FG_QUE_LEN              4
 
 _Static_assert( LC_INIT_RSOC_REG == LC_REG_BEFORE_RSOC || LC_INIT_RSOC_REG == LC_REG_INITIAL_RSOC,
                 "LC_INIT_RSOC_REG must be LC_REG_BEFORE_RSOC or LC_REG_INITIAL_RSOC");
@@ -156,11 +155,11 @@ static bool s_BattProfileValid;
 
 static TaskHandle_t s_TaskHandle;
 static StaticTask_t s_TaskTCB;
-static StackType_t s_TaskStack[FG_TASK_STACK_WORDS];
+static StackType_t s_TaskStack[TASK_FUEL_GAUGE_STACK];
 
 static QueueHandle_t s_QueHandle;
 static StaticQueue_t s_Que;
-static FuelGaugeEvent_t s_QueBuf[FG_QUE_LEN];
+static FuelGaugeEvent_t s_QueBuf[TASK_FUEL_GAUGE_QUEUE_LEN];
 
 static int8_t readWord(uint8_t _reg, uint16_t *_word)
 {
@@ -901,7 +900,7 @@ void fuel_gauge_Init(BatteryProfile_T *_p_batt_profile)
   ASSERT(s_QueHandle != NULL);
 
   s_TaskHandle = xTaskCreateStatic(Task, "LC709203F", sizeof(s_TaskStack) / sizeof(StackType_t),
-                            NULL, 6, s_TaskStack, &s_TaskTCB);
+                            NULL, TASK_FUEL_GAUGE_PRIO, s_TaskStack, &s_TaskTCB);
   ASSERT(s_TaskHandle != NULL);
 }
 
