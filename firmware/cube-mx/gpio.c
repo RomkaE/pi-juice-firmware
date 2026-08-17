@@ -50,6 +50,15 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
+  /* Unused and not-yet-claimed pins go to analog. A driver that needs one overrides the
+   * mode itself later (TIM3 for the LED, IoConfigure for EXT_IO). */
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pin = GPIO_PARK_A_PINS;
+  HAL_GPIO_Init(GPIO_PARK_A_PORT, &GPIO_InitStruct);
+  GPIO_InitStruct.Pin = GPIO_PARK_B_PINS;
+  HAL_GPIO_Init(GPIO_PARK_B_PORT, &GPIO_InitStruct);
+
   /*Configure charger interrupt input */
   GPIO_InitStruct.Pin = CHG_INT_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
@@ -63,11 +72,15 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(PWR_VSYS_ILIM_PORT, &GPIO_InitStruct);
 
-  // vsys switch enable configure as inputs to capture state before reset
+  /*Configure VSYS switch enable, active LOW - kept HIGH, the switch stays off. Nothing pulls
+    the switch EN input on the board, so the pin has to drive it. Level first, so the pin never
+    dips low on the way to output. */
   GPIO_InitStruct.Pin = PWR_VSYS_EN_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(PWR_5V_BOOST_EN_PORT, &GPIO_InitStruct);
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_WritePin(PWR_VSYS_EN_PORT, PWR_VSYS_EN_PIN, GPIO_PIN_SET);
+  HAL_GPIO_Init(PWR_VSYS_EN_PORT, &GPIO_InitStruct);
 
   /*Configure 5V detection LDO enable and charger NTC control outputs */
   GPIO_InitStruct.Pin = PWR_5V_LDO_EN_PIN|CHG_NTC_CTRL1_PIN|CHG_NTC_CTRL2_PIN;
@@ -95,14 +108,6 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(EE_ADDR_SEL_PORT, &GPIO_InitStruct);
 
-  /*Configure host RUN signal, open drain */
-  GPIO_InitStruct.Pin = HOST_RUN_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_WritePin(HOST_RUN_PORT, HOST_RUN_PIN, GPIO_PIN_SET);
-  HAL_GPIO_Init(HOST_RUN_PORT, &GPIO_InitStruct);
-
   /*Configure open drain, fuel gauge int for HW<2.3, 5V regulator power good for HW>=2.3*/
   GPIO_InitStruct.Pin = FG_INT_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
@@ -113,9 +118,6 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(CHG_NTC_CTRL1_PORT, CHG_NTC_CTRL1_PIN|PWR_5V_LDO_EN_PIN|CHG_NTC_CTRL2_PIN, GPIO_PIN_RESET);
-
-  /* RUN is already released above - the level is written before HAL_GPIO_Init()
-   * so the pin never drives low on the way to open drain. */
 
   // TODO: Move IRQ management to the corresponding driver/component:
   {

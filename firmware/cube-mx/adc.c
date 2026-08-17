@@ -20,6 +20,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "adc.h"
 #include "board.h"
+#include "config.h"
 
 /* USER CODE BEGIN 0 */
 
@@ -83,19 +84,13 @@ void MX_ADC_Init(void)
 
   /** Configure for the selected ADC regular channel to be converted.
   */
-  sConfig.Channel = ADC_CHANNEL_4;
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure for the selected ADC regular channel to be converted.
-  */
+#if ANALOG_TEMP_MCU_ENABLED
   sConfig.Channel = ADC_CHANNEL_TEMPSENSOR;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
     Error_Handler();
   }
+#endif
 
   /** Configure for the selected ADC regular channel to be converted.
   */
@@ -126,9 +121,10 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
     /**ADC GPIO Configuration
     PA0     ------> ADC_IN0
     PA2     ------> ADC_IN2
-    PA4     ------> ADC_IN4
     */
-    GPIO_InitStruct.Pin = ADC_5V_PI_PIN|ADC_VBAT_PIN|ADC_PWR_DET_PIN;
+    /* Only the live channels. PA1/PA3/PA4/PA5 are parked by GPIO_PARK_A_PINS - they are no
+     * longer ADC channels, and keeping them here would let HAL_ADC_MspDeInit() unconfigure them. */
+    GPIO_InitStruct.Pin = ADC_5V_PI_PIN|ADC_VBAT_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(ADC_5V_PI_PORT, &GPIO_InitStruct);
@@ -172,9 +168,8 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
     /**ADC GPIO Configuration
     PA0     ------> ADC_IN0
     PA2     ------> ADC_IN2
-    PA4     ------> ADC_IN4
     */
-    HAL_GPIO_DeInit(ADC_5V_PI_PORT, ADC_5V_PI_PIN|ADC_VBAT_PIN|ADC_PWR_DET_PIN);
+    HAL_GPIO_DeInit(ADC_5V_PI_PORT, ADC_5V_PI_PIN|ADC_VBAT_PIN);
 
     /* ADC1 DMA DeInit */
     HAL_DMA_DeInit(adcHandle->DMA_Handle);

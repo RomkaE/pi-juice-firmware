@@ -74,13 +74,6 @@
 #define FG_INT_PORT           GPIOB     // PB1
 #define FG_INT_PIN            GPIO_PIN_1
 
-/*============================ HOST (Raspberry Pi) ===========================*/
-
-// TODO - Check. The pin is not used in the circuit.
-// RUN signal, open drain, active LOW pulse:
-#define HOST_RUN_PORT         GPIOB     // PB13
-#define HOST_RUN_PIN          GPIO_PIN_13
-
 /*============================ BUTTONS =======================================*/
 
 // Named after the schematic. Only SW1 is populated on the PiJuice Zero board
@@ -111,10 +104,6 @@
 // Battery voltage, ADC_IN2:
 #define ADC_VBAT_PORT         GPIOA     // PA2
 #define ADC_VBAT_PIN          GPIO_PIN_2
-
-// 5V input presence detection, ADC_IN4:
-#define ADC_PWR_DET_PORT      GPIOA     // PA4
-#define ADC_PWR_DET_PIN       GPIO_PIN_4
 
 /*============================ LEDS ==========================================*/
 
@@ -151,5 +140,33 @@
 #define EXT_IO2_PORT          GPIOA     // PA8
 #define EXT_IO2_PIN           GPIO_PIN_8
 #define EXT_IO2_GPIO_AF       GPIO_AF2_TIM1
+
+/*============================ UNUSED / PARKED PINS ==========================*/
+
+/*
+ * Analog is the idle state for a pin nobody drives: Schmitt trigger off, no leakage.
+ * The F0 reset state is a floating input, not analog, so the parking has to be explicit.
+ *
+ * PA0/PA2      - live ADC channels, HAL_ADC_MspInit() sets the same mode later.
+ * PA1 CS2, PA3 NTC, PA4 PWR_DET, PA5 CHG_CUR - channels dropped during the refactor.
+ * PA7/PA8      - EXT_IO1/IO2, nothing holds them until IoConfigure().
+ * PA9          - not routed.
+ *
+ * PA12 is NOT here: the switch EN input has no pull on the board, so analog would leave it
+ * floating. It stays a push-pull output - see MX_GPIO_Init().
+ */
+#define GPIO_PARK_A_PORT      GPIOA
+#define GPIO_PARK_A_PINS      (GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 \
+                             | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_7 | GPIO_PIN_8 \
+                             | GPIO_PIN_9)
+
+/*
+ * PB0/PB4/PB5  - LED D1, led_Init() is off.
+ * PB9/PB14/PB15 - LED D2, dropped with TIM15.
+ * PB13         - host RUN, not wired on this board.
+ */
+#define GPIO_PARK_B_PORT      GPIOB
+#define GPIO_PARK_B_PINS      (GPIO_PIN_0 | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_9 \
+                             | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15)
 
 #endif /* BOARD_VER0_H_ */

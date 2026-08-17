@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "config.h"
 
 /*
  * Battery sense divider on PA2: Vbat = Vpin * VBAT_DIVIDER_NUM / VBAT_DIVIDER_DEN.
@@ -22,15 +23,15 @@
 
 void analog_Init(void);
 
+#if ANALOG_TEMP_MCU_ENABLED
 uint16_t analog_GetTempMCU(void);
+#endif
 
 uint16_t analog_GetAvdd(void);
 
 uint16_t analog_GetVBatt(void);
 
 uint16_t analog_Get5vPi(void);
-
-uint16_t analog_GetRawPWR(void);
 
 /*
  * Weak no-op, called once per half ring (~64 ms) after every value above is updated.

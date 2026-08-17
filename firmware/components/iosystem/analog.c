@@ -12,6 +12,7 @@
 #include "app-error/app_error.h"
 #include "app-error/diag.h"
 #include "app-error/app_assert.h"
+#include "config.h"
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
@@ -27,18 +28,24 @@
 // LOG:
 #include "log/log.h"
 
+#if ANALOG_TEMP_MCU_ENABLED
 /* mcuTemperature sensor calibration value address */
 #define TEMP30_CAL_ADDR           TEMPSENSOR_CAL1_ADDR
+#endif
 
 // Frame layout = CHSELR order, ascending by channel number (SCANDIR forward):
-// CH0, CH2, CH4, CH16, CH17.
+// CH0, CH2, [CH16], CH17. The order is fixed by hardware, so the temp sensor (CH16) always
+// precedes VREFINT (CH17) - dropping it shifts VREFINT down instead of shortening the tail.
 #define ADC_5VPI_CHN_IDX          0
 #define ADC_VBAT_CHN_IDX          1
-#define ADC_PWR_CHN_IDX           2
-#define ADC_TEMP_INT_CHN_IDX      3
-#define ADC_VREF_INT_CHN_IDX      4
-
-#define ADC_SCAN_CHANNELS         5
+#if ANALOG_TEMP_MCU_ENABLED
+#define ADC_TEMP_INT_CHN_IDX      2
+#define ADC_VREF_INT_CHN_IDX      3
+#define ADC_SCAN_CHANNELS         4
+#else
+#define ADC_VREF_INT_CHN_IDX      2
+#define ADC_SCAN_CHANNELS         3
+#endif
 #define ADC_FRAMES                128
 #define ADC_BUFFER_LENGTH         (ADC_FRAMES * ADC_SCAN_CHANNELS)
 
@@ -89,10 +96,11 @@ static uint16_t s_BufADC[ADC_BUFFER_LENGTH];  // raw data from ADC
 static uint16_t s_AVDD;
 
 // Measured parameters:
+#if ANALOG_TEMP_MCU_ENABLED
 static int16_t s_TempMCU = INT16_MAX;         // TODO remove magic number
+#endif
 static uint16_t s_VBatt;      // in mV
 static uint16_t s_5VPI;       // in mV
-static uint16_t s_RawPWR;
 
 // FreeRTOS task:
 static TaskHandle_t s_TaskHandle;
@@ -201,17 +209,16 @@ static void ProcessHalf(const uint16_t *half)
   uint32_t vbatPinMv = ((uint32_t)raw_vbat * s_AVDD) >> 12;
   s_VBatt = VBAT_FROM_PIN_MV(vbatPinMv);
 
-  // PWR_DET raw counts. Unread since the 5V-IO detection was removed, still costs a scan slot.
-  s_RawPWR = acc[ADC_PWR_CHN_IDX] >> ADC_HALF_SHIFT;
-
   // 5V PI bus sensed through a /2 divider: >>11 == /4096 * 2.
   uint16_t raw5v = acc[ADC_5VPI_CHN_IDX] >> ADC_HALF_SHIFT;
   s_5VPI = ((uint32_t)raw5v * s_AVDD) >> 11;
 
+#if ANALOG_TEMP_MCU_ENABLED
   // MCU temperature from the internal sensor (avg_slope 4.3 mV/degC).
   int32_t vtemp = (((uint32_t)(acc[ADC_TEMP_INT_CHN_IDX] >> ADC_HALF_SHIFT)) * s_AVDD * 10) >> 12;
   int32_t v30 = (((uint32_t)*TEMP30_CAL_ADDR) * TEMPSENSOR_CAL_VREFANALOG) >> 12;
   s_TempMCU = (v30 - vtemp) / 43 + 30;
+#endif
 
   analog_SamplesReady_Callback();   // last, so the hook sees a complete set
 }
@@ -293,10 +300,12 @@ void analog_Init(void)
   ASSERT(s_QueHandle != NULL);
 }
 
+#if ANALOG_TEMP_MCU_ENABLED
 uint16_t analog_GetTempMCU(void)
 {
   return s_TempMCU;
 }
+#endif
 
 uint16_t analog_GetAvdd(void)
 {
@@ -311,11 +320,6 @@ uint16_t analog_GetVBatt(void)
 uint16_t analog_Get5vPi()
 {
   return s_5VPI;
-}
-
-uint16_t analog_GetRawPWR(void)
-{
-  return s_RawPWR;
 }
 
 __attribute__((weak)) void analog_SamplesReady_Callback(void)

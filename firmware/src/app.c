@@ -465,7 +465,7 @@ static bool Init(void)
   pwr_mngr_Init(cold_start);
   analog_Init();
   IoControlInit();
-//  led_Init();
+//  led_Init();   // off: the LED D1 pins sit in analog, see GPIO_PARK_B_PINS
   button_Init();
 
   // EEPROM IC management:
