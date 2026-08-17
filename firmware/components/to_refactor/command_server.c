@@ -525,7 +525,7 @@ void CmdServerReadBatVoltage(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	if (dir == MASTER_CMD_DIR_READ) {
 		uint8_t adr = pData[0];
 		// The fuel gauge no longer publishes a voltage - the ADC measures the same pack:
-		uint16_t volt = analog_GetVBattAvg();
+		uint16_t volt = analog_GetVBatt();
 		reg[adr] = volt;
 		reg[adr+1] = volt >> 8;
 		pData[0] = reg[adr];

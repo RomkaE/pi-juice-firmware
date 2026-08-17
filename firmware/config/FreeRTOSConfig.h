@@ -79,6 +79,9 @@
  * calculated from the configCPU_CLOCK_HZ value. */
 #define configTICK_RATE_HZ                         100
 
+// Force tick overflow for testing:
+//#define configINITIAL_TICK_COUNT                   (UINT32_MAX - 20 * configTICK_RATE_HZ)
+
 /* Set configUSE_PREEMPTION to 1 to use pre-emptive scheduling.  Set
  * configUSE_PREEMPTION to 0 to use co-operative scheduling.
  * See https://www.freertos.org/single-core-amp-smp-rtos-scheduling.html. */

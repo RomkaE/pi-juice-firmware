@@ -31,7 +31,8 @@ typedef enum
 
   APP_EVT_TIMER_POWER_UP,
   APP_EVT_TIMER_POWER_OFF,
-  APP_EVT_TIMER_FAULT_RETRY,                      // the fault backoff has elapsed, try the rail again
+  APP_EVT_TIMER_FAULT_RETRY,                      // the backoff elapsed, try the 5V bus again
+  APP_EVT_TIMER_FAULT_FORGIVE,                    // the host has been up long enough, see state_On()
 
   APP_EVT_CMD_BATT_SET_PROFILE,                    // host register 0x82 - battery_CmdSetProfile()
   APP_EVT_CMD_BATT_WRITE_CUSTOM_PROFILE,           // host register 0x86 - battery_CmdWriteCustomProfile()
@@ -98,7 +99,7 @@ typedef struct
   uint8_t value;
 } AppEventChargerValue_t;
 
-/* Which protections cut the rail - a mask of PWR_FAULT_*, several may stand at once. */
+/* Which protections cut the 5V bus - a mask of PWR_FAULT_*, several may stand at once. */
 typedef struct
 {
   uint8_t faults;

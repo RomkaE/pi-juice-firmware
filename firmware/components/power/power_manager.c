@@ -21,7 +21,14 @@
 // LOG:
 #include "log/log.h"
 
-// Debounce in ADC datasets, not ms: the values refresh once per half ring (~64 ms).
+/*
+ * Debounce in ADC datasets, not ms: the values refresh once per half ring (~64 ms).
+ *
+ * Three is also what makes the power-up safe. APP arms the 5V check shortly after raising the
+ * 5V bus, and at most one dataset published after that can still average in the time before the
+ * boost came up - the one whose window started earlier. Any value below 2 here would let that
+ * single stale dataset trip the protection on every power-up.
+ */
 #define PWR_PROTECTION_SAMPLES    3
 #define PWR_5V_FAULT_MV           4500
 #define PWR_AVDD_FAULT_MV         3150
@@ -31,16 +38,15 @@
 // Retained: the host reads these back as event flags after a brown out.
 static uint8_t s_StatusFlags __attribute__((section("no_init")));
 
-/* The 5V check is meaningless while the rail is coming up, so APP disarms it for as long as that
+/* The 5V check is meaningless while the bus is coming up, so APP disarms it for as long as that
  * takes - see the SM_APP_POWER_UP state. The cutoff check is not affected and stays armed. */
 static bool s_5vCheckArmed = true;
 
-// Raw counts on purpose: VBAT_MV_TO_ADC assumes the nominal reference, which is what the cutoff
-// path needs exactly when the supply is sagging. See analog.h.
+/* From the battery profile, or PWR_VBAT_CUTOFF_DEFAULT_MV when there is none. Compared against
+ * analog_GetVBatt() and only while AVDD reads sane, so a bad reference cannot fake a flat pack. */
 static uint16_t s_VbatCutoffMv;
-static uint16_t s_VbatCutoffAdc;
 
-// Owned by the ANALOG task, reset by pwr_mngr_HostOn() when the rail comes back.
+// Owned by the ANALOG task, reset by pwr_mngr_HostOn() when the 5V bus comes back.
 static uint8_t s_TripSamples;
 static bool s_TripPosted;
 
@@ -51,14 +57,9 @@ void pwr_mngr_Arm5vCheck(bool _armed)
   s_5vCheckArmed = _armed;
 }
 
-bool pwr_mngr_Is5vRailGood(void)
-{
-  return analog_Get5vPi() >= PWR_5V_FAULT_MV;
-}
-
 /*
  * Runs in the ANALOG task, once per fresh dataset - see the contract in analog.h. Reads and hands
- * over; the rail is cut by APP so an in-flight flash write can finish, and shedding the external
+ * over; the 5V bus is cut by APP so an in-flight flash write can finish, and shedding the external
  * load is a state action, not something this callback does.
  */
 void analog_SamplesReady_Callback(void)
@@ -66,17 +67,42 @@ void analog_SamplesReady_Callback(void)
   if (!bsp_Pwr5V_GetState())
     return;   // nothing to protect, and the readings below would be meaningless
 
+  /* One dataset per fault reason, at debug level on purpose: these run before the debounce, and a
+   * single stale dataset right after the 5V bus comes up is expected - see PWR_PROTECTION_SAMPLES.
+   * The real trip is announced once, below. */
   uint8_t faults = 0;
 
   /* AVDD is the ADC reference, so once it sags the 5V figure means nothing. It does not confirm a
-   * rail fault then - it replaces it. */
-  if (analog_GetAvdd() < PWR_AVDD_FAULT_MV)
+   * 5V bus fault then - it replaces it. */
+  uint16_t avdd = analog_GetAvdd();
+  if (avdd < PWR_AVDD_FAULT_MV)
+  {
+    LOG_DEBUG("[PWR] AVDD below limit: avdd=%umV", (unsigned)avdd);
     faults |= PWR_FAULT_AVDD;
-  else if (s_5vCheckArmed && !pwr_mngr_Is5vRailGood())
-    faults |= PWR_FAULT_5V_MASK;
+  }
+  else
+  {
+    if (s_5vCheckArmed)
+    {
+      uint16_t vbus = analog_Get5vPi();
+      if (vbus < PWR_5V_FAULT_MV)
+      {
+        LOG_DEBUG("[PWR] 5V below limit: vbus=%umV", (unsigned)vbus);
+        faults |= PWR_FAULT_5V_MASK;
+      }
+    }
 
-  if (analog_GetRawBatt() < s_VbatCutoffAdc && !charger_IsInputPresent())
-    faults |= PWR_FAULT_VBAT_CUTOFF;
+    if (!charger_IsInputPresent())
+    {
+      uint16_t vbat = analog_GetVBatt();
+      if (vbat < s_VbatCutoffMv)
+      {
+        LOG_DEBUG("[PWR] VBAT below cutoff: vbat=%umV cutoff=%umV",
+              (unsigned)vbat, (unsigned)s_VbatCutoffMv);
+        faults |= PWR_FAULT_VBAT_CUTOFF;
+      }
+    }
+  }
 
   if (faults == 0)
   {
@@ -93,8 +119,8 @@ void analog_SamplesReady_Callback(void)
 
   s_TripPosted = true;   // one event per trip
 
-  LOG_WARNING("[PWR] protection faults=0x%02X v5=%u avdd=%u vbat_raw=%u", (unsigned)faults,
-      (unsigned)analog_Get5vPi(), (unsigned)analog_GetAvdd(), (unsigned)analog_GetRawBatt());
+  LOG_WARNING("[PWR] Protection: faults=0x%02X, avdd=%umV, vbat=%umV, 5V=%umV", (unsigned)faults,
+      (unsigned)analog_GetAvdd(), (unsigned)analog_GetVBatt(), (unsigned)analog_Get5vPi());
 
   // Send event to app:
   AppEvent_t evt = { .type = APP_EVT_POWER_PROTECTION };
@@ -123,14 +149,12 @@ void pwr_mngr_Init(bool _cold_start)
     bool have = battery_GetProfile(&profile);
     s_VbatCutoffMv = have ? (uint16_t)profile.cutoffVoltage * 20 : PWR_VBAT_CUTOFF_DEFAULT_MV;
   }
-  s_VbatCutoffAdc = VBAT_MV_TO_ADC(s_VbatCutoffMv);
 
-  // The rail is not touched here: bsp_Pwr5V_Restore() already set it in main(), and forcing it
+  // The 5V bus is not touched here: bsp_Pwr5V_Restore() already set it in main(), and forcing it
   // down would cut a host that survived the reset.
 
-  LOG_INFO("[PWR] init: cutoff=%u mV (%u counts), run_pin=%u, rail=%u",
-      (unsigned)s_VbatCutoffMv, (unsigned)s_VbatCutoffAdc, (unsigned)s_RunPin,
-      (unsigned)bsp_Pwr5V_GetState());
+  LOG_INFO("[PWR] init: cutoff=%umV, run_pin=%u, bus5v=%s",
+      (unsigned)s_VbatCutoffMv, (unsigned)s_RunPin, bsp_Pwr5V_GetState() ? "ON" : "OFF");
 }
 
 bool pwr_mngr_HostOn(void)
@@ -138,7 +162,7 @@ bool pwr_mngr_HostOn(void)
   if (bsp_Pwr5V_GetState())
     return true;
 
-  /* The protection callback bails out while the rail is down, so it never gets to clear these
+  /* The protection callback bails out while the 5V bus is down, so it never gets to clear these
    * itself - without this a retry would never see a second trip. */
   s_TripSamples = 0;
   s_TripPosted = false;
@@ -162,7 +186,6 @@ void pwr_mngr_SetBatProfile(const BatteryProfile_T *_p_profile)
     s_VbatCutoffMv =  (uint16_t)_p_profile->cutoffVoltage * 20;
   else
     s_VbatCutoffMv = PWR_VBAT_CUTOFF_DEFAULT_MV;
-  s_VbatCutoffAdc = VBAT_MV_TO_ADC(s_VbatCutoffMv);
 }
 
 // Derived, not stored: the charger already publishes everything this needs, ISR safe.

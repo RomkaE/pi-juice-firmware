@@ -24,7 +24,6 @@
 #include "led.h"
 #include "board.h"
 #include "app-error/app_assert.h"
-#include "utils/time_count.h"
 #include "app-error/app_error.h"
 
 #include "driver/i2c/i2c_slave.h"
@@ -48,10 +47,10 @@
 
 typedef enum
 {
-  SM_APP_OFF = 0,    // rail down, waiting for a reason to bring the host up
-  SM_APP_POWER_UP,   // rail raised, giving it time before its output is judged
+  SM_APP_OFF = 0,    // 5V bus down, waiting for a reason to bring the host up
+  SM_APP_POWER_UP,   // 5V bus raised, giving it time before its output is judged
   SM_APP_ON,         // host powered
-  SM_APP_FAULT,      // rail down because raising it failed - retries, then latches
+  SM_APP_FAULT,      // 5V bus down because raising it failed - retries, then latches
   SM_APP_COUNT       // also bounds an entry chain - see fsm_Dispatch()
 } AppState_t;
 
@@ -81,22 +80,36 @@ static volatile bool s_PowerOffPending;
 
 /*
  * One shot that ends SM_APP_POWER_UP. The boost needs time before its output means anything, so
- * the rail is brought up, left alone for this long, and only then judged.
+ * the 5V bus is brought up, left alone for this long, and only then judged.
  */
 #define APP_POWER_UP_TIME_MS    50
 
 static TimerHandle_t s_TimerPowerUpHandle;
 static StaticTimer_t s_TimerPowerUp;
 
-/* One shot that backs off between attempts to raise the rail - see state_Fault(). */
+/* One shot that backs off between attempts to raise the 5V bus - see state_Fault(). */
 #define APP_FAULT_RETRY_MS      5000
 #define APP_FAULT_MAX_ATTEMPTS  3
 
 static TimerHandle_t s_TimerFaultRetryHandle;
 static StaticTimer_t s_TimerFaultRetry;
 
-static uint8_t s_FaultMask;       // what cut the rail last, for the log and register 0x45
+static uint8_t s_FaultMask;       // what cut the 5V bus last, for the log and register 0x45
 static uint8_t s_FaultAttempts;
+
+/*
+ * A 5V bus that carried the host this long puts whatever went wrong before behind us. Entering ON
+ * is not enough on its own: a dead short still gets there for the ~200 ms the protection needs to
+ * make up its mind, and clearing the count on entry would make the attempt limit unreachable.
+ *
+ * Its own timer, not the retry one: an arming made in ON outlives the move to FAULT, and FAULT
+ * leaves the timer alone once the attempts are spent. Sharing it would let a leftover arming read
+ * as "retry now" and break the latch.
+ */
+#define APP_FAULT_FORGIVE_MS  30000
+
+static TimerHandle_t s_TimerFaultForgiveHandle;
+static StaticTimer_t s_TimerFaultForgive;
 
 /* How long the host must have been silent before an armed trigger may restart it. */
 /*
@@ -107,14 +120,13 @@ static uint8_t s_FaultAttempts;
 */
 
 #define APP_WAKEUP_ON_CHARGE_OFF  0xFFFF
-#define APP_WAKEUP_ON_CHARGE_MIN  5     // RSOC 5%, armed when a protection cuts the rail
+#define APP_WAKEUP_ON_CHARGE_MIN  5     // RSOC 5%, armed when a protection cuts the 5V bus
 
 static uint8_t s_WakeupOnChargeConfig;      // register 0x63 byte
 static bool s_WakeupOnChargeArmed __attribute__((section("no_init")));
 
 static uint16_t s_WdtHostConfig;        // persisted minutes
 static uint32_t s_WdtHostPeriodMs;
-static uint32_t s_WdtHostTimer;
 
 // System wide event queue - see the contract in app.h:
 static QueueHandle_t s_EvtQueHandle;
@@ -219,6 +231,13 @@ static void OnTimerFaultRetry(TimerHandle_t _timer)
 {
   (void)_timer;
   AppEvent_t event = { .type = APP_EVT_TIMER_FAULT_RETRY };
+  app_PostEvent(&event);
+}
+
+static void OnTimerFaultForgive(TimerHandle_t _timer)
+{
+  (void)_timer;
+  AppEvent_t event = { .type = APP_EVT_TIMER_FAULT_FORGIVE };
   app_PostEvent(&event);
 }
 
@@ -473,6 +492,7 @@ static void ProcessEvent(const AppEvent_t *_evt)
     case APP_EVT_TIMER_POWER_OFF:
     case APP_EVT_TIMER_POWER_UP:
     case APP_EVT_TIMER_FAULT_RETRY:
+    case APP_EVT_TIMER_FAULT_FORGIVE:
     case APP_EVT_POWER_PROTECTION:
     case APP_EVT_CMD_SCHEDULE_POWER_OFF:
       break;
@@ -543,7 +563,7 @@ static void ProcessEvent(const AppEvent_t *_evt)
 
 /*
  * Where a protection lands. A flat pack is not an overload and retrying it is pointless, so the
- * cutoff wins even when the sagging rail put its own bit up as well.
+ * cutoff wins even when the sagging 5V bus put its own bit up as well.
  */
 static AppState_t OnPowerProtection(uint8_t _faults)
 {
@@ -570,9 +590,11 @@ static AppState_t state_Off(const AppEvent_t *_evt)
       pwr_mngr_HostOff();
       IoControlShutdown();
 
-      // Nothing is left to cut, so a pending host power off has to go with the rail.
+      // Nothing is left to cut, so a pending host power off has to go with the 5V bus.
       xTimerStop(s_TimerPowerOffHandle, 0);
       s_PowerOffPending = false;
+
+      xTimerStop(s_TimerFaultForgiveHandle, 0);   // it only measures time spent in ON
     break;
 
     case APP_EVT_BUTTON:
@@ -628,24 +650,18 @@ static AppState_t state_PowerUp(const AppEvent_t *_evt)
       pwr_mngr_HostOn();
 
       // Start PowerUp timer:
-      res = xTimerChangePeriod(s_TimerPowerUpHandle, pdMS_TO_TICKS(APP_POWER_UP_TIME_MS), 0);
+      res = xTimerStart(s_TimerPowerUpHandle, 0);
       if (res != pdPASS)
         APP_ERROR(APP_ERR_RTOS_TIMER);
     }
     break;
 
     case APP_EVT_TIMER_POWER_UP:
-      // Settled - now the reading counts:
-      if (pwr_mngr_Is5vRailGood())
-      {
-        pwr_mngr_Arm5vCheck(true);
-        next = SM_APP_ON;
-      }
-      else
-      {
-        s_FaultMask = PWR_FAULT_5V_MASK;
-        next = SM_APP_FAULT;
-      }
+      /* The 5V bus is not judged here: analog_Get5vPi() is a 64 ms average, and at this point its
+       * window still covers the time before the boost came up. Arm the protection and let its
+       * debounce decide - see PWR_PROTECTION_SAMPLES. */
+      pwr_mngr_Arm5vCheck(true);
+      next = SM_APP_ON;
     break;
 
     case APP_EVT_POWER_PROTECTION:
@@ -664,15 +680,27 @@ static AppState_t state_On(const AppEvent_t *_evt)
   AppState_t next = SM_APP_ON;
   switch (_evt->type)
   {
+    case APP_EVT_SM_ENTRY:
+      LOG_INFO("[APP] state ON");
+      // Nothing to forgive unless a fault is on the record:
+      if (s_FaultAttempts != 0)
+      {
+        if (xTimerStart(s_TimerFaultForgiveHandle, 0) != pdPASS)
+          APP_ERROR(APP_ERR_RTOS_TIMER);
+      }
+      IoControlResume();     // the external circuit may be driven again
+    break;
+
     case APP_EVT_CHRGR_STATUS:
       // While the host is up, arm follows the source:
       SetWakeupOnChargeArmed(_evt->chargerStatus.status == CHG_STATUS_NO_VALID_SOURCE);
     break;
 
-    case APP_EVT_SM_ENTRY:
-      LOG_INFO("[APP] state ON");
-      s_FaultAttempts = 0;   // the rail carried the host, whatever went wrong before is history
-      IoControlResume();     // the external circuit may be driven again
+    case APP_EVT_TIMER_FAULT_FORGIVE:
+      // The 5V bus held this long, so an earlier trip no longer counts against the next one:
+      if (s_FaultAttempts != 0)
+        LOG_INFO("[APP] 5V BUS stable: fault attempts cleared");
+      s_FaultAttempts = 0;
     break;
 
     case APP_EVT_POWER_PROTECTION:
@@ -720,24 +748,24 @@ static AppState_t state_Fault(const AppEvent_t *_evt)
       pwr_mngr_Arm5vCheck(false);
       pwr_mngr_HostOff();
       IoControlShutdown();
+      xTimerStop(s_TimerFaultForgiveHandle, 0);   // it only measures time spent in ON
 
       s_FaultAttempts++;
-      LOG_ERROR("[APP] state FAULT, faults=0x%02X, attempt %u of %u", (unsigned)s_FaultMask,
-          (unsigned)s_FaultAttempts, (unsigned)APP_FAULT_MAX_ATTEMPTS);
+      LOG_ERROR("[APP] State FAULT: faul_mask=0x%02X, attempt=%u", (unsigned)s_FaultMask,
+          (unsigned)s_FaultAttempts);
 
       if (s_FaultAttempts >= APP_FAULT_MAX_ATTEMPTS)
-      {
-        LOG_CRITICAL("[APP] Rail keeps failing, giving up until a button press");
-        break;
-      }
-
-      if (xTimerChangePeriod(s_TimerFaultRetryHandle, pdMS_TO_TICKS(APP_FAULT_RETRY_MS), 0)
-          != pdPASS)
+        LOG_CRITICAL("[APP] 5V KEEPS FAILING: STAYING POWERED OFF");
+      else if (xTimerStart(s_TimerFaultRetryHandle, 0) != pdPASS)
         APP_ERROR(APP_ERR_RTOS_TIMER);
     break;
 
     case APP_EVT_TIMER_FAULT_RETRY:
-      return SM_APP_POWER_UP;
+    {
+      LOG_WARNING("[APP] Fault retry timeout: retrying power-up...");
+      next = SM_APP_POWER_UP;
+    }
+    break;
 
     case APP_EVT_BUTTON:
       // A press resets the attempt count and is the only recovery after exhaustion:
@@ -750,7 +778,7 @@ static AppState_t state_Fault(const AppEvent_t *_evt)
     break;
 
     default:
-    break;   /* Charge and RSOC events are deliberately ignored: an overloaded rail must not be
+    break;   /* Charge and RSOC events are deliberately ignored: an overloaded 5V bus must not be
               * raised again just because a charger appeared. */
   }
 
@@ -832,17 +860,24 @@ void app_Init(void)
                            sizeof(s_EvtQueBuf[0]), (uint8_t*)s_EvtQueBuf, &s_EvtQue);
   ASSERT(s_EvtQueHandle != NULL);
 
+  /* Every timer here is one shot and carries its period from creation, so arming is xTimerStart().
+   * PWR_OFF is the one exception: its delay comes from the host in register 0x62, so it is created
+   * with a placeholder and armed with xTimerChangePeriod(), which is what sets a fresh deadline. */
   s_TimerPowerOffHandle = xTimerCreateStatic("PWR_OFF", 1, pdFALSE,
                            NULL, OnTimerPowerOff, &s_TimerPowerOff);
   ASSERT(s_TimerPowerOffHandle != NULL);
 
-  s_TimerPowerUpHandle = xTimerCreateStatic("PWR_UP", 1, pdFALSE,
-                           NULL, OnTimerPowerUp, &s_TimerPowerUp);
+  s_TimerPowerUpHandle = xTimerCreateStatic("PWR_UP", pdMS_TO_TICKS(APP_POWER_UP_TIME_MS),
+                           pdFALSE, NULL, OnTimerPowerUp, &s_TimerPowerUp);
   ASSERT(s_TimerPowerUpHandle != NULL);
 
-  s_TimerFaultRetryHandle = xTimerCreateStatic("FLT_RTY", 1, pdFALSE,
-                           NULL, OnTimerFaultRetry, &s_TimerFaultRetry);
+  s_TimerFaultRetryHandle = xTimerCreateStatic("FLT_RTY", pdMS_TO_TICKS(APP_FAULT_RETRY_MS),
+                           pdFALSE, NULL, OnTimerFaultRetry, &s_TimerFaultRetry);
   ASSERT(s_TimerFaultRetryHandle != NULL);
+
+  s_TimerFaultForgiveHandle = xTimerCreateStatic("FLT_FRG", pdMS_TO_TICKS(APP_FAULT_FORGIVE_MS),
+                           pdFALSE, NULL, OnTimerFaultForgive, &s_TimerFaultForgive);
+  ASSERT(s_TimerFaultForgiveHandle != NULL);
 
   s_TaskHandleApp = xTaskCreateStatic(Task, "APP", sizeof(TaskStackApp)/sizeof(StackType_t),
                            NULL, 7,

@@ -104,7 +104,7 @@
 
 /*============================ ANALOG INPUTS =================================*/
 
-// 5V rail towards the host, ADC_IN0:
+// 5V bus towards the host, ADC_IN0:
 #define ADC_5V_PI_PORT        GPIOA     // PA0
 #define ADC_5V_PI_PIN         GPIO_PIN_0
 

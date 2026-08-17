@@ -630,7 +630,7 @@ bool battery_GetProfile(BatteryProfile_T *out)
 
 bool battery_UpdatePresence(void)
 {
-  bool present = charger_IsBatteryPresent() && (analog_GetVBattAvg() > BATTERY_PRESENT_MV);
+  bool present = charger_IsBatteryPresent() && (analog_GetVBatt() > BATTERY_PRESENT_MV);
 
   if (present == s_Present)
     return false;

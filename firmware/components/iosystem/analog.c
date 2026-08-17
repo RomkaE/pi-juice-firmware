@@ -89,9 +89,7 @@ static uint16_t s_AVDD;
 
 // Measured parameters:
 static int16_t s_TempMCU = INT16_MAX;         // TODO remove magic number
-static uint16_t s_RawBatt;
 static uint16_t s_VBatt;      // in mV
-static uint16_t s_VBattAvg;   // in mV
 static uint16_t s_5VPI;       // in mV
 static uint16_t s_RawPWR;
 
@@ -199,15 +197,14 @@ static void ProcessHalf(const uint16_t *half)
     updateAVDD(rawVref);
 
   // Battery: tap voltage against AVDD, then back through the divider.
-  s_RawBatt = acc[ADC_VBAT_CHN_IDX] >> ADC_HALF_SHIFT;
-  uint32_t vbatPinMv = ((uint32_t)s_RawBatt * s_AVDD) >> 12;
+  uint16_t raw_vbat = acc[ADC_VBAT_CHN_IDX] >> ADC_HALF_SHIFT;
+  uint32_t vbatPinMv = ((uint32_t)raw_vbat * s_AVDD) >> 12;
   s_VBatt = VBAT_FROM_PIN_MV(vbatPinMv);
-  s_VBattAvg = s_VBatt;           // the 32-frame average already is the smoothed value
 
   // PWR_DET raw counts. Unread since the 5V-IO detection was removed, still costs a scan slot.
   s_RawPWR = acc[ADC_PWR_CHN_IDX] >> ADC_HALF_SHIFT;
 
-  // 5V PI rail sensed through a /2 divider: >>11 == /4096 * 2.
+  // 5V PI bus sensed through a /2 divider: >>11 == /4096 * 2.
   uint16_t raw5v = acc[ADC_5VPI_CHN_IDX] >> ADC_HALF_SHIFT;
   s_5VPI = ((uint32_t)raw5v * s_AVDD) >> 11;
 
@@ -310,19 +307,9 @@ uint16_t analog_GetAvdd(void)
   return s_AVDD;
 }
 
-uint16_t analog_GetRawBatt(void)
-{
-  return s_RawBatt;
-}
-
 uint16_t analog_GetVBatt(void)
 {
   return s_VBatt;
-}
-
-uint16_t analog_GetVBattAvg(void)
-{
-  return s_VBattAvg;
 }
 
 uint16_t analog_Get5vPi()

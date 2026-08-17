@@ -20,20 +20,6 @@
 #define VBAT_DIVIDER_DEN      1000
 #define ADC_VREF_NOMINAL_MV   3300
 
-/*
- * Battery voltage in mV -> raw ADC count, for code that compares GetSample() readings
- * directly instead of converting them.
- *
- * Deliberately assumes the nominal reference rather than AnalogGetAvdd(): this is used on
- * the undervoltage cutoff path, which has to stay meaningful exactly when the supply is
- * sagging and the measured AVDD is least trustworthy. The cost is that the cutoff tracks
- * the real AVDD only as well as the 3.3 V rail holds.
- *
- * The evaluation order keeps every intermediate under 2^32 for mV up to ~1 MV.
- */
-#define VBAT_MV_TO_ADC(mV)  ((uint16_t)((uint32_t)(mV) * 4096U / VBAT_DIVIDER_NUM \
-          * VBAT_DIVIDER_DEN / ADC_VREF_NOMINAL_MV))
-
 // Mask errors:
 #define ANALOG_ERR_NO_STREAM      (1UL << 0)  // no DMA events within the watchdog timeout
 #define ANALOG_ERR_PROC_OVERRUN   (1UL << 1)  // processing task fell behind, half-buffers dropped
@@ -45,11 +31,7 @@ uint16_t analog_GetTempMCU(void);
 
 uint16_t analog_GetAvdd(void);
 
-uint16_t analog_GetRawBatt(void);
-
 uint16_t analog_GetVBatt(void);
-
-uint16_t analog_GetVBattAvg(void);
 
 uint16_t analog_Get5vPi(void);
 

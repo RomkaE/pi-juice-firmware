@@ -41,9 +41,9 @@ typedef enum
 #define PWR_REGULATOR_MODE_DCDC     2
 
 // Carried by APP_EVT_POWER_PROTECTION:
-#define PWR_FAULT_5V_MASK           0x01
-#define PWR_FAULT_AVDD              0x02
-#define PWR_FAULT_VBAT_CUTOFF       0x04
+#define PWR_FAULT_AVDD              0x01
+#define PWR_FAULT_VBAT_CUTOFF       0x02
+#define PWR_FAULT_5V_MASK           0x04
 
 void pwr_mngr_Init(bool _cold_start);
 
@@ -54,9 +54,6 @@ bool pwr_mngr_HostOff(void);
 void pwr_mngr_SetBatProfile(const BatteryProfile_T *_p_profile);
 
 void pwr_mngr_Arm5vCheck(bool _armed);
-
-// True while the rail reads good, or while AVDD is too low for the reading to mean anything.
-bool pwr_mngr_Is5vRailGood(void);
 
 // Published state, safe to read from any task or from the I2C1 interrupt.
 PowerSourceStatus_t pwr_mngr_GetInStatus(void);
