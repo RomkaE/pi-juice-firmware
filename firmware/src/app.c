@@ -385,35 +385,28 @@ static bool Init(void)
 
   // Get WakeupOnCharge config:
   {
-    nv_res = nv_read_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, &s_WakeupOnChargeConfig);
-    if (nv_res != NV_OK)
+    // Nothing stored: "never", and without bit 7 - the host must not read it back as non-volatile.
+    s_WakeupOnChargeConfig = 0x7F;
+    if (nv_read_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, &s_WakeupOnChargeConfig) == NV_OK)
     {
-      LOG_WARNING("[APP] Set default WAKEUP ON CHARGE config");
-      s_WakeupOnChargeConfig = 0x7F;
-      nv_write_U8(NV_ADDR_WAKEUPONCHARGE_CONFIG, s_WakeupOnChargeConfig);
+      if ((s_WakeupOnChargeConfig & 0x7F) > 100)
+        s_WakeupOnChargeConfig = 0x7F;   // out of range reads as "never"
+      else
+        s_WakeupOnChargeConfig |= 0x80;  // came out of NV, so the host reads it back as non-volatile
     }
-    else if ((s_WakeupOnChargeConfig & 0x7F) > 100)
-      s_WakeupOnChargeConfig = 0x7F;   // out of range reads as "never"
-    else
-      s_WakeupOnChargeConfig |= 0x80;  // came out of NV, so the host reads it back as non-volatile
   }
 
   // Get HostWDT config:
   {
-    uint8_t valueH, valueL;
-    nv_res = nv_read_U8(NV_ADDR_HOST_WDT_CONFIGL, &valueL);
-    if (nv_res == NV_OK)
-      nv_res = nv_read_U8(NV_ADDR_HOST_WDT_CONFIGH, &valueH);
-
-    if (nv_res == NV_OK)
-      s_WdtHostConfig = valueH << 8 | valueL;
-    else
+    // Only a complete pair counts - half a period would arm the watchdog with a bogus timeout.
+    uint8_t valueL = 0, valueH = 0;
+    if (nv_read_U8(NV_ADDR_HOST_WDT_CONFIGL, &valueL) != NV_OK
+     || nv_read_U8(NV_ADDR_HOST_WDT_CONFIGH, &valueH) != NV_OK)
     {
-      LOG_WARNING("[APP] Set default WDT HOST config");
-      s_WdtHostConfig = 0;
-      nv_write_U8(NV_ADDR_HOST_WDT_CONFIGL, (uint8_t)s_WdtHostConfig);
-      nv_write_U8(NV_ADDR_HOST_WDT_CONFIGH, (uint8_t)(s_WdtHostConfig >> 8));
+      valueL = 0;   // nothing stored: watchdog disabled
+      valueH = 0;
     }
+    s_WdtHostConfig = (uint16_t)valueH << 8 | valueL;
   }
 
   // Initialize all configured peripherals:
@@ -427,13 +420,8 @@ static bool Init(void)
   // EEPROM IC management:
   {
     HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, GPIO_PIN_SET); // ee write protect
-    uint8_t ee_addr = 0;   // nothing valid stored -> 0, which selects the default ee address
-    uint8_t nv_res = nv_read_U8(NV_ADDR_ID_EEPROM_ADR, &ee_addr);
-    if (nv_res != NV_OK)
-    {
-      LOG_WARNING("[APP] Set default EEPROM ADDR");
-      nv_write_U8(NV_ADDR_ID_EEPROM_ADR, ee_addr);
-    }
+    uint8_t ee_addr = 0;   // nothing stored -> 0, which selects the default ee address
+    (void)nv_read_U8(NV_ADDR_ID_EEPROM_ADR, &ee_addr);
     HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN,
                       (ee_addr & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
   }
@@ -460,13 +448,10 @@ static bool Init(void)
 
     /* Nor does the charger read NV itself. Both bytes are handed over below, together with the
      * profile - charger_SetBatProfile() cannot be used before charger_Init() has made the queue. */
-    uint8_t chgInputs, chgCharging;
-    nv_res = nv_read_U8(NV_ADDR_CHARGER_INPUTS_CONFIG, &chgInputs);
-    if (nv_res != NV_OK)
-      chgInputs = CHARGER_INPUTS_CONFIG_DEFAULT;
-    nv_res = nv_read_U8(NV_ADDR_CHARGING_CONFIG, &chgCharging);
-    if (nv_res != NV_OK)
-      chgCharging = CHARGER_CHARGING_CONFIG_DEFAULT;
+    uint8_t chgInputs = CHARGER_INPUTS_CONFIG_DEFAULT;
+    uint8_t chgCharging = CHARGER_CHARGING_CONFIG_DEFAULT;
+    (void)nv_read_U8(NV_ADDR_CHARGER_INPUTS_CONFIG, &chgInputs);
+    (void)nv_read_U8(NV_ADDR_CHARGING_CONFIG, &chgCharging);
 
     // Whatever NV holds may predate the precedence becoming board policy.
     chgInputs = charger_SanitizeInputsConfig(chgInputs);

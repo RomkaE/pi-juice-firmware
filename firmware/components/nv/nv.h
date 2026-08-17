@@ -10,8 +10,9 @@
 
 #include "stdint.h"
 
-#define NV_OK         (0)
-#define NV_ERR        (1)
+#define NV_OK         (0)   // value came out of the NV
+#define NV_ERR        (1)   // access failed, or the stored value is corrupted
+#define NV_ABSENT     (2)   // never written, or erased - a normal state, not a fault
 
 typedef enum
 {
@@ -146,6 +147,10 @@ uint8_t nv_Erase(void);
 
 uint8_t nv_write_U8(uint16_t _addr, uint8_t _var);
 
+/*
+ * Reads return NV_OK, NV_ABSENT or NV_ERR, and touch *_p_var only on NV_OK - so the caller can
+ * preload it with its default and ignore the result. Only NV_ERR is logged as an error.
+ */
 uint8_t nv_read_U8(uint16_t _addr, uint8_t *_p_var);
 
 uint8_t nv_write_U16(uint16_t _addr, uint16_t _var);
