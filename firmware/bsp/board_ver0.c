@@ -20,14 +20,16 @@ void bsp_ClockConfig(void)
 
   /**Initializes the CPU, AHB and APB busses clocks
   */
+  // LSI is listed on purpose: it clocks the IWDG, and once the watchdog is running the
+  // hardware holds LSI on regardless. Requesting it OFF here would hang waiting for LSIRDY.
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSI14
-                              |RCC_OSCILLATORTYPE_LSE;
+                              |RCC_OSCILLATORTYPE_LSE|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSI14State = RCC_HSI14_ON;
   RCC_OscInitStruct.HSICalibrationValue = 16;
   RCC_OscInitStruct.HSI14CalibrationValue = 16;
   RCC_OscInitStruct.LSEState = RCC_LSE_ON;
-  RCC_OscInitStruct.LSIState = RCC_LSI_OFF;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PREDIV = RCC_PREDIV_DIV1;

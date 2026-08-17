@@ -13,6 +13,7 @@
 #include "stm32f0xx_hal.h"
 #include "cube-mx/gpio.h"
 #include "cube-mx/dma.h"
+#include "cube-mx/iwdg.h"
 
 // LOG:
 #include "log/log.h"
@@ -26,6 +27,23 @@ void bsp_Init(void)
 
   MX_GPIO_Init();
   MX_DMA_Init();
+}
+
+void bsp_WdtStart(void)
+{
+#ifdef DEBUG
+  // Without this the counter keeps running while the core is halted on a breakpoint,
+  // so the board resets out from under the debugger.
+  __HAL_RCC_DBGMCU_CLK_ENABLE();
+  __HAL_DBGMCU_FREEZE_IWDG();
+#endif
+
+  MX_IWDG_Init();
+}
+
+void bsp_WdtRefresh(void)
+{
+  HAL_IWDG_Refresh(&hiwdg);
 }
 
 void bsp_Pwr5V_SetState(bool _state)

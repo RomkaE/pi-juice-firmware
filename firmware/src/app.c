@@ -29,13 +29,6 @@
 #include "driver/i2c/i2c_slave.h"
 #include "driver/i2c/i2c_master.h"
 
-// ST HAL/CubeMX:
-#include "stm32f0xx_hal.h"
-#include "cube-mx/i2c.h"
-#include "cube-mx/iwdg.h"
-#include "cube-mx/tim.h"
-#include "cube-mx/rtc.h"
-
 // FreeRTOS:
 #include "FreeRTOS.h"
 #include "task.h"
@@ -110,6 +103,20 @@ static uint8_t s_FaultAttempts;
 
 static TimerHandle_t s_TimerFaultForgiveHandle;
 static StaticTimer_t s_TimerFaultForgive;
+
+/*
+ * Watchdog refresh period. The IWDG window is 0.67 s at the fast end of the LSI spread, so this
+ * also has to stay well under that; and it caps the tickless idle sleep, which the ARM_CM0 port
+ * would otherwise stretch to 2.09 s and starve the watchdog on an idle board.
+ *
+ * Auto-reload and driven from the timer service task, which outranks every other task here:
+ * the refresh survives a busy application but stops on a hung ISR, on disabled interrupts and
+ * on a fault, since those are what keep the daemon off the CPU.
+ */
+#define APP_WDT_REFRESH_MS  250
+
+static TimerHandle_t s_TimerWdtHandle;
+static StaticTimer_t s_TimerWdt;
 
 /* How long the host must have been silent before an armed trigger may restart it. */
 /*
@@ -241,6 +248,12 @@ static void OnTimerFaultForgive(TimerHandle_t _timer)
   app_PostEvent(&event);
 }
 
+static void OnTimerWdt(TimerHandle_t _timer)
+{
+  (void)_timer;
+  bsp_WdtRefresh();
+}
+
 static void UpdateThermalState(void)
 {
   if (battery_UpdateThermalState())
@@ -368,6 +381,28 @@ static void ArmPowerOffTimer(uint8_t _delay_sec)
     LOG_INFO("[APP] POWER OFF in %usec.", (unsigned)_delay_sec);
 }
 
+/*
+ * Must run before the flags are cleared. Without it an IWDG reboot loop is invisible: the reset
+ * leaves retained memory valid, so every restart looks like an ordinary warm start.
+ */
+static void LogResetReason(void)
+{
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST))
+    LOG_ERROR("[RST] IWDG: the watchdog was not refreshed");
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_LPWRRST))
+    LOG_WARNING("[RST] low power");
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST))
+    LOG_INFO("[RST] software");
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))
+    LOG_INFO("[RST] power on");
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PINRST))
+    LOG_INFO("[RST] NRST pin");
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_OBLRST))
+    LOG_INFO("[RST] option bytes reload");
+
+  __HAL_RCC_CLEAR_RESET_FLAGS();
+}
+
 static bool Init(void)
 {
   bool cold_start = false;
@@ -386,12 +421,7 @@ static bool Init(void)
     SetWakeupOnChargeArmed(false);
   }
 
-  // TODO - move to BSP:
-  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))
-  {
-    // TODO add logs and processing all reset reasons
-  }
-  __HAL_RCC_CLEAR_RESET_FLAGS();
+  LogResetReason();
 
   /* Not fatal, but worth shouting about: with no usable emulated EEPROM every nv_read_U8()
    * fails and the whole configuration silently falls back to its compile time default -
@@ -429,7 +459,6 @@ static bool Init(void)
   }
 
   // Initialize all configured peripherals:
-//  MX_IWDG_Init();   // TODO - move to bsp/drivers
   pwr_mngr_Init(cold_start);
   analog_Init();
   IoControlInit();
@@ -831,6 +860,11 @@ static void Task(void *parameters)
   // the HAL tick and delay functions depend on the FreeRTOS system tick:
   bsp_ClockConfig();
 
+  // Watchdog last: the refresh timer must be running before the counter is.
+  if (xTimerStart(s_TimerWdtHandle, 0) != pdPASS)
+    APP_ERROR(APP_ERR_RTOS_TIMER);
+  bsp_WdtStart();
+
   LOG_INFO("APP task started");
   LOG_INFO("AppEvent_t: %lu ", sizeof(AppEvent_t));
   Init();
@@ -878,6 +912,10 @@ void app_Init(void)
   s_TimerFaultForgiveHandle = xTimerCreateStatic("FLT_FRG", pdMS_TO_TICKS(APP_FAULT_FORGIVE_MS),
                            pdFALSE, NULL, OnTimerFaultForgive, &s_TimerFaultForgive);
   ASSERT(s_TimerFaultForgiveHandle != NULL);
+
+  s_TimerWdtHandle = xTimerCreateStatic("WDT", pdMS_TO_TICKS(APP_WDT_REFRESH_MS),
+                           pdTRUE, NULL, OnTimerWdt, &s_TimerWdt);
+  ASSERT(s_TimerWdtHandle != NULL);
 
   s_TaskHandleApp = xTaskCreateStatic(Task, "APP", sizeof(TaskStackApp)/sizeof(StackType_t),
                            NULL, 7,

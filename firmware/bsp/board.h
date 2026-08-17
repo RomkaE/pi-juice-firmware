@@ -22,9 +22,14 @@
 
 #include <stdbool.h>
 
+void bsp_ClockConfig(void);
+
 void bsp_Init(void);
 
-void bsp_ClockConfig(void);
+// Starts the independent watchdog. It cannot be stopped again short of a reset.
+void bsp_WdtStart(void);
+
+void bsp_WdtRefresh(void);
 
 void bsp_Pwr5V_SetState(bool _state);
 

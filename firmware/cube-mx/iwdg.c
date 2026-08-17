@@ -29,17 +29,14 @@ IWDG_HandleTypeDef hiwdg;
 /* IWDG init function */
 void MX_IWDG_Init(void)
 {
-
-  // ##-3- Configure the IWDG peripheral ######################################*/
-  // Set counter reload value to obtain 250ms IWDG TimeOut.
-  //   IWDG counter clock Frequency = LsiFreq / 32
-  //   Counter Reload Value = 250ms / IWDG counter clock period
-  //                     = 0.25s / (32/LsiFreq)
-  //                      = LsiFreq / (32 * 4)
-  //                      = LsiFreq / 128
-  hiwdg.Instance = IWDG;
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_256;
-  hiwdg.Init.Reload    = 1300;//LSI_VALUE / 4; // 8 seconds
+  /*
+   * 1 s timeout at the nominal 40 kHz LSI: 625 * 64 / 40000. LSI is an RC spread over
+   * 30..60 kHz, so the real window is 0.67..1.33 s - the refresh period must fit the
+   * fast end, not the nominal one.
+   */
+  hiwdg.Instance       = IWDG;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_64;
+  hiwdg.Init.Reload    = 625;
   hiwdg.Init.Window    = IWDG_WINDOW_DISABLE;
 
   /* HAL_IWDG_Init() also starts the counter - there is no separate start. */
