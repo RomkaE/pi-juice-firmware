@@ -1,6 +1,3 @@
 /firmware/Debug/
+/firmware/Release/
 /stm32-cube-mx/
-/ANALOG-REFACTOR.md
-/I2C.md
-/REFACTOR_PLAN.md
-/TIMERS.md
