@@ -51,11 +51,12 @@ bool pwr_mngr_HostOn(void);
 
 bool pwr_mngr_HostOff(void);
 
-uint32_t pwr_mngr_HostRestart(void);
-
 void pwr_mngr_SetBatProfile(const BatteryProfile_T *_p_profile);
 
 void pwr_mngr_Arm5vCheck(bool _armed);
+
+// True while the rail reads good, or while AVDD is too low for the reading to mean anything.
+bool pwr_mngr_Is5vRailGood(void);
 
 // Published state, safe to read from any task or from the I2C1 interrupt.
 PowerSourceStatus_t pwr_mngr_GetInStatus(void);
@@ -76,8 +77,5 @@ uint8_t pwr_mngr_CmdGetVSysSwitchState(void);
 // Register 0x96, kept for host compatibility: writes ignored, reads answer DC-DC.
 void pwr_mngr_CmdSetRegulatorConfig(uint8_t data[], uint8_t len);
 void pwr_mngr_CmdGetRegulatorConfig(uint8_t data[], uint16_t *len);
-
-// The delay a power cycle needs, so APP can arm its timer - see pwr_mngr_HostRestart().
-#define PWR_POWER_CYCLE_MS  250
 
 #endif /* POWER_MANAGER_H_ */

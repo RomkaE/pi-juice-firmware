@@ -13,8 +13,6 @@
 #include "charger_bq2416x.h"
 #include "fuel_gauge_lc709203f.h"
 #include "iosystem/analog.h"
-#include "led/led.h"
-#include "to_refactor/io_control.h"
 #include "nv.h"
 #include "board.h"
 #include "utils/time_count.h"
@@ -28,7 +26,7 @@
 #define PWR_5V_FAULT_MV           4500
 #define PWR_AVDD_FAULT_MV         3150
 
-#define PWR_VBAT_CUTOFF_DEFAULT_MV  3000
+#define PWR_VBAT_CUTOFF_DEFAULT_MV  2800
 
 // Retained: the host reads these back as event flags after a brown out.
 static uint8_t s_StatusFlags __attribute__((section("no_init")));
@@ -42,9 +40,9 @@ static bool s_5vCheckArmed = true;
 static uint16_t s_VbatCutoffMv;
 static uint16_t s_VbatCutoffAdc;
 
-// Owned by the ANALOG task.
-//static uint8_t s_TripSamples;
-//static bool s_TripPosted;
+// Owned by the ANALOG task, reset by pwr_mngr_HostOn() when the rail comes back.
+static uint8_t s_TripSamples;
+static bool s_TripPosted;
 
 static RunPinInstallationStatus_t s_RunPin = RUN_PIN_NOT_INSTALLED;
 
@@ -53,37 +51,37 @@ void pwr_mngr_Arm5vCheck(bool _armed)
   s_5vCheckArmed = _armed;
 }
 
-//static bool HasEnergy(void)
-//{
-//  return analog_GetVBattAvg() > s_VbatCutoffMv || charger_IsInputPresent();
-//}
-
+bool pwr_mngr_Is5vRailGood(void)
+{
+  return analog_Get5vPi() >= PWR_5V_FAULT_MV;
+}
 
 /*
  * Runs in the ANALOG task, once per fresh dataset - see the contract in analog.h. Reads and hands
- * over; the rail is cut by APP so an in-flight flash write can finish. Shedding the load goes
- * through the modules that own those pins, not through their registers.
+ * over; the rail is cut by APP so an in-flight flash write can finish, and shedding the external
+ * load is a state action, not something this callback does.
  */
-void analog_SamplesReadyCallback(void)
+void analog_SamplesReady_Callback(void)
 {
-  //TODO
-  /*
   if (!bsp_Pwr5V_GetState())
-    return;
+    return;   // nothing to protect, and the readings below would be meaningless
 
-  uint8_t trip = PWR_TRIP_NONE;
+  uint8_t faults = 0;
 
-  return analog_Get5vPi() >= PWR_5V_FAULT_MV || analog_GetAvdd() <= PWR_5V_FAULT_AVDD_MV;
+  /* AVDD is the ADC reference, so once it sags the 5V figure means nothing. It does not confirm a
+   * rail fault then - it replaces it. */
+  if (analog_GetAvdd() < PWR_AVDD_FAULT_MV)
+    faults |= PWR_FAULT_AVDD;
+  else if (s_5vCheckArmed && !pwr_mngr_Is5vRailGood())
+    faults |= PWR_FAULT_5V_MASK;
 
+  if (analog_GetRawBatt() < s_VbatCutoffAdc && !charger_IsInputPresent())
+    faults |= PWR_FAULT_VBAT_CUTOFF;
 
-  if (s_5vCheckArmed && !pwr_mngr_Is5vRailGood())
-    trip = PWR_TRIP_5V_FAULT;
-  else if (analog_GetRawBatt() < s_VbatCutoffAdc && !charger_IsInputPresent())
-    trip = PWR_TRIP_VBAT_CUTOFF;
-
-  if (trip == PWR_TRIP_NONE)
+  if (faults == 0)
   {
     s_TripSamples = 0;
+    s_TripPosted = false;
     return;
   }
 
@@ -95,16 +93,13 @@ void analog_SamplesReadyCallback(void)
 
   s_TripPosted = true;   // one event per trip
 
-  LOG_WARNING("[PWR] protection trip=%u v5=%u vbat_raw=%u", (unsigned)trip,
-      (unsigned)analog_Get5vPi(), (unsigned)analog_GetRawBatt());
+  LOG_WARNING("[PWR] protection faults=0x%02X v5=%u avdd=%u vbat_raw=%u", (unsigned)faults,
+      (unsigned)analog_Get5vPi(), (unsigned)analog_GetAvdd(), (unsigned)analog_GetRawBatt());
 
-  led_Stop();
-  IoControlShutdown();
-
+  // Send event to app:
   AppEvent_t evt = { .type = APP_EVT_POWER_PROTECTION };
-  evt.powerTrip.trip = trip;
+  evt.powerTrip.faults = faults;
   app_PostEvent(&evt);
-  */
 }
 
 void pwr_mngr_Init(bool _cold_start)
@@ -143,12 +138,10 @@ bool pwr_mngr_HostOn(void)
   if (bsp_Pwr5V_GetState())
     return true;
 
-//  if (!HasEnergy())
-//  {
-//    LOG_WARNING("[PWR] turn on refused, vbat=%u cutoff=%u mV",
-//        (unsigned)analog_GetVBattAvg(), (unsigned)s_VbatCutoffMv);
-//    return false;
-//  }
+  /* The protection callback bails out while the rail is down, so it never gets to clear these
+   * itself - without this a retry would never see a second trip. */
+  s_TripSamples = 0;
+  s_TripPosted = false;
 
   bsp_Pwr5V_SetState(true);
   return true;
@@ -161,16 +154,6 @@ bool pwr_mngr_HostOff(void)
 
   bsp_Pwr5V_SetState(false);
   return true;
-}
-
-uint32_t pwr_mngr_HostRestart(void)
-{
-  if (!bsp_Pwr5V_GetState())
-    return 0;
-
-  bsp_Pwr5V_SetState(false);
-  LOG_INFO("[PWR] power cycle, back up in %u ms", (unsigned)PWR_POWER_CYCLE_MS);
-  return PWR_POWER_CYCLE_MS;
 }
 
 void pwr_mngr_SetBatProfile(const BatteryProfile_T *_p_profile)
@@ -243,7 +226,7 @@ void pwr_mngr_CmdGetRunPinConfig(uint8_t data[], uint16_t *len)
   *len = 1;
 }
 
-// TODO - the VSYS switch has never been driven; both halves stay stubs.
+// Not implemented now:
 void pwr_mngr_CmdSetVSysSwitchState(uint8_t _state)
 {
   (void)_state;

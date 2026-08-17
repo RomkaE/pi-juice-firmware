@@ -51,7 +51,7 @@ typedef enum
   SM_APP_OFF = 0,    // rail down, waiting for a reason to bring the host up
   SM_APP_POWER_UP,   // rail raised, giving it time before its output is judged
   SM_APP_ON,         // host powered
-  SM_APP_LOW_BATT,   // rail down, cut by a protection, waiting for energy to come back
+  SM_APP_FAULT,      // rail down because raising it failed - retries, then latches
   SM_APP_COUNT       // also bounds an entry chain - see fsm_Dispatch()
 } AppState_t;
 
@@ -80,20 +80,6 @@ static StaticTimer_t s_TimerPowerOff;
 static volatile bool s_PowerOffPending;
 
 /*
- * The wake triggers and the host watchdog: unlike the power off, these have nothing to arm a one
- * shot from - they answer to readings that arrive on their own (charge level, how long the host
- * has been quiet), so they are re-evaluated on a beat.
- */
-#define APP_POWER_POLICY_PERIOD_MS  500
-
-static TimerHandle_t s_PolicyTimerHandle;
-static StaticTimer_t s_PolicyTimer;
-
-// One shot that completes a power cycle: the rail comes back up when it fires.
-static TimerHandle_t s_RailOnTimerHandle;
-static StaticTimer_t s_RailOnTimer;
-
-/*
  * One shot that ends SM_APP_POWER_UP. The boost needs time before its output means anything, so
  * the rail is brought up, left alone for this long, and only then judged.
  */
@@ -101,6 +87,16 @@ static StaticTimer_t s_RailOnTimer;
 
 static TimerHandle_t s_TimerPowerUpHandle;
 static StaticTimer_t s_TimerPowerUp;
+
+/* One shot that backs off between attempts to raise the rail - see state_Fault(). */
+#define APP_FAULT_RETRY_MS      5000
+#define APP_FAULT_MAX_ATTEMPTS  3
+
+static TimerHandle_t s_TimerFaultRetryHandle;
+static StaticTimer_t s_TimerFaultRetry;
+
+static uint8_t s_FaultMask;       // what cut the rail last, for the log and register 0x45
+static uint8_t s_FaultAttempts;
 
 /* How long the host must have been silent before an armed trigger may restart it. */
 /*
@@ -158,7 +154,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   }
 }
 
-void button_ButtonFuncCallback(ButtonFunction_T _btn_func)
+void button_ButtonFunc_Callback(ButtonFunction_T _btn_func)
 {
   LOG_INFO("[APP]: Button event: func=%d", _btn_func);
   AppEvent_t event = { .type = APP_EVT_BUTTON,
@@ -166,7 +162,7 @@ void button_ButtonFuncCallback(ButtonFunction_T _btn_func)
   app_PostEvent(&event);
 }
 
-void button_ButtonRstCfgCallback(void)
+void button_ButtonRstCfg_Callback(void)
 {
   LOG_INFO("[APP]: Button RESET_CONFIG event");
   AppEvent_t event = { .type = APP_EVT_BUTTON_RESET_CONFIG,
@@ -174,7 +170,7 @@ void button_ButtonRstCfgCallback(void)
   app_PostEvent(&event);
 }
 
-void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot, uint8_t _changed)
+void charger_SnapshotChanged_Callback(const ChargerSnapshot_t *_p_snapshot, uint8_t _changed)
 {
   if (_changed & CHG_CHANGED_BATT_PRESENT)
   {
@@ -193,8 +189,8 @@ void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot, uint8
 
 void fuel_gauge_Temp_Callback(int8_t _temp)
 {
-  AppEvent_t event = { .type = APP_EVT_FG_TEMP,
-                       .fg.temperature = _temp };
+  (void)_temp;   // a notification, see AppEventFG_t
+  AppEvent_t event = { .type = APP_EVT_FG_TEMP };
   app_PostEvent(&event);
 }
 
@@ -219,23 +215,18 @@ static void OnTimerPowerUp(TimerHandle_t _timer)
   app_PostEvent(&event);
 }
 
-/*
-static void PolicyTimerCallback(TimerHandle_t _timer)
+static void OnTimerFaultRetry(TimerHandle_t _timer)
 {
   (void)_timer;
-  AppEvent_t event = { .type = APP_EVT_POWER_POLICY };
+  AppEvent_t event = { .type = APP_EVT_TIMER_FAULT_RETRY };
   app_PostEvent(&event);
 }
-*/
 
-/*
-static void RailOnTimerCallback(TimerHandle_t _timer)
+static void UpdateThermalState(void)
 {
-  (void)_timer;
-  AppEvent_t event = { .type = APP_EVT_RAIL_ON };
-  app_PostEvent(&event);
+  if (battery_UpdateThermalState())
+    charger_SetThermalState(battery_GetThermalState());
 }
-*/
 
 static void FanOutBatteryProfile(void)
 {
@@ -245,6 +236,9 @@ static void FanOutBatteryProfile(void)
   charger_SetBatProfile(p);
   fuel_gauge_SetBattProfile(p);
   pwr_mngr_SetBatProfile(p);
+
+  // New thresholds, so the old verdict no longer follows from them:
+  UpdateThermalState();
 }
 
 /*
@@ -333,25 +327,6 @@ static bool IsWakeupOnChargeAllowed(ChargerStatus_t _chrgr_status, uint16_t _rso
   // FUEL_GAUGE_RSOC_UNKNOWN and "never" are the same value, so it has to be ruled out first.
   return _rsoc != FUEL_GAUGE_RSOC_UNKNOWN
       && _rsoc >= WakeupChargeConfig2Percent(s_WakeupOnChargeConfig);
-}
-
-/*
- * Restarts the host. The rail has to come back on its own afterwards, so the one shot is armed
- * here - power_manager only says how long the cycle needs.
- */
-static bool HostRestart(void)
-{
-  uint32_t cycle_ms = pwr_mngr_HostRestart();
-  if (cycle_ms == 0)
-    return false;   // the rail was already down, there was nothing to cycle
-
-  if (xTimerChangePeriod(s_RailOnTimerHandle, pdMS_TO_TICKS(cycle_ms), 0) != pdPASS)
-  {
-    LOG_ERROR("[APP] could not arm the power cycle timer, rail stays down");
-    return false;
-  }
-
-  return true;
 }
 
 /* Arms the one shot for what the host asked for. APP task only - it talks to the timer service. */
@@ -446,7 +421,7 @@ static bool Init(void)
   pwr_mngr_Init(cold_start);
   analog_Init();
   IoControlInit();
-  led_Init();
+//  led_Init();
   button_Init();
 
   // EEPROM IC management:
@@ -509,14 +484,13 @@ static void ProcessEvent(const AppEvent_t *_evt)
   switch (_evt->type)
   {
     // Answered by the FSM alone - listed so they do not read as unhandled below.
-    /*
-    case APP_EVT_TIMER_POWER_OFF:
-    case APP_EVT_RAIL_ON:
-    case APP_EVT_TIMER_POWER_UP:
-    case APP_EVT_POWER_PROTECTION:
     case APP_EVT_BUTTON:
+    case APP_EVT_TIMER_POWER_OFF:
+    case APP_EVT_TIMER_POWER_UP:
+    case APP_EVT_TIMER_FAULT_RETRY:
+    case APP_EVT_POWER_PROTECTION:
+    case APP_EVT_CMD_SCHEDULE_POWER_OFF:
       break;
-  */
 
     case APP_EVT_BUTTON_RESET_CONFIG:
     {
@@ -527,7 +501,8 @@ static void ProcessEvent(const AppEvent_t *_evt)
     break;
 
     case APP_EVT_FG_TEMP:
-      break;   // TODO - nothing consumes the battery temperature yet
+      UpdateThermalState();
+    break;
 
     case APP_EVT_FG_RSOC:
       break;   // the wake policy owns it, see state_Off()
@@ -581,6 +556,24 @@ static void ProcessEvent(const AppEvent_t *_evt)
   }
 }
 
+/*
+ * Where a protection lands. A flat pack is not an overload and retrying it is pointless, so the
+ * cutoff wins even when the sagging rail put its own bit up as well.
+ */
+static AppState_t OnPowerProtection(uint8_t _faults)
+{
+  s_FaultMask = _faults;
+  pwr_mngr_SetStatusFlags(PWR_STATUS_FORCED_POWER_OFF);
+
+  if (_faults & PWR_FAULT_VBAT_CUTOFF)
+  {
+    SetWakeupOnChargeArmed(true);   // no energy left, come back when there is some
+    return SM_APP_OFF;
+  }
+
+  return SM_APP_FAULT;
+}
+
 static AppState_t state_Off(const AppEvent_t *_evt)
 {
   AppState_t next = SM_APP_OFF;
@@ -588,7 +581,13 @@ static AppState_t state_Off(const AppEvent_t *_evt)
   {
     case APP_EVT_SM_ENTRY:
       LOG_INFO("[APP] state OFF");
+      pwr_mngr_Arm5vCheck(false);
       pwr_mngr_HostOff();
+      IoControlShutdown();
+
+      // Nothing is left to cut, so a pending host power off has to go with the rail.
+      xTimerStop(s_TimerPowerOffHandle, 0);
+      s_PowerOffPending = false;
     break;
 
     case APP_EVT_BUTTON:
@@ -628,6 +627,7 @@ static AppState_t state_Off(const AppEvent_t *_evt)
 
 static AppState_t state_PowerUp(const AppEvent_t *_evt)
 {
+  AppState_t next = SM_APP_POWER_UP;
   BaseType_t res;
   switch (_evt->type)
   {
@@ -638,7 +638,8 @@ static AppState_t state_PowerUp(const AppEvent_t *_evt)
       // Wake-up handled, clear the arm:
       SetWakeupOnChargeArmed(false);
 
-      // Enable 5V boost:
+      // The boost output means nothing until it has settled, so do not judge it yet:
+      pwr_mngr_Arm5vCheck(false);
       pwr_mngr_HostOn();
 
       // Start PowerUp timer:
@@ -649,17 +650,28 @@ static AppState_t state_PowerUp(const AppEvent_t *_evt)
     break;
 
     case APP_EVT_TIMER_POWER_UP:
-    {
-      return SM_APP_ON;
-    }
+      // Settled - now the reading counts:
+      if (pwr_mngr_Is5vRailGood())
+      {
+        pwr_mngr_Arm5vCheck(true);
+        next = SM_APP_ON;
+      }
+      else
+      {
+        s_FaultMask = PWR_FAULT_5V_MASK;
+        next = SM_APP_FAULT;
+      }
     break;
 
+    case APP_EVT_POWER_PROTECTION:
+      // The cutoff check stays armed through the settle time, so it can fire this early.
+      return OnPowerProtection(_evt->powerTrip.faults);
 
     default:
     break;   // the host has not even booted yet, nothing it asks for applies
   }
 
-  return SM_APP_POWER_UP;
+  return next;
 }
 
 static AppState_t state_On(const AppEvent_t *_evt)
@@ -674,16 +686,12 @@ static AppState_t state_On(const AppEvent_t *_evt)
 
     case APP_EVT_SM_ENTRY:
       LOG_INFO("[APP] state ON");
-      // TODO - enable 5V power protection
-//      pwr_mngr_Arm5vCheck(true);
-//      OnWakeAccepted();   // whatever asked for this is satisfied now
+      s_FaultAttempts = 0;   // the rail carried the host, whatever went wrong before is history
+      IoControlResume();     // the external circuit may be driven again
     break;
 
     case APP_EVT_POWER_PROTECTION:
-      // TODO
-//      LOG_ERROR("[APP] protection cut, trip=%u", (unsigned)_ev->powerTrip.trip);
-//      pwr_mngr_SetStatusFlags(PWR_STATUS_FORCED_POWER_OFF);
-//      next = SM_APP_LOW_BATT;
+      next = OnPowerProtection(_evt->powerTrip.faults);
     break;
 
 
@@ -696,15 +704,8 @@ static AppState_t state_On(const AppEvent_t *_evt)
       }
       else if (_evt->button.func == BUTTON_EVENT_FUNC_POWER_RESET)
       {
+        // TODO - there is no RUN pin on this board, so a restart means a power cycle. Not done yet.
         LOG_WARNING("[APP] State ON rcvd button FUNC_POWER_RESET");
-//        if (HostRestart())
-//          next = SM_APP_OFF;
-      }
-      else if (_evt->button.func == BUTTON_EVENT_FUNC_POWER_ON)
-      {
-        LOG_WARNING("[APP] State ON rcvd button FUNC_POWER_ON");
-//         HostRestart();
-//         next = SM_APP_OFF;
       }
     break;
 
@@ -725,32 +726,50 @@ static AppState_t state_On(const AppEvent_t *_evt)
   return next;
 }
 
-static AppState_t state_LowBatt(const AppEvent_t *_evt)
+static AppState_t state_Fault(const AppEvent_t *_evt)
 {
+  AppState_t next = SM_APP_FAULT;
   switch (_evt->type)
   {
     case APP_EVT_SM_ENTRY:
-      LOG_INFO("[APP] state LOW_BATT");
-//      CancelScheduledPowerOff();
-//      pwr_mngr_Arm5vCheck(false);
-//      pwr_mngr_RailOff();
-//      s_WakeupOnCharge = APP_WAKEUP_ON_CHARGE_MIN;   // come back once there is any energy
+      pwr_mngr_Arm5vCheck(false);
+      pwr_mngr_HostOff();
+      IoControlShutdown();
+
+      s_FaultAttempts++;
+      LOG_ERROR("[APP] state FAULT, faults=0x%02X, attempt %u of %u", (unsigned)s_FaultMask,
+          (unsigned)s_FaultAttempts, (unsigned)APP_FAULT_MAX_ATTEMPTS);
+
+      if (s_FaultAttempts >= APP_FAULT_MAX_ATTEMPTS)
+      {
+        LOG_CRITICAL("[APP] Rail keeps failing, giving up until a button press");
+        break;
+      }
+
+      if (xTimerChangePeriod(s_TimerFaultRetryHandle, pdMS_TO_TICKS(APP_FAULT_RETRY_MS), 0)
+          != pdPASS)
+        APP_ERROR(APP_ERR_RTOS_TIMER);
     break;
 
-    /*
-    case APP_EVT_POWER_POLICY:
-      // The only way out: enough charge to be worth trying again.
-//      if (IsWakeDue())
-//        return SM_APP_POWER_UP;
-    break;
+    case APP_EVT_TIMER_FAULT_RETRY:
+      return SM_APP_POWER_UP;
 
-*/
+    case APP_EVT_BUTTON:
+      // A press resets the attempt count and is the only recovery after exhaustion:
+      if (_evt->button.func == BUTTON_EVENT_FUNC_POWER_ON)
+      {
+        LOG_WARNING("[APP] FAULT retry triggered by button");
+        s_FaultAttempts = 0;
+        next = SM_APP_POWER_UP;
+      }
+    break;
 
     default:
-    break;
+    break;   /* Charge and RSOC events are deliberately ignored: an overloaded rail must not be
+              * raised again just because a charger appeared. */
   }
 
-  return SM_APP_LOW_BATT;
+  return next;
 }
 
 // The only place that maps a state to its handler.
@@ -761,7 +780,7 @@ static AppState_t fsm_Handle(AppState_t _state, const AppEvent_t *_evt)
     case SM_APP_OFF:       return state_Off(_evt);
     case SM_APP_POWER_UP:  return state_PowerUp(_evt);
     case SM_APP_ON:        return state_On(_evt);
-    case SM_APP_LOW_BATT:  return state_LowBatt(_evt);
+    case SM_APP_FAULT:     return state_Fault(_evt);
     default:
       APP_ERROR(APP_ERR);
       return _state;
@@ -800,6 +819,7 @@ static void Task(void *parameters)
   bsp_ClockConfig();
 
   LOG_INFO("APP task started");
+  LOG_INFO("AppEvent_t: %lu ", sizeof(AppEvent_t));
   Init();
 
   // Restore correct FSM state:
@@ -808,9 +828,6 @@ static void Task(void *parameters)
   // Entry event to start FSM:
   const AppEvent_t entry_evt = { .type = APP_EVT_SM_ENTRY };
   fsm_Dispatch(&entry_evt);
-
-//  if (xTimerStart(s_PolicyTimerHandle, 0) != pdPASS)
-//    LOG_ERROR("[APP] power policy timer start failed, wake triggers will not run");
 
   while(1)
   {
@@ -838,18 +855,9 @@ void app_Init(void)
                            NULL, OnTimerPowerUp, &s_TimerPowerUp);
   ASSERT(s_TimerPowerUpHandle != NULL);
 
-  // TODO
-  /*
-  s_PolicyTimerHandle = xTimerCreateStatic("PWR_POL", pdMS_TO_TICKS(APP_POWER_POLICY_PERIOD_MS),
-                           pdTRUE, NULL, PolicyTimerCallback, &s_PolicyTimer);
-  ASSERT(s_PolicyTimerHandle != NULL);
-  */
-
-  /*
-  s_RailOnTimerHandle = xTimerCreateStatic("RAIL_ON", 1, pdFALSE,
-                           NULL, RailOnTimerCallback, &s_RailOnTimer);
-  ASSERT(s_RailOnTimerHandle != NULL);
-  */
+  s_TimerFaultRetryHandle = xTimerCreateStatic("FLT_RTY", 1, pdFALSE,
+                           NULL, OnTimerFaultRetry, &s_TimerFaultRetry);
+  ASSERT(s_TimerFaultRetryHandle != NULL);
 
   s_TaskHandleApp = xTaskCreateStatic(Task, "APP", sizeof(TaskStackApp)/sizeof(StackType_t),
                            NULL, 7,

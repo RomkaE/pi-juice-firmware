@@ -265,8 +265,11 @@ void IoControlInit() {
   MX_TIM14_Init();
   IoNvReadConfig(1);
 	IoNvReadConfig(2);
-	IoConfigure(1);
-	IoConfigure(2);
+
+	/* The pins are not raised here. They carry an external circuit, and after a reset with the host
+	 * down that circuit would get a pulse for as long as it takes the state machine to park them.
+	 * IoControlResume() brings them up, from the ON state. */
+	ioShutdown = 1;
 }
 
 // Locals only, not IoConfigure(): that walks the shared gpioInitStruct/ioPort/htim scratch, which
@@ -285,6 +288,14 @@ void IoControlShutdown(void)
 	HAL_GPIO_Init(EXT_IO1_PORT, &io);
 	io.Pin = EXT_IO2_PIN;
 	HAL_GPIO_Init(EXT_IO2_PORT, &io);
+}
+
+void IoControlResume(void)
+{
+	ioShutdown = 0;   // first: IoConfigure() bails out on this very flag
+
+	IoConfigure(1);
+	IoConfigure(2);
 }
 
 void IoSetConfiguarion(uint8_t pin, uint8_t data[], uint8_t len) {
@@ -351,6 +362,13 @@ void IoWrite(uint8_t pin, uint8_t data[], uint8_t len)
 
 void IoRead(uint8_t pin, uint8_t data[], uint16_t *len)
 {
+	if (ioShutdown) {   // parked in analog mode, a read back would mean nothing
+		data[0] = 0;
+		data[1] = 0;
+		*len = 2;
+		return;
+	}
+
 	if (pin == 1) {
 		gpioInitStruct.Pin = EXT_IO1_PIN;
 		ioPort = EXT_IO1_PORT;

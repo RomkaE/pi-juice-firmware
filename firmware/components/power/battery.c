@@ -11,9 +11,7 @@
 #include "power/battery.h"
 #include "power/charger_bq2416x.h"
 #include "iosystem/analog.h"
-#include "fuel_gauge_lc709203f.h"
 #include "nv.h"
-#include "led.h"
 #include "src/app.h"
 
 // FreeRTOS:
@@ -536,15 +534,15 @@ static void applyWriteCustomExtendedProfile(const BatteryProfile_T *req)
 }
 
 void battery_UpdateChargeLed(void)
-{
+{/*
   static uint8_t b = 0;
 
   uint16_t rsoc = fuel_gauge_GetRsoc();   // 0.1% units
   uint8_t r, g;
   if (rsoc == FUEL_GAUGE_RSOC_UNKNOWN)
   {
-    /* No charge reading at all. Red alone is the "fault" colour here - showing green would
-     * claim a full pack we have no evidence for. */
+    // No charge reading at all. Red alone is the "fault" colour here -
+    // showing green would claim a full pack we have no evidence for.
     r = led_GetParamR(LED_CHARGE_STATUS);
     g = 0;
   }
@@ -581,6 +579,7 @@ void battery_UpdateChargeLed(void)
   }
 
   led_SetFuncRGB(LED_CHARGE_STATUS, r, g, b);
+  */
 }
 
 /*============================ PUBLIC API ====================================*/
@@ -681,7 +680,7 @@ bool battery_UpdateThermalState(void)
     return false;
 
   s_ThermalState = state;
-  LOG_INFO("[BAT] thermal state %u", (unsigned)state);
+  LOG_INFO("[BAT] Thermal state %u", (unsigned)state);
   return true;
 }
 

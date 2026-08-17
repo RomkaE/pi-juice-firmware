@@ -62,6 +62,6 @@ uint32_t analog_GetErrMask(bool _clear);
  * Runs in the ANALOG task, which must drain the next DMA half in time: do not block, do not take
  * a lock another task can hold across a flash write. Read and post an event, nothing more.
  */
-void analog_SamplesReadyCallback(void);
+void analog_SamplesReady_Callback(void);
 
 #endif /* ANALOG_H_ */

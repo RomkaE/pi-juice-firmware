@@ -32,7 +32,21 @@
 #define CHG_INT_PORT          GPIOF     // PF0
 #define CHG_INT_PIN           GPIO_PIN_0
 
-// NTC divider control, drives the temperature the charger sees:
+/*
+ * TS divider control. Both pins reach the charger's TS node through 10k, with 14k from TS to
+ * ground; the 1.69k that would bias TS from VDRV is marked N.P. on the schematic, so the node has
+ * no source of its own and these two pins are the only thing holding it:
+ *
+ *   1/1 -> 3.3 * 14/19    = 2.432 V = 73.7 % -> cold
+ *   1/0 -> 3.3 * 5.83/15.83 = 1.216 V = 36.8 % -> normal
+ *   0/0 -> 0 V                                 -> hot
+ *
+ * 0/1 is the same node as 1/0, so there are three levels, not five.
+ *
+ * TODO(hw): keep both pins LOW. Nothing drives them, and that is deliberate - see the TS_EN
+ * comment in charger_bq2416x.c. The zero is what stops the charge once the charger falls back to
+ * DEFAULT mode and re-enables TS monitoring on its own. Raising them removes that protection.
+ */
 #define CHG_NTC_CTRL1_PORT    GPIOA     // PA6
 #define CHG_NTC_CTRL1_PIN     GPIO_PIN_6
 #define CHG_NTC_CTRL2_PORT    GPIOA     // PA15

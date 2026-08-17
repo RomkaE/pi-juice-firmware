@@ -558,6 +558,7 @@ static void publish_Temp(FgReadResult_t _res, int8_t _temp)
         {
           LOG_WARNING("[FG] No usable temperature. Set UNKNOWN");
           s_BattTemp = FUEL_GAUGE_TEMP_UNKNOWN;
+          fuel_gauge_Temp_Callback(s_BattTemp);
         }
       }
       break;
@@ -565,8 +566,6 @@ static void publish_Temp(FgReadResult_t _res, int8_t _temp)
     default:
       break;
   }
-
-  // TODO - add callback
 }
 
 static void publish_RSOC(FgReadResult_t _res, uint16_t _rsoc)
@@ -593,6 +592,7 @@ static void publish_RSOC(FgReadResult_t _res, uint16_t _rsoc)
         {
           LOG_WARNING("[FG] No usable RSOC: currently UNKNOWN");
           s_BattRsoc = FUEL_GAUGE_RSOC_UNKNOWN;
+          fuel_gauge_Rsoc_Callback(s_BattRsoc);
         }
       }
       break;
@@ -600,8 +600,6 @@ static void publish_RSOC(FgReadResult_t _res, uint16_t _rsoc)
     default:
       break;
   }
-
-  // TODO - add callback
 }
 
 static bool cmdProcess(const FuelGaugeEvent_t *_ev)

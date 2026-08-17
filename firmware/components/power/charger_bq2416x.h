@@ -118,6 +118,6 @@ uint32_t charger_GetErrMask(bool _clear);
 
 /* The mask is what the publisher already computes to log the transitions, so the consumer does not
  * have to keep a second mirror of the snapshot just to rediscover it. */
-void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot, uint8_t _changed);
+void charger_SnapshotChanged_Callback(const ChargerSnapshot_t *_p_snapshot, uint8_t _changed);
 
 #endif /* CHARGER_BQ2416X_H_ */

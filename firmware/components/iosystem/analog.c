@@ -216,7 +216,7 @@ static void ProcessHalf(const uint16_t *half)
   int32_t v30 = (((uint32_t)*TEMP30_CAL_ADDR) * TEMPSENSOR_CAL_VREFANALOG) >> 12;
   s_TempMCU = (v30 - vtemp) / 43 + 30;
 
-  analog_SamplesReadyCallback();   // last, so the hook sees a complete set
+  analog_SamplesReady_Callback();   // last, so the hook sees a complete set
 }
 
 static void Task(void *parameters)
@@ -345,6 +345,6 @@ uint32_t analog_GetErrMask(bool _clear)
   return mask;
 }
 
-__attribute__((weak)) void analog_SamplesReadyCallback(void)
+__attribute__((weak)) void analog_SamplesReady_Callback(void)
 {
 }

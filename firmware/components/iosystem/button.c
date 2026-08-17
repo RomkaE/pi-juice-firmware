@@ -229,7 +229,7 @@ static void ProcessButton( uint8_t b, GPIO_PinState pinState ) {
 		{
 		  LOG_DEBUG("[BTN] Button event: btn=%u, event=%u, func=%u",
 		      (unsigned)b, (unsigned)buttons[b].event, (unsigned)func);
-		  button_ButtonFuncCallback(func);
+		  button_ButtonFunc_Callback(func);
 	    button_ClearEvent(b);
 		}
 		else
@@ -254,7 +254,7 @@ static void ProcessAllButtons(void) {
 	if ((buttons[0].staticLongPressEvent && buttons[1].staticLongPressEvent) > oldDualLongPressStatus)
 	{
 	  // Callback:
-	  button_ButtonRstCfgCallback();
+	  button_ButtonRstCfg_Callback();
 	}
 }
 
@@ -471,11 +471,11 @@ uint32_t button_GetErrMask(bool _clear) {
 	return mask;
 }
 
-__attribute__((weak)) void button_ButtonFuncCallback(ButtonFunction_T _btn_func)
+__attribute__((weak)) void button_ButtonFunc_Callback(ButtonFunction_T _btn_func)
 {
   (void)_btn_func;
 }
 
-__attribute__((weak)) void button_ButtonRstCfgCallback(void)
+__attribute__((weak)) void button_ButtonRstCfg_Callback(void)
 {
 }

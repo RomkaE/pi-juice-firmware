@@ -59,8 +59,8 @@ int8_t button_IsActive(void);
 
 uint32_t button_GetErrMask(bool _clear);
 
-void button_ButtonFuncCallback(ButtonFunction_T _btn_func);
+void button_ButtonFunc_Callback(ButtonFunction_T _btn_func);
 
-void button_ButtonRstCfgCallback(void);
+void button_ButtonRstCfg_Callback(void);
 
 #endif /* BUTTON_H_ */

@@ -28,11 +28,10 @@ typedef enum
   APP_EVT_FG_RSOC,
 
   APP_EVT_CMD_SCHEDULE_POWER_OFF,                 // host register 0x62 - app_OnCmdSchedulePowerOff()
-//  APP_EVT_POWER_POLICY,                           // see the power policy timer in app.c
-//  APP_EVT_RAIL_ON,                                // the power cycle down time has elapsed
 
   APP_EVT_TIMER_POWER_UP,
   APP_EVT_TIMER_POWER_OFF,
+  APP_EVT_TIMER_FAULT_RETRY,                      // the fault backoff has elapsed, try the rail again
 
   APP_EVT_CMD_BATT_SET_PROFILE,                    // host register 0x82 - battery_CmdSetProfile()
   APP_EVT_CMD_BATT_WRITE_CUSTOM_PROFILE,           // host register 0x86 - battery_CmdWriteCustomProfile()
@@ -99,10 +98,10 @@ typedef struct
   uint8_t value;
 } AppEventChargerValue_t;
 
-/* Which protection cut the rail - see PowerTrip_t. */
+/* Which protections cut the rail - a mask of PWR_FAULT_*, several may stand at once. */
 typedef struct
 {
-  uint8_t trip;
+  uint8_t faults;
 } AppEventPowerTrip_t;
 
 /* Register 0x62 as the host wrote it: seconds until the cut, or 0xFF to call it off. */
@@ -111,9 +110,10 @@ typedef struct
   uint8_t delay_sec;
 } AppEventPowerOff_t;
 
+/* APP_EVT_FG_TEMP carries nothing: the thermal verdict also depends on the profile thresholds, so
+ * it is re-evaluated from the current reading rather than from a value frozen into the event. */
 typedef struct
 {
-  int8_t temperature;
   uint16_t rsoc;
 } AppEventFG_t;
 

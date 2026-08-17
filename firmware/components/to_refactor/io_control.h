@@ -18,7 +18,7 @@ void IoGetConfiguarion(uint8_t pin, uint8_t data[], uint16_t *len);
 void IoWrite(uint8_t pin, uint8_t data[], uint8_t len);
 void IoRead(uint8_t pin, uint8_t data[], uint16_t *len);
 
-// Park both external IOs and refuse later drive requests. One way - the trip ends in a power off.
 void IoControlShutdown(void);
+void IoControlResume(void);
 
 #endif /* IO_CONTROL_H_ */

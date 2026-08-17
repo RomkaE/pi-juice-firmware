@@ -166,7 +166,7 @@ typedef struct
   uint8_t in_current_limit;   // host 0x5E bit 3: 0 = 1.5 A, 1 = 2.5 A
   uint8_t in_dpm;             // host 0x5E bits 6:4, 4.20 V + 80 mV per step
   uint8_t charging_enabled;   // host 0x51 bit 0
-  uint8_t thermal_state;      // BatteryThermalState_T, aggregated by battery.c
+  BatteryThermalState_T thermal_state;
   uint8_t profile_valid;
   BqBattProfile_t profile;
 } ChargerConfig_t;
@@ -311,7 +311,7 @@ static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
   if (changed)
   {
     s_Snapshot = *_p_snapshot;
-    charger_SnapshotChangedCallback(_p_snapshot, changed);
+    charger_SnapshotChanged_Callback(_p_snapshot, changed);
   }
 }
 
@@ -433,7 +433,16 @@ static void TargetRegsBuild(const ChargerConfig_t *_p_cfg)
   s_TargetRegs.reg.safety_ntc.raw = 0;
   s_TargetRegs.reg.safety_ntc.rd_wr.tmr = BQ_TMR_OFF;
   s_TargetRegs.reg.safety_ntc.rd_wr.tmr2x_en = 0;
-  s_TargetRegs.reg.safety_ntc.rd_wr.ts_en = 0;   // the thermistor is read by the fuel gauge
+  // TS_EN stays clear while the bus is alive: the pack thermistor is read by the fuel gauge, and
+  // the temperature policy runs from here over I2C - CE, the regulation voltage and LOW_CHG - which
+  // is finer than the three levels the TS divider can produce.
+  //
+  // The clear is only half of it. CHG_NTC_CTRL1/2 sit at 0, which puts the TS node at 0 V, and the
+  // device powers up with TS_EN set. So once the bus goes quiet and the watchdog drops the device
+  // into DEFAULT mode, TS monitoring comes back on, reads a hot pack and stops the charge on its
+  // own - see board_ver0.h. That is the dead man's switch, and it only works while those pins stay
+  // low. Driving them to the "normal" 1/0 pair would silently take it away.
+  s_TargetRegs.reg.safety_ntc.rd_wr.ts_en = 0;
 
   // COLD and COOL both sit below tCool: halve the charge current.
   if (_p_cfg->profile_valid && _p_cfg->thermal_state != BAT_TEMP_UNKNOWN
@@ -958,7 +967,7 @@ uint32_t charger_GetErrMask(bool _clear)
   return mask;
 }
 
-__attribute__((weak)) void charger_SnapshotChangedCallback(const ChargerSnapshot_t *_p_snapshot,
+__attribute__((weak)) void charger_SnapshotChanged_Callback(const ChargerSnapshot_t *_p_snapshot,
                                                            uint8_t _changed)
 {
   (void)_p_snapshot;
