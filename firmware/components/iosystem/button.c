@@ -29,17 +29,6 @@
 
 #define BUTTON_COUNT              3
 
-/*
- * Sampling grid while at least one button is active. The state machine is time driven - long
- * press deadlines, the double press window, the 30 s event timeout - so an EXTI edge alone
- * cannot carry it; the edge only wakes the task, this period advances it. The polled version
- * ran on the ~20 ms main_poll() cadence.
- *
- * It is also the only debounce in the system - sampling straight off the interrupt would make
- * contact bounce visible - and it sets how precisely a press duration is measured: the release
- * edge is only seen at a sample point, so a measured duration runs about half a period long.
- * Against the 100 ms unit the host configures times in, keep this well under 100 ms.
- */
 #define BUTTON_POLL_PERIOD_MS     20
 
 /*
@@ -213,12 +202,14 @@ static void ProcessButton( uint8_t b, GPIO_PinState pinState ) {
 		if (timePased > BUTTON_STATIC_LONG_PRESS_TIME) {
 			buttons[b].staticLongPressEvent = 1;
 		}
-	} else if ( buttons[b].tempEvent && pinState == GPIO_PIN_RESET && buttons[b].doublePressFunc!=BUTTON_EVENT_NO_FUNC  && MS_TIME_COUNT(buttons[b].pressTimer)  > buttons[b].doublePressTime ) {
-		// generate single press event only if there was no double press
-		if ( buttons[b].tempEvent == BUTTON_EVENT_SINGLE_PRESS ) {
-			buttons[b].event = BUTTON_EVENT_SINGLE_PRESS;
-		} else if ( buttons[b].tempEvent == BUTTON_EVENT_RELEASE ) {
-			buttons[b].event = BUTTON_EVENT_RELEASE;
+	} else if ( buttons[b].tempEvent && pinState == GPIO_PIN_RESET && MS_TIME_COUNT(buttons[b].pressTimer)  > buttons[b].doublePressTime ) {
+		if ( buttons[b].doublePressFunc != BUTTON_EVENT_NO_FUNC ) {
+			// generate single press event only if there was no double press
+			if ( buttons[b].tempEvent == BUTTON_EVENT_SINGLE_PRESS ) {
+				buttons[b].event = BUTTON_EVENT_SINGLE_PRESS;
+			} else if ( buttons[b].tempEvent == BUTTON_EVENT_RELEASE ) {
+				buttons[b].event = BUTTON_EVENT_RELEASE;
+			}
 		}
 		buttons[b].tempEvent = 0;
 	}
@@ -232,12 +223,13 @@ static void ProcessButton( uint8_t b, GPIO_PinState pinState ) {
 		  LOG_DEBUG("[BTN] Button event: btn=%u, event=%u, func=%u",
 		      (unsigned)b, (unsigned)buttons[b].event, (unsigned)func);
 		  button_ButtonFunc_Callback(func);
-	    button_ClearEvent(b);
+		  button_ClearEvent(b);
 		}
 		else
 		{
-      LOG_WARNING("[BTN] Unhundled button event: btn=%u, event=%u, func=%u",
-          (unsigned)b, (unsigned)buttons[b].event, (unsigned)func);
+		  LOG_WARNING("[BTN] Unhandled button event: btn=%u, event=%u, func=%u",
+		      (unsigned)b, (unsigned)buttons[b].event, (unsigned)func);
+		  button_ClearEvent(b);
 		}
 	}
 
@@ -333,30 +325,40 @@ static void ApplyConfig(const ButtonCfg_t *_pCmd) {
 
 static void Task(void *parameters)
 {
-	(void)parameters;
+  (void)parameters;
 
-	LOG_INFO("BUTTON task started");
+  LOG_INFO("BUTTON task started");
 
-	for (uint8_t b = 0; b < BUTTON_COUNT; b++)
-		LoadConfig(b);
+  for (uint8_t b = 0; b < BUTTON_COUNT; b++)
+    LoadConfig(b);
 
-	while (1)
-	{
-		/*
-		 * Sleep until an EXTI edge or a queued command while everything is idle, otherwise
-		 * keep the sampling grid. The pins are configured GPIO_MODE_IT_RISING in
-		 * cube-mx/gpio.c, so only a press interrupts - a release is picked up by the grid,
-		 * which is already running because the button was pressed.
-		 */
-		TickType_t wait = AnyActive() ? pdMS_TO_TICKS(BUTTON_POLL_PERIOD_MS) : portMAX_DELAY;
-		ulTaskNotifyTake(pdTRUE, wait);
+  TickType_t last_sample = xTaskGetTickCount();
 
-		ButtonCfg_t btn_cfg;
-		while (xQueueReceive(s_CmdQueHandle, &btn_cfg, 0) == pdTRUE)
-			ApplyConfig(&btn_cfg);
+  while (1)
+  {
+    if (AnyActive())
+    {
+      xTaskDelayUntil(&last_sample, pdMS_TO_TICKS(BUTTON_POLL_PERIOD_MS));
+    }
+    else
+    {
+      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+      last_sample = xTaskGetTickCount();
+    }
 
-		ProcessAllButtons();
-	}
+    ButtonCfg_t btn_cfg;
+    bool applied = false;
+    while (xQueueReceive(s_CmdQueHandle, &btn_cfg, 0) == pdTRUE)
+    {
+      ApplyConfig(&btn_cfg);
+      applied = true;
+    }
+
+    if (applied)
+      last_sample = xTaskGetTickCount();
+
+    ProcessAllButtons();
+  }
 }
 
 /*============================ PUBLIC API ====================================*/
@@ -378,7 +380,6 @@ void button_Init(void) {
 
 void button_NotifyFromISR(void)
 {
-  ASSERT(s_TaskHandle != NULL);
 	if (s_TaskHandle == NULL)
 		return;
 
@@ -410,10 +411,7 @@ void button_SetConfig(uint8_t _b, uint8_t _pData[], uint8_t _len) {
 	 * ten emulated EEPROM writes that can trigger a flash page transfer.
 	 */
 	if (s_CmdQueHandle == NULL)
-	{
-	  ASSERT(0);
-		return;   // posted before button_Init(), there is no queue yet
-	}
+		return;   // host wrote before button_Init(); it will retry, and NV still holds the setting
 
 	ButtonCfg_t cmd;
 	cmd.index = _b;
