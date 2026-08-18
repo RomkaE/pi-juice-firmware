@@ -9,6 +9,7 @@
 #include "i2c_slave.h"
 #include "to_refactor/rtc_ds1339_emu.h"
 #include "to_refactor/command_server.h"
+#include "app-error/diag.h"
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
@@ -54,7 +55,7 @@ void i2c_slave_OnRxCplt(I2C_HandleTypeDef *hi2c1)
       (uint8_t*) &aSlaveReceiveBuffer[ubSlaveReceiveIndex], 1, I2C_NEXT_FRAME)
       != HAL_OK)
   {
-    Error_Handler();
+    diag_Set(DIAG_I2C1_SLAVE_ERR);
   }
   tstFlagi2c = 2;
 }
@@ -74,7 +75,7 @@ void i2c_slave_OnAddr(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
         (uint8_t*) &aSlaveReceiveBuffer[ubSlaveReceiveIndex], 1,
         I2C_FIRST_FRAME) != HAL_OK)
     {
-      Error_Handler();
+      diag_Set(DIAG_I2C1_SLAVE_ERR);
     }
     tstFlagi2c = 4;
   }
@@ -117,7 +118,7 @@ void i2c_slave_OnAddr(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
     if (HAL_I2C_Slave_Seq_Transmit_IT(hi2c, (uint8_t*) slaveTransmitBuffer,
         dataLen, I2C_FIRST_AND_NEXT_FRAME) != HAL_OK)
     {
-      Error_Handler();
+      diag_Set(DIAG_I2C1_SLAVE_ERR);
     }
   }
 }
@@ -176,6 +177,11 @@ void i2c_slave_OnListenCplt(I2C_HandleTypeDef *hi2c)
  * clear the AF flag left by a master NACKing the end of a read. */
 void i2c_slave_OnError(I2C_HandleTypeDef *hi2c)
 {
+  /* AF alone is the master's terminating NACK on a read - routine, not a fault. Anything else
+   * (BERR/ARLO/OVR) is worth reporting. */
+  if (hi2c->ErrorCode & ~(uint32_t)HAL_I2C_ERROR_AF)
+    diag_Set(DIAG_I2C1_SLAVE_ERR);
+
   __HAL_I2C_CLEAR_FLAG(hi2c, I2C_FLAG_AF);
 }
 

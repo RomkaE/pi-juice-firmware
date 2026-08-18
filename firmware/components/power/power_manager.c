@@ -17,6 +17,7 @@
 #include "board.h"
 #include "utils/time_count.h"
 #include "src/app.h"
+#include "app-error/diag.h"
 
 // LOG:
 #include "log/log.h"
@@ -108,6 +109,11 @@ void analog_SamplesReady_Callback(void)
   {
     s_TripSamples = 0;
     s_TripPosted = false;
+
+    // The conditions are live: once a clean dataset arrives, stop reporting them as present.
+    diag_Clear(DIAG_PWR_AVDD_SAG);
+    diag_Clear(DIAG_PWR_5V_UNDER);
+    diag_Clear(DIAG_PWR_VBAT_CUTOFF);
     return;
   }
 
@@ -118,6 +124,14 @@ void analog_SamplesReady_Callback(void)
     return;
 
   s_TripPosted = true;   // one event per trip
+
+  /* Reported once per trip, same as the event: the counters must measure trips, not datasets. */
+  if (faults & PWR_FAULT_AVDD)
+    diag_Set(DIAG_PWR_AVDD_SAG);
+  if (faults & PWR_FAULT_5V_MASK)
+    diag_Set(DIAG_PWR_5V_UNDER);
+  if (faults & PWR_FAULT_VBAT_CUTOFF)
+    diag_Set(DIAG_PWR_VBAT_CUTOFF);
 
   LOG_WARNING("[PWR] Protection: faults=0x%02X, avdd=%umV, vbat=%umV, 5V=%umV", (unsigned)faults,
       (unsigned)analog_GetAvdd(), (unsigned)analog_GetVBatt(), (unsigned)analog_Get5vPi());

@@ -10,6 +10,7 @@
 #include "analog.h"
 #include "nv.h"
 #include "app-error/app_error.h"
+#include "app-error/diag.h"
 #include "app-error/app_assert.h"
 
 // ST HAL/CubeMX:
@@ -112,7 +113,6 @@ extern TIM_HandleTypeDef htim15;
 static const uint16_t *s_pReadyHalfBuf;
 static bool s_fAdcOverrun;          // ADC hardware OVR: a conversion in DR was overwritten before DMA read it
 static uint32_t s_LostEvents;       // running total of half-buffers dropped because the task fell behind
-static uint32_t s_ErrMask;          // ANALOG_ERR_* fault bits for external reporting (written only from Task)
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc_)
 {
@@ -246,28 +246,24 @@ static void Task(void *parameters)
     if (n_events == 0)
     {
       LOG_ERROR("[ADC] No ADC data stream");
-      taskENTER_CRITICAL();
-      s_ErrMask |= ANALOG_ERR_NO_STREAM;   
-      taskEXIT_CRITICAL();
+      diag_Set(DIAG_ADC_NO_STREAM);
       continue;
     }
+
+    diag_Clear(DIAG_ADC_NO_STREAM);   // a notification arrived, the stream is alive
 
     if (--n_events)
     {
       s_LostEvents += n_events;
       LOG_ERROR("[ADC] Data processing overrun: lost events cnt=%lu", s_LostEvents);
-      taskENTER_CRITICAL();
-      s_ErrMask |= ANALOG_ERR_PROC_OVERRUN;
-      taskEXIT_CRITICAL();
+      diag_Set(DIAG_ADC_PROC_OVERRUN);
     }
 
     if (s_fAdcOverrun)
     {
       LOG_ERROR("[ADC] Hardware overrun");
       s_fAdcOverrun = false;
-      taskENTER_CRITICAL();
-      s_ErrMask |= ANALOG_ERR_HW_OVERRUN;
-      taskEXIT_CRITICAL();
+      diag_Set(DIAG_ADC_HW_OVERRUN);
     }
 
     // Capture and clear the ready-half pointer atomically w.r.t. the DMA ISR so a callback
@@ -320,16 +316,6 @@ uint16_t analog_Get5vPi()
 uint16_t analog_GetRawPWR(void)
 {
   return s_RawPWR;
-}
-
-uint32_t analog_GetErrMask(bool _clear)
-{
-  taskENTER_CRITICAL();
-  uint32_t mask = s_ErrMask;
-  if (_clear)
-    s_ErrMask &= ~mask;
-  taskEXIT_CRITICAL();
-  return mask;
 }
 
 __attribute__((weak)) void analog_SamplesReady_Callback(void)

@@ -21,9 +21,10 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "board.h"
+#include "app-error/app_error.h"
+#include "app-error/diag.h"
 
 /* USER CODE BEGIN 0 */
-//extern void SysTickCb();
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -40,12 +41,13 @@ extern RTC_HandleTypeDef hrtc;
 */
 void NMI_Handler(void)
 {
-  /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
-
-  /* USER CODE END NonMaskableInt_IRQn 0 */
-  /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
-
-  /* USER CODE END NonMaskableInt_IRQn 1 */
+  /*
+   * Left empty because it is unreachable here: on F0 the NMI vector is wired to the clock security
+   * system alone, and this build has no HSE (bsp/board_ver0.c selects HSI only, PLL off) and never
+   * enables CSS. That is the whole justification - if an HSE appears or CSS is switched on, this
+   * needs the fatal path, because an empty handler simply returns and a standing NMI condition
+   * would re-enter it forever.
+   */
 }
 
 /**
@@ -53,16 +55,10 @@ void NMI_Handler(void)
 */
 void HardFault_Handler(void)
 {
-  /* USER CODE BEGIN HardFault_IRQn 0 */
-
-  /* USER CODE END HardFault_IRQn 0 */
-  while (1)
-  {
-  }
-  /* USER CODE BEGIN HardFault_IRQn 1 */
-
-  /* USER CODE END HardFault_IRQn 1 */
+  diag_Set(DIAG_RESET_HARDFAULT);
+  APP_ERROR(APP_ERR_HARD_FAULT);
 }
+
 /*
  * SVC_Handler, PendSV_Handler and SysTick_Handler are provided by the FreeRTOS
  * Cortex-M0 port (portasm.c / port.c) and must not be defined here.

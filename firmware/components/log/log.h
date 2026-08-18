@@ -8,6 +8,8 @@ extern "C" {
 
 /*============================ INCLUDES ======================================*/
 
+#include <stdbool.h>
+
 #include "log_config.h"
 
 /*============================ TYPES =========================================*/
@@ -27,6 +29,7 @@ extern "C" {
 #if LOG_ENABLED == 1
 
 #define LOG_INIT(x)						log_Init(x)
+#define LOG_FLUSH()						Log_Flush()
 #define LOG(level, format_msg, ...)		Log_Printf(level, 0, format_msg, ##__VA_ARGS__)
 #define LOGN(level, format_msg, ...)	Log_Printf(level, 1, format_msg, ##__VA_ARGS__)
 
@@ -48,6 +51,8 @@ extern "C" {
 #else
 
 #define LOG_INIT(x)
+#define LOG_FLUSH()
+#define Log_EnterFatal()				(0)
 #define LOG(level, format_msg, ...)
 #define LOGN(level, format_msg, ...)
 #define LOG_CRITICAL(format_msg, ...)
@@ -75,6 +80,30 @@ extern "C" {
 void log_Init(unsigned char level);
 
 void Log_Printf(unsigned char level, char nline, const char * format_msg, ...);
+
+/*
+ * Waits until the back end has handed everything off, then returns. Meant for the fatal path:
+ * without it the last lines before a reset are still sitting in the RTT up-buffer, unread.
+ *
+ * Bounded by a spin budget, never blocks forever - with no debugger attached nothing drains the
+ * buffer, and a fatal handler that hangs there would be worse than losing the tail. Safe from any
+ * context (no RTOS calls, no allocation), but pointless from an ISR: prefer to defer the fatal
+ * path to thread mode and flush there.
+ */
+void Log_Flush(void);
+
+/*
+ * One-shot latch for the fatal path. Returns true the first time only, so the ASSERT/APP_ERROR
+ * macros log the first failure and stay quiet afterwards - Log_Printf() asserts internally, and
+ * without this a failure inside it would recurse straight back into the logging that caused it.
+ * Never reset: the fatal path always ends in a reset.
+ *
+ * Gated: with LOG_ENABLED=0 the name is taken by the (0) macro above, and declaring a prototype
+ * for it there expands the macro with "void" as an argument.
+ */
+#if LOG_ENABLED == 1
+bool Log_EnterFatal(void);
+#endif
 
 /* Only the buffered back ends need a pump task. The RTT back end writes
  * straight through from Log_Printf(). */

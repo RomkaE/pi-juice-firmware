@@ -13,11 +13,6 @@
 
 #define LED_D1                  0
 
-// Mask errors:
-#define LED_ERR_QUEUE_FULL      (1UL << 0)  // command dropped, the task did not drain in time
-#define LED_ERR_NOT_READY       (1UL << 1)  // command posted before led_Init() created the queue
-#define LED_ERR_NV_WRITE        (1UL << 2)  // configuration did not read back valid from the NV
-
 typedef enum LedFunction_T
 {
   LED_NOT_USED = 0,
@@ -54,7 +49,5 @@ uint8_t led_GetParamR(LedFunction_T _func);
 uint8_t led_GetParamG(LedFunction_T _func);
 
 uint8_t led_GetParamB(LedFunction_T _func);
-
-uint32_t led_GetErrMask(bool _clear);
 
 #endif /* LED_H_ */

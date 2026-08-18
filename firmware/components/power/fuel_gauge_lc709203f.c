@@ -15,6 +15,7 @@
 #include "utils/utils.h"
 #include "app-error/app_assert.h"
 #include "app-error/app_error.h"
+#include "app-error/diag.h"
 
 // FreeRTOS:
 #include "FreeRTOS.h"
@@ -148,10 +149,6 @@ static TickType_t s_StateTimeout = portMAX_DELAY;   // in ticks
 static uint16_t s_BattRsoc = FUEL_GAUGE_RSOC_UNKNOWN;
 static int8_t s_BattTemp = FUEL_GAUGE_TEMP_UNKNOWN;
 
-// Diagnostic/errors:
-static uint32_t s_ErrMask;
-static bool s_IcFault;
-
 // Battery profile, copied in - never a live pointer into another task's memory:
 static FgBattProfile_t s_BattProfile;
 static bool s_BattProfileValid;
@@ -172,12 +169,14 @@ static int8_t readWord(uint8_t _reg, uint16_t *_word)
   if (i2c_res != I2C_OK)
   {
     LOG_ERROR("[FG] readWord FAILED. i2c bus err: reg=0x%02X, res=%d", _reg, i2c_res);
+    diag_Set(DIAG_FG_BUS_ERR);
     return 1;
   }
 
   if (Crc8Block(0, buf, 5) != buf[5])
   {
     LOG_WARNING("[FG] readWord FAILED. CRC mismatch: reg=0x%02X, res=%d", _reg, i2c_res);
+    diag_Set(DIAG_FG_CRC_ERR);
     return -1;
   }
 
@@ -193,6 +192,7 @@ static int8_t writeWord(uint8_t _reg, uint16_t _word)
   if (i2c_res != I2C_OK)
   {
     LOG_ERROR("[FG] writeWord FAILED: reg=0x%02X, res=%d", _reg, i2c_res);
+    diag_Set(DIAG_FG_BUS_ERR);
     return 1;
   }
   return 0;
@@ -542,6 +542,7 @@ static void publish_Temp(FgReadResult_t _res, int8_t _temp)
   {
     case FG_READ_OK:
       stale_cnt = 0;
+      diag_Clear(DIAG_FG_TEMP_STALE);
       if (s_BattTemp != _temp)
       {
         s_BattTemp = _temp;
@@ -557,6 +558,7 @@ static void publish_Temp(FgReadResult_t _res, int8_t _temp)
         if (stale_cnt == FG_STALE_LIMIT)
         {
           LOG_WARNING("[FG] No usable temperature. Set UNKNOWN");
+          diag_Set(DIAG_FG_TEMP_STALE);
           s_BattTemp = FUEL_GAUGE_TEMP_UNKNOWN;
           fuel_gauge_Temp_Callback(s_BattTemp);
         }
@@ -576,6 +578,7 @@ static void publish_RSOC(FgReadResult_t _res, uint16_t _rsoc)
   {
     case FG_READ_OK:
       stale_cnt = 0;
+      diag_Clear(DIAG_FG_RSOC_STALE);
       if (s_BattRsoc != _rsoc)
       {
         s_BattRsoc = _rsoc;
@@ -591,6 +594,7 @@ static void publish_RSOC(FgReadResult_t _res, uint16_t _rsoc)
         if (stale_cnt == FG_STALE_LIMIT)
         {
           LOG_WARNING("[FG] No usable RSOC: currently UNKNOWN");
+          diag_Set(DIAG_FG_RSOC_STALE);
           s_BattRsoc = FUEL_GAUGE_RSOC_UNKNOWN;
           fuel_gauge_Rsoc_Callback(s_BattRsoc);
         }
@@ -644,7 +648,7 @@ static FuelGaugeState_t state_NoBattery(const FuelGaugeEvent_t *_ev)
       s_StateTimeout = portMAX_DELAY;   // nothing to do until APP says otherwise
       s_BattRsoc = FUEL_GAUGE_RSOC_UNKNOWN;
       s_BattTemp = FUEL_GAUGE_TEMP_UNKNOWN;
-      s_IcFault = false;    // no pack means no power to the IC - that is not the IC's fault
+      diag_Clear(DIAG_FG_UNREACHABLE);   // no pack means no power to the IC - not the IC's fault
       break;
 
     case FG_EV_BATTERY_PRESENT:
@@ -676,7 +680,7 @@ static FuelGaugeState_t state_IcInit(const FuelGaugeEvent_t *_ev)
     {
       LOG_INFO("[FG] FSM state IC_INIT");
       s_StateTimeout = 0;   // first attempt at once, the tick below paces the retries after it
-      s_IcFault = false;    // being tried again - not written off until the attempts run out
+      diag_Clear(DIAG_FG_UNREACHABLE);   // being tried again - not written off until attempts run out
       init_attempts = 0;
     }
     break;
@@ -724,7 +728,7 @@ static FuelGaugeState_t state_IcActive(const FuelGaugeEvent_t *_ev)
     case FG_EV_ENTRY:
       LOG_INFO("[FG] FSM state IC_ACTIVE");
       s_StateTimeout = pdMS_TO_TICKS(FG_MEAS_PERIOD_MS);
-      s_IcFault = false;
+      diag_Clear(DIAG_FG_UNREACHABLE);
       err_count = 0;
       break;
 
@@ -779,7 +783,7 @@ static FuelGaugeState_t state_IcLost(const FuelGaugeEvent_t *_ev)
       s_StateTimeout = pdMS_TO_TICKS(FG_RETRY_PERIOD_MS);
       s_BattRsoc = FUEL_GAUGE_RSOC_UNKNOWN;
       s_BattTemp = FUEL_GAUGE_TEMP_UNKNOWN;
-      s_IcFault = true;
+      diag_Set(DIAG_FG_UNREACHABLE);
       break;
 
     case FG_EV_TICK:
@@ -877,9 +881,7 @@ static bool PostEvent(const FuelGaugeEvent_t *_ev)
   if (!sent)
   {
     LOG_CRITICAL("[FG] event queue full, ev=%u dropped", (unsigned)_ev->type);
-    taskENTER_CRITICAL();
-    s_ErrMask |= FUEL_GAUGE_ERR_QUEUE_FULL;
-    taskEXIT_CRITICAL();
+    diag_Set(DIAG_QUE_FULL_FG);
   }
   return sent;
 }
@@ -948,7 +950,7 @@ BatteryTempSenseConfig_t fuel_gauge_GetTempSenseConfig(void)
 
 bool fuel_gauge_IsIcFault(void)
 {
-  return s_IcFault;
+  return diag_IsSet(DIAG_FG_UNREACHABLE);
 }
 
 bool fuel_gauge_IsTempSenseFault(void)
@@ -964,16 +966,6 @@ bool fuel_gauge_IsConfigValid(uint8_t config)
 uint8_t fuel_gauge_GetConfig(void)
 {
   return FUEL_GAUGE_CONFIG_DEFAULT;
-}
-
-uint32_t fuel_gauge_GetErrMask(bool _clear)
-{
-  taskENTER_CRITICAL();
-  uint32_t mask = s_ErrMask;
-  if (_clear)
-    s_ErrMask &= ~mask;
-  taskEXIT_CRITICAL();
-  return mask;
 }
 
 __attribute__ ((weak)) void fuel_gauge_Temp_Callback(int8_t _temp)

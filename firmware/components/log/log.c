@@ -237,5 +237,42 @@ int log_poll()
 }
 #endif /* LOG_TO_CDC */
 
+// Log_Flush() spin budget:
+#define LOG_FLUSH_SPIN_BUDGET   10000UL
+
+bool Log_EnterFatal(void)
+{
+  static volatile bool s_fFatalLogged;
+
+  if (s_fFatalLogged)
+    return false;
+
+  s_fFatalLogged = true;
+  return true;
+}
+
+void Log_Flush(void)
+{
+#if LOG_TO_RTT
+  /*
+   * Nothing to push: Log_Printf() writes straight into the up-buffer. What is left is waiting for
+   * the host to consume it, which only happens if a debugger is attached - hence the budget.
+   */
+  for (volatile uint32_t n = LOG_FLUSH_SPIN_BUDGET; n; n--)
+  {
+    if (SEGGER_RTT_HasDataUp(LOG_RTT_BUFF_IDX) == 0)
+      break;
+  }
+#endif /* LOG_TO_RTT */
+
+#if LOG_TO_CDC
+  // Buffered back end: drain the FIFO through the pump, same budget.
+  for (volatile uint32_t n = LOG_FLUSH_SPIN_BUDGET; n; n--)
+  {
+    if (!log_poll())
+      break;
+  }
+#endif /* LOG_TO_CDC */
+}
 
 #endif /* LOG_ENABLED */

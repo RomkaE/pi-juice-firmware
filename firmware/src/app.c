@@ -25,6 +25,7 @@
 #include "board.h"
 #include "app-error/app_assert.h"
 #include "app-error/app_error.h"
+#include "app-error/diag.h"
 
 #include "driver/i2c/i2c_slave.h"
 #include "driver/i2c/i2c_master.h"
@@ -49,8 +50,6 @@ typedef enum
 
 /* Assigned here once, at startup, and only by fsm_Dispatch() after that. */
 static AppState_t s_State = SM_APP_OFF;
-
-uint8_t i2cErrorCounter = 0;
 
 extern uint8_t alarmEventFlag;
 
@@ -118,13 +117,6 @@ static StaticTimer_t s_TimerFaultForgive;
 static TimerHandle_t s_TimerWdtHandle;
 static StaticTimer_t s_TimerWdt;
 
-/* How long the host must have been silent before an armed trigger may restart it. */
-/*
-#define APP_HOST_QUIET_MS         15000
-#define APP_TURNON_HOST_QUIET_MS  11000
-#define APP_TURNON_WAKE_QUIET_MS  12000
-#define APP_WAKE_REARM_MS         30000
-*/
 
 #define APP_WAKEUP_ON_CHARGE_OFF  0xFFFF
 #define APP_WAKEUP_ON_CHARGE_MIN  5     // RSOC 5%, armed when a protection cuts the 5V bus
@@ -251,6 +243,7 @@ static void OnTimerFaultForgive(TimerHandle_t _timer)
 static void OnTimerWdt(TimerHandle_t _timer)
 {
   (void)_timer;
+
   bsp_WdtRefresh();
 }
 
@@ -384,13 +377,23 @@ static void ArmPowerOffTimer(uint8_t _delay_sec)
 /*
  * Must run before the flags are cleared. Without it an IWDG reboot loop is invisible: the reset
  * leaves retained memory valid, so every restart looks like an ordinary warm start.
+ *
+ * The abnormal causes also go into the diag registry, which is retained, so the host sees them in
+ * 0xC3/0xC7 rather than only the RTT log. DIAG_RESET_FATAL is not set here - the fatal handler
+ * stamps that itself, because a deliberate reset and the config-reset button share RCC_FLAG_SFTRST.
  */
 static void LogResetReason(void)
 {
   if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST))
+  {
     LOG_ERROR("[RST] IWDG: the watchdog was not refreshed");
+    diag_Set(DIAG_RESET_IWDG);
+  }
   if (__HAL_RCC_GET_FLAG(RCC_FLAG_LPWRRST))
+  {
     LOG_WARNING("[RST] low power");
+    diag_Set(DIAG_RESET_LPWR);
+  }
   if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST))
     LOG_INFO("[RST] software");
   if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))
@@ -784,7 +787,10 @@ static AppState_t state_Fault(const AppEvent_t *_evt)
           (unsigned)s_FaultAttempts);
 
       if (s_FaultAttempts >= APP_FAULT_MAX_ATTEMPTS)
+      {
         LOG_CRITICAL("[APP] 5V KEEPS FAILING: STAYING POWERED OFF");
+        diag_Set(DIAG_PWR_FAULT_LATCHED);
+      }
       else if (xTimerStart(s_TimerFaultRetryHandle, 0) != pdPASS)
         APP_ERROR(APP_ERR_RTOS_TIMER);
     break;
@@ -802,6 +808,7 @@ static AppState_t state_Fault(const AppEvent_t *_evt)
       {
         LOG_WARNING("[APP] FAULT retry triggered by button");
         s_FaultAttempts = 0;
+        diag_Clear(DIAG_PWR_FAULT_LATCHED);
         next = SM_APP_POWER_UP;
       }
     break;
@@ -939,6 +946,7 @@ void app_PostEvent(const AppEvent_t *_p_event)
   if (!sent)
   {
     LOG_CRITICAL("[APP] APP queue full. Event %u dropped", _p_event->type);
+    diag_Set(DIAG_QUE_FULL_APP);
     APP_ERROR(APP_ERR_RTOS_QUEUE);
   }
 

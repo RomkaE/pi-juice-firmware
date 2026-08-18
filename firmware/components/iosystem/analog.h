@@ -20,11 +20,6 @@
 #define VBAT_DIVIDER_DEN      1000
 #define ADC_VREF_NOMINAL_MV   3300
 
-// Mask errors:
-#define ANALOG_ERR_NO_STREAM      (1UL << 0)  // no DMA events within the watchdog timeout
-#define ANALOG_ERR_PROC_OVERRUN   (1UL << 1)  // processing task fell behind, half-buffers dropped
-#define ANALOG_ERR_HW_OVERRUN     (1UL << 2)  // ADC hardware OVR: a conversion was overwritten in DR
-
 void analog_Init(void);
 
 uint16_t analog_GetTempMCU(void);
@@ -36,8 +31,6 @@ uint16_t analog_GetVBatt(void);
 uint16_t analog_Get5vPi(void);
 
 uint16_t analog_GetRawPWR(void);
-
-uint32_t analog_GetErrMask(bool _clear);
 
 /*
  * Weak no-op, called once per half ring (~64 ms) after every value above is updated.

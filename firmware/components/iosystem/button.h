@@ -13,9 +13,6 @@
 
 #define BUTTON_STATIC_LONG_PRESS_TIME	19600
 
-// Mask errors:
-#define BUTTON_ERR_QUEUE_FULL   (1UL << 0)  // configuration command dropped, the task did not drain
-
 // Button event function definitions, special functions 0 - 15, user button event functions 15 - 31, other values reserved
 typedef enum ButtonFunction_T {
 	BUTTON_EVENT_NO_FUNC = 0,
@@ -56,8 +53,6 @@ void button_GetConfig(uint8_t _b, uint8_t _pData[], uint16_t *_pLen);
 
 /* Reserved for the planned sleep mode - intentionally without callers, do not remove. */
 int8_t button_IsActive(void);
-
-uint32_t button_GetErrMask(bool _clear);
 
 void button_ButtonFunc_Callback(ButtonFunction_T _btn_func);
 

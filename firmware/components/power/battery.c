@@ -12,6 +12,7 @@
 #include "power/charger_bq2416x.h"
 #include "iosystem/analog.h"
 #include "nv.h"
+#include "app-error/diag.h"
 #include "src/app.h"
 
 // FreeRTOS:
@@ -253,10 +254,8 @@ static bool s_CurrentProfileValid;
 
 /* "Write pending" mirror for host register 0x82/0x86 read-back, same idiom as led.c: a write is
  * applied asynchronously by the task, so a read arriving before it has must answer "busy". */
-static volatile uint8_t s_ProfileReqSeq;
-static volatile uint8_t s_ProfileAppliedSeq;
-
-static uint32_t s_ErrMask;  // BATTERY_ERR_* bits
+static uint8_t s_ProfileReqSeq;
+static uint8_t s_ProfileAppliedSeq;
 
 /*============================ PRIVATE ========================================*/
 
@@ -267,6 +266,11 @@ static void setCurrentProfile(const BatteryProfile_T *profile)
   if (profile != NULL)
     s_CurrentProfile = *profile;
   taskEXIT_CRITICAL();
+
+  if (profile != NULL)
+    diag_Clear(DIAG_BAT_PROFILE_INVALID);
+  else
+    diag_Set(DIAG_BAT_PROFILE_INVALID);
 }
 
 static int8_t readExtendedEEprofileData(void)
@@ -835,14 +839,4 @@ void battery_ReadProfileStatus(uint8_t *data, uint16_t *len)
 {
   data[0] = (s_ProfileReqSeq != s_ProfileAppliedSeq) ? BATTERY_PROFILE_WRITE_BUSY_STATUS : s_BatProfileStatus;
   *len = 1;
-}
-
-uint32_t battery_GetErrMask(bool _clear)
-{
-  taskENTER_CRITICAL();
-  uint32_t mask = s_ErrMask;
-  if (_clear)
-    s_ErrMask &= ~mask;
-  taskEXIT_CRITICAL();
-  return mask;
 }

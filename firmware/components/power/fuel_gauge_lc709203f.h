@@ -12,10 +12,6 @@
 #include <stdbool.h>
 #include "battery.h"
 
-// Mask errors:
-#define FUEL_GAUGE_ERR_QUEUE_FULL   (1UL << 0)  // event dropped, the task did not drain in time
-#define FUEL_GAUGE_ERR_NOT_READY    (1UL << 1)  // event posted before fuel_gauge_Init() created the queue
-
 #define FUEL_GAUGE_RSOC_UNKNOWN     (UINT16_MAX)
 #define FUEL_GAUGE_TEMP_UNKNOWN     (INT8_MIN)
 
@@ -71,8 +67,6 @@ bool fuel_gauge_IsConfigValid(uint8_t config);
 
 /* Configuration currently in effect, packed back into the register 0x93 layout. */
 uint8_t fuel_gauge_GetConfig(void);
-
-uint32_t fuel_gauge_GetErrMask(bool _clear);
 
 void fuel_gauge_Temp_Callback(int8_t _temp);
 

@@ -10,6 +10,8 @@
 
 /*============================ INCLUDES ======================================*/
 
+#include "log/log.h"
+
 
 /*============================ TYPES =========================================*/
 
@@ -26,6 +28,7 @@ typedef enum {
 
   APP_ERR_RTOS_QUEUE = -8,
   APP_ERR_RTOS_TIMER = -9,
+  APP_ERR_HARD_FAULT = -10,
 
   APP_HAL_OK        = -16,  // don't use!
   APP_HAL_ERROR     = -17,
@@ -38,11 +41,14 @@ typedef enum {
 
 /*============================ DEFINITIONS ===================================*/
 
+/* Logged at the call site, same reasoning as ASSERT: only here are the file and line known. */
 #define APP_ERROR(ERR_CODE) \
   do { \
-  const ErrorCode_t LOCAL_ERR_CODE = (ERR_CODE);  \
+    const ErrorCode_t LOCAL_ERR_CODE = (ERR_CODE);  \
     if (LOCAL_ERR_CODE != APP_OK) \
     { \
+      if (Log_EnterFatal()) \
+        LOG_CRITICAL("APP_ERROR: %s:%d: code=%d", __FILE_NAME__, __LINE__, (int)LOCAL_ERR_CODE); \
       app_error_handler(LOCAL_ERR_CODE);  \
     } \
   } while (0)
@@ -52,6 +58,12 @@ typedef enum {
 
 /*============================ PROTOTYPES ====================================*/
 
+/*
+ * Fatal: logs the code, flushes the log and resets. Never returns to the caller - except when
+ * called from an interrupt, where it records the code and returns so the ISR can finish; the
+ * reset then happens in thread mode.
+ */
 void app_error_handler(ErrorCode_t error_code);
+
 
 #endif /* APP_ERROR_H_ */

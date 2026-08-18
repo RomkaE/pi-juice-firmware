@@ -237,7 +237,10 @@
  * task.  See
  * https://www.freertos.org/RTOS-software-timer-service-daemon-task.html Only
  * used if configUSE_TIMERS is set to 1. */
-#define configTIMER_TASK_STACK_DEPTH    configMINIMAL_STACK_SIZE
+/* Raised above configMINIMAL_STACK_SIZE: a failed ASSERT now logs before resetting, and it logs on
+ * the stack of whoever failed it. configASSERT() maps to ASSERT, so a kernel assert reached from a
+ * timer callback pays the LOG_CRITICAL + vsnprintf chain (~300-400 bytes) here. */
+#define configTIMER_TASK_STACK_DEPTH    192
 
 /* configTIMER_QUEUE_LENGTH sets the length of the queue (the number of discrete
  * items the queue can hold) used to send commands to the timer task.  See

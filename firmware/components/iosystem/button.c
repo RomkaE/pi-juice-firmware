@@ -10,6 +10,7 @@
 #include "iosystem/button.h"
 #include "nv.h"
 #include "app-error/app_assert.h"
+#include "app-error/diag.h"
 #include "board.h"
 #include "utils/time_count.h"
 
@@ -124,7 +125,6 @@ static Button_T buttons[BUTTON_COUNT] = {
 	}
 };
 
-static uint32_t s_ErrMask;  // BUTTON_ERR_* bits, set from the task and from the I2C1 interrupt
 
 // FreeRTOS task:
 static TaskHandle_t s_TaskHandle;
@@ -421,9 +421,7 @@ void button_SetConfig(uint8_t _b, uint8_t _pData[], uint8_t _len) {
 		if (xQueueSendFromISR(s_CmdQueHandle, &cmd, &woken) == pdTRUE) {
 			vTaskNotifyGiveFromISR(s_TaskHandle, &woken);
 		} else {
-			// No critical section: an interrupt cannot be preempted by the task that does the
-			// read-modify-write under taskENTER_CRITICAL.
-			s_ErrMask |= BUTTON_ERR_QUEUE_FULL;
+			diag_Set(DIAG_QUE_FULL_BTN);
 		}
 		portYIELD_FROM_ISR(woken);
 	} else {
@@ -431,9 +429,7 @@ void button_SetConfig(uint8_t _b, uint8_t _pData[], uint8_t _len) {
 			xTaskNotifyGive(s_TaskHandle);
 		} else {
 			LOG_ERROR("[BTN] Configuration queue full, button %u dropped", _b);
-			taskENTER_CRITICAL();
-			s_ErrMask |= BUTTON_ERR_QUEUE_FULL;
-			taskEXIT_CRITICAL();
+			diag_Set(DIAG_QUE_FULL_BTN);
 		}
 	}
 }
@@ -460,15 +456,6 @@ void button_GetConfig(uint8_t _b, uint8_t _pData[], uint16_t *_pLen) {
 	_pData[10] = buttons[_b].longPressFunc2;
 	_pData[11] = buttons[_b].longPressTime2 / 100;
 	*_pLen = BUTTON_CFG_LEN;
-}
-
-uint32_t button_GetErrMask(bool _clear) {
-	taskENTER_CRITICAL();
-	uint32_t mask = s_ErrMask;
-	if (_clear)
-		s_ErrMask &= ~mask;
-	taskEXIT_CRITICAL();
-	return mask;
 }
 
 __attribute__((weak)) void button_ButtonFunc_Callback(ButtonFunction_T _btn_func)

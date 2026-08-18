@@ -5,6 +5,8 @@
  *      Author: Roman Egoshin
  */
 
+#include <stddef.h>
+
 #include "config.h"
 #include "board.h"
 #include "retained_memory.h"
@@ -31,9 +33,8 @@ void bsp_Init(void)
 
 void bsp_WdtStart(void)
 {
-#ifdef DEBUG
-  // Without this the counter keeps running while the core is halted on a breakpoint,
-  // so the board resets out from under the debugger.
+#ifndef NDEBUG
+  // Without this the counter keeps running while the core is halted on a breakpoint:
   __HAL_RCC_DBGMCU_CLK_ENABLE();
   __HAL_DBGMCU_FREEZE_IWDG();
 #endif
@@ -43,7 +44,8 @@ void bsp_WdtStart(void)
 
 void bsp_WdtRefresh(void)
 {
-  HAL_IWDG_Refresh(&hiwdg);
+  if (hiwdg.Instance)
+    HAL_IWDG_Refresh(&hiwdg);
 }
 
 void bsp_Pwr5V_SetState(bool _state)
@@ -95,6 +97,13 @@ void bsp_Pwr5V_Restore(void)
 
 __NO_RETURN void bsp_ResetCPU(void)
 {
+  /*
+   * The IWDG is not reset by SYSRESETREQ - it keeps counting across the reboot. Without this kick a
+   * counter that was already near expiry could bite before the new image reaches bsp_WdtStart(),
+   * turning a deliberate reset into a watchdog one and adding a bogus DIAG_RESET_IWDG.
+   */
+  bsp_WdtRefresh();
+
   NVIC_SystemReset();
   while(1);
 }

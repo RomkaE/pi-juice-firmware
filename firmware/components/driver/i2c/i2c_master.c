@@ -29,6 +29,8 @@
 #include "task.h"
 #include "semphr.h"
 
+#include "app-error/diag.h"
+
 // LOG:
 #include "log/log.h"
 
@@ -46,7 +48,6 @@
 #define I2C_RECOVERY_DELAY_LOOPS  40u
 
 static uint16_t i2c_master_recoveryCount = 0;
-static uint16_t i2c_master_errorCount = 0;
 
 #define I2C_SAT(c) do { if ((c) < 0xFFFF) (c)++; } while (0)
 
@@ -134,6 +135,7 @@ static void bus_recovery(void)
   GPIO_InitTypeDef gpio = { 0 };
 
   I2C_SAT(i2c_master_recoveryCount);
+  diag_Set(DIAG_I2C2_RECOVERY);
   LOG_ERROR("[I2C2] bus stuck -> recovery/re-init (#%u)",
       (unsigned) i2c_master_recoveryCount);
 
@@ -246,7 +248,7 @@ static int bus_transaction(MasterOp_t _op, uint8_t _dev_addr, uint8_t _mem_addr,
     if (hal_res != HAL_OK)
     {
       hal_err = HAL_I2C_GetError(&hi2c2);
-      I2C_SAT(i2c_master_errorCount);
+      diag_Set(DIAG_I2C2_OP_FAIL);
     }
   }
   bus_unlock();
@@ -295,10 +297,4 @@ int i2c_master_ReadMem(uint8_t _i2c_addr, uint8_t _mem_addr, uint8_t *_data, uin
 int i2c_master_WriteMem(uint8_t _i2c_addr, uint8_t _mem_addr, uint8_t *_data, uint16_t _len)
 {
   return bus_transaction(OP_WRITEMEM, _i2c_addr, _mem_addr, _data, _len);
-}
-
-int i2c_master_GetI2cErrorCount(void)
-{
-  // TODO
-  return 0;
 }

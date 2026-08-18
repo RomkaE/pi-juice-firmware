@@ -11,11 +11,11 @@
 #include "power/fuel_gauge_lc709203f.h"
 #include "power/power_manager.h"
 #include "power/charger_bq2416x.h"
-#include "driver/i2c/i2c_master.h"
 #include <to_refactor/rtc_ds1339_emu.h>
 #include <to_refactor/io_control.h>
 #include <to_refactor/command_server.h>
 #include "src/app.h"
+#include "app-error/diag.h"
 #include "stddef.h"
 #include "nv.h"
 #include "led.h"
@@ -91,6 +91,8 @@ void CmdServerRunBootloader(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteDefaultConfiguration(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadFirmwareVersion(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadBoardFaultStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
+void CmdServerReadWriteDiagMask(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
+void CmdServerReadDiagCounters(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteIoConfig1(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteIoConfig2(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadWriteIoValue1(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
@@ -321,12 +323,12 @@ static const MasterCommand_T masterCommands[REGISTERS_NUM] =
 /*193*/	NULL,
 /*194*/	CmdServerReadWriteRtcAlarmCtrlStatus,
 
-// not used
-/*195*/	NULL,
+// diagnostics (0xC3, 0xC7) and spare
+/*195*/	CmdServerReadWriteDiagMask,   // 0xC3 diag live mask, 4 bytes LE, write = acknowledge
 /*196*/	NULL,
 /*197*/	NULL,
 /*198*/	NULL,
-/*199*/	NULL,
+/*199*/	CmdServerReadDiagCounters,    // 0xC7 diag counters, 32 bytes, occupies 199..230
 /*200*/	NULL,
 /*201*/	NULL,
 /*202*/	NULL,
@@ -410,6 +412,8 @@ int8_t CmdServerProcessRequest(uint8_t dir, uint8_t pData[], uint16_t *dataLen) 
 				if (CalcFcs(pData+1, *dataLen-2) == pData[*dataLen-1]) {
 					(masterCommands[pData[0]])(dir, pData, dataLen);
 				} else {
+					// The write is dropped. Silently, before - the host had no way to see it.
+					diag_Set(DIAG_I2C1_FCS_BAD);
 					return 1;
 				}
 			} else {
@@ -443,9 +447,33 @@ void CmdServerDefaultReadWrite(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	}
 }
 
+/*
+ * Battery thermal state as the host's 2-bit charging-temperature enum:
+ * 0 NORMAL, 1 SUSPEND, 2 COOL, 3 WARM (see GetFaultStatus() in pijuice.py).
+ * COLD and HOT both report SUSPEND - those are the two states that stop charging outright.
+ * UNKNOWN means "no usable reading" and must read as NORMAL, same as battery.h requires.
+ */
+static uint8_t ChargingTempFault(void) {
+  switch (battery_GetThermalState()) {
+    case BAT_TEMP_COLD:
+    case BAT_TEMP_HOT:    return 1;
+    case BAT_TEMP_COOL:   return 2;
+    case BAT_TEMP_WARM:   return 3;
+    default:              return 0;   // NORMAL and UNKNOWN
+  }
+}
+
+/*
+ * Bit 0 of register 0x40, shown by the host as "isFault". Summarises exactly what v1.6 did: the
+ * latched power event flags, a missing battery profile, and the charging temperature fault.
+ *
+ * Nothing from the diag registry is folded in, on purpose. Those bits report device-level trouble
+ * that can persist for hours (DIAG_FG_UNREACHABLE on a board whose fuel gauge keeps dropping off
+ * the bus), and a summary flag that is permanently 1 teaches the host to ignore it. The registry
+ * is read on its own terms in 0xC3/0xC7.
+ */
 static uint8_t IsEventFault(void) {
-  // TODO charger_GetTsFaultStatus/ pwr_mngr_GetFaultFlags
-  return /* pwr_mngr_GetFaultFlags() || */ !battery_GetProfile(NULL) /* || charger_GetTsFaultStatus() */;
+  return (pwr_mngr_GetStatusFlags() != 0) || !battery_GetProfile(NULL) || (ChargingTempFault() != 0);
 }
 
 void CmdServerReadStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
@@ -463,8 +491,7 @@ void CmdServerReadWriteEventFaultStatus(uint8_t dir, uint8_t *pData, uint16_t *d
 	if (dir == MASTER_CMD_DIR_READ) {
 		uint8_t ev = pwr_mngr_GetStatusFlags();   // bits 0-3
 		ev |= !battery_GetProfile(NULL) ? 0x20 : 0;
-// TODO charger_GetTsFaultStatus
-//		ev |= charger_GetTsFaultStatus() << 6;
+		ev |= ChargingTempFault() << 6;           // bits 6-7
 		pData[0] = ev;
 		*dataLen = 1;
 	} else {
@@ -1065,17 +1092,57 @@ void CmdServerReadFirmwareVersion(uint8_t dir, uint8_t *pData, uint16_t *dataLen
 }
 
 void CmdServerReadBoardFaultStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
-	if (dir == MASTER_CMD_DIR_READ) {
-		// bit 0 charger i2c fault
-		pData[0] = (hi2c2.ErrorCode || i2c_master_GetI2cErrorCount()) & 0x01;
-		// bit 1-3 charger fault status
-		pData[0] |= (((uint8_t)charger_GetFaultStatus()) << 1) & 0xE0;
-		// bit 4 fuel gauge i2c fault
-		pData[0] |= fuel_gauge_IsIcFault() << 4;
-		// bit 5 fuel gauge temp sense fault (bad sensor connection)
-		pData[0] |= fuel_gauge_IsTempSenseFault() << 5;
-		*dataLen = 1;
-	}
+  if (dir == MASTER_CMD_DIR_READ) {
+    // bit 0 on-board i2c fault: the bus needed recovery, or a transfer failed outright
+    pData[0] = (diag_IsSet(DIAG_I2C2_RECOVERY) || diag_IsSet(DIAG_I2C2_OP_FAIL)) ? 0x01 : 0x00;
+    /* bit 1-3 charger fault status. The mask is 0x0E, not the 0xE0 inherited from v1.6: the code
+     * is three bits wide, so after << 1 it lives in bits 1..3 and 0xE0 masked all of it away. */
+    pData[0] |= (((uint8_t)charger_GetFaultStatus()) << 1) & 0x0E;
+    // bit 4 fuel gauge i2c fault
+    pData[0] |= fuel_gauge_IsIcFault() << 4;
+    // bit 5 fuel gauge temp sense fault (bad sensor connection)
+    pData[0] |= fuel_gauge_IsTempSenseFault() << 5;
+    *dataLen = 1;
+  }
+}
+
+/*
+ * Register 0xC3: the diag live mask, 4 bytes little-endian.
+ *
+ * Read gives the conditions holding now, plus incidents recorded and not yet acknowledged - see
+ * the semantics note in diag.h. Write takes a 4-byte mask and acknowledges those ids: their
+ * counters are zeroed and their live bits dropped. A condition that still holds sets its bit
+ * again on the next round, which is the point - the mask is state, not a log.
+ */
+void CmdServerReadWriteDiagMask(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
+  if (dir == MASTER_CMD_DIR_READ) {
+    uint32_t mask = diag_GetLiveMask();
+    pData[0] = (uint8_t)mask;
+    pData[1] = (uint8_t)(mask >> 8);
+    pData[2] = (uint8_t)(mask >> 16);
+    pData[3] = (uint8_t)(mask >> 24);
+    *dataLen = 4;
+  } else {
+    if (*dataLen < 6)   // cmd + 4 payload + fcs; a short frame would read stale buffer bytes
+      return;
+
+    uint32_t mask = (uint32_t)pData[1]
+                  | ((uint32_t)pData[2] << 8)
+                  | ((uint32_t)pData[3] << 16)
+                  | ((uint32_t)pData[4] << 24);
+    diag_ClearCounters(mask);
+  }
+}
+
+/*
+ * Register 0xC7: one saturating byte per diag id, DIAG_ID_COUNT of them. The array index is the
+ * bit position in register 0xC3, so the two views never need separate decoding tables.
+ */
+void CmdServerReadDiagCounters(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
+  if (dir == MASTER_CMD_DIR_READ) {
+    diag_GetCounters(pData);
+    *dataLen = DIAG_ID_COUNT;
+  }
 }
 
 void CmdServerReadWriteIoConfig1(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {

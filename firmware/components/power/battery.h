@@ -158,6 +158,5 @@ void battery_ApplyWriteCustomExtendedProfile(const BatteryProfile_T *req);
  * APP task's main loop. */
 void battery_UpdateChargeLed(void);
 
-uint32_t battery_GetErrMask(bool _clear);
 
 #endif /* BATTERY_H_ */

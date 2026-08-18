@@ -15,6 +15,7 @@
 #include "utils/utils.h"
 #include "app-error/app_assert.h"
 #include "app-error/app_error.h"
+#include "app-error/diag.h"
 
 // FreeRTOS:
 #include "FreeRTOS.h"
@@ -173,7 +174,6 @@ typedef struct
 
 static ChargerConfig_t s_Cfg = { .thermal_state = BAT_TEMP_UNKNOWN };
 
-static uint32_t s_ErrMask;  // CHARGER_ERR_* bits
 
 static TaskHandle_t s_TaskHandle;
 static StaticTask_t s_TaskTCB;
@@ -283,6 +283,10 @@ static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
   {
     LOG_INFO("[CHG] Fault: %s->%s", ChargerFaultStatus2Str(s_Snapshot.fault ),
                                     ChargerFaultStatus2Str(_p_snapshot->fault));
+    if (_p_snapshot->fault == CHG_FAULT_NORMAL || _p_snapshot->fault == CHG_FAULT_UNKNOWN)
+      diag_Clear(DIAG_CHG_DEV_FAULT);   // UNKNOWN is "no reading", DIAG_CHG_UNREACHABLE covers it
+    else
+      diag_Set(DIAG_CHG_DEV_FAULT);
     changed |= CHG_CHANGED_FAULT;
   }
 
@@ -480,6 +484,7 @@ static bool RegRead(uint8_t _reg)
   {
     LOG_ERROR("[CHG] REG[%u] invalid value: 0x%02X, expected 0x%02X within mask 0x%02X",
         (unsigned)_reg, value, s_InvariantValue[_reg], mask);
+    diag_Set(DIAG_CHG_REG_CORRUPT);
     return false;
   }
 
@@ -533,6 +538,7 @@ static void ResetWatchdog(void)
   if (!RegRead(BQ_REG_STATUS_CONTROL))
   {
     LOG_ERROR("[CHG] watchdog not reset: register 0 unreadable");
+    diag_Set(DIAG_CHG_WDT_KICK_FAIL);
     return;
   }
 
@@ -543,7 +549,10 @@ static void ResetWatchdog(void)
   // Write:
   int i2c_res = i2c_master_WriteMem(BQ_I2C_ADDR, BQ_REG_STATUS_CONTROL, &r0.raw, 1);
   if (i2c_res != I2C_OK)
+  {
     LOG_ERROR("[CHG] watchdog reset failed");
+    diag_Set(DIAG_CHG_WDT_KICK_FAIL);
+  }
 }
 
 // Push every register the device is not already holding:
@@ -698,6 +707,7 @@ static ChargerState_t state_Active(const ChargerEvent_t *_ev)
       LOG_INFO("[CHG] state ACTIVE, round every %u ms", (unsigned)CHG_ACTIVE_PERIOD_MS);
       s_StateTimeout = pdMS_TO_TICKS(CHG_ACTIVE_PERIOD_MS);
       err_count = 0;
+      diag_Clear(DIAG_CHG_UNREACHABLE);   // answering again
       return CHG_ST_ACTIVE;
 
     case CHG_EV_TICK:
@@ -747,6 +757,7 @@ static ChargerState_t state_Lost(const ChargerEvent_t *_ev)
       // time out and fall back to its own defaults.
       LOG_ERROR("[CHG] state LOST, device unreachable, retry in %u ms",
           (unsigned)CHG_RETRY_PERIOD_MS);
+      diag_Set(DIAG_CHG_UNREACHABLE);
     break;
 
     case CHG_EV_TICK:
@@ -835,9 +846,7 @@ static bool PostEvent(const ChargerEvent_t *_ev)
   if (!sent)
   {
     LOG_CRITICAL("[CHG] event queue full, ev=%u dropped", _ev->type);
-    taskENTER_CRITICAL();
-    s_ErrMask |= CHARGER_ERR_QUEUE_FULL;
-    taskEXIT_CRITICAL();
+    diag_Set(DIAG_QUE_FULL_CHG);
   }
 
   return sent;
@@ -955,16 +964,6 @@ void charger_SetBatProfile(const BatteryProfile_T *batProfile)
 void charger_SetThermalState(BatteryThermalState_T state)
 {
   PostCmd(CHG_CMD_SET_THERMAL_STATE, (uint8_t)state);
-}
-
-uint32_t charger_GetErrMask(bool _clear)
-{
-  taskENTER_CRITICAL();
-  uint32_t mask = s_ErrMask;
-  if (_clear)
-    s_ErrMask &= ~mask;
-  taskEXIT_CRITICAL();
-  return mask;
 }
 
 __attribute__((weak)) void charger_SnapshotChanged_Callback(const ChargerSnapshot_t *_p_snapshot,

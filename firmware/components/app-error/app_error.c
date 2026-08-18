@@ -8,6 +8,7 @@
 /*============================ INCLUDES ======================================*/
 
 #include "app_error.h"
+#include "app_fatal.h"
 
 /*============================ TYPES =========================================*/
 
@@ -26,26 +27,13 @@
 
 /*============================ IMPLEMENTATION (PUBLIC FUNCTIONS) =============*/
 
-#ifdef NDEBUG
-
-__attribute__((weak)) void app_error_handler(ErrorCode_t error_code)
+void app_error_handler(ErrorCode_t error_code)
 {
+  /*
+   * Already logged by the APP_ERROR macro, together with the file and the line it fired at. Kept
+   * for the debugger, same as in app_assert_handler().
+   */
   (void)error_code;
-  // TODO
+
+  app_fatal_Handle();
 }
-
-#else
-
-__attribute__((weak)) void app_error_handler(ErrorCode_t error_code)
-{
-  (void)error_code;
-  // TODO __disable_irq();
-  // TODO if debug
-#ifdef __arm__
-    // By default just break here
-    asm("bkpt #0x01");
-#endif
-    // TODO - reboot !?
-}
-
-#endif /* NDEBUG */

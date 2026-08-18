@@ -7,6 +7,8 @@
 #include "nv.h"
 #include "eeprom.h"
 
+#include "app-error/diag.h"
+
 // LOG:
 #include "log/log.h"
 
@@ -44,7 +46,10 @@ uint8_t nv_write_U8(uint16_t _addr, uint8_t _var)
   if (ee_res == 0)
     res = NV_OK;
   else
+  {
     LOG_ERROR("[NV] write_U8 failed: addr=%u, res=0x%04X", _addr, ee_res);
+    diag_Set(DIAG_NV_WRITE_FAIL);
+  }
   return res;
 }
 
@@ -69,6 +74,7 @@ uint8_t nv_read_U8(uint16_t _addr, uint8_t *_p_var)
   if (!NV_IS_VARIABLE_VALID(ee_data))
   {
     LOG_ERROR("[NV] read_U8: addr=%u corrupted: data=0x%04X", _addr, ee_data);
+    diag_Set(DIAG_NV_READ_FAIL);
     return NV_ERR;
   }
 
@@ -84,7 +90,10 @@ uint8_t nv_write_U16(uint16_t _addr, uint16_t _var)
   if (ee_res == 0)
     res = NV_OK;
   else
+  {
     LOG_ERROR("[NV] write_U16 failed: addr=%u, res=0x%04X", _addr, ee_res);
+    diag_Set(DIAG_NV_WRITE_FAIL);
+  }
   return res;
 }
 

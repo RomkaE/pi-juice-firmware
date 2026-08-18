@@ -13,6 +13,7 @@
 #include "board.h"
 #include "app-error/app_error.h"
 #include "app-error/app_assert.h"
+#include "app-error/diag.h"
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
@@ -30,7 +31,9 @@
 int main(void)
 {
   bsp_Init();
-  retained_mem_Check();
+  bool cold_start = !retained_mem_Check();
+  diag_Init(cold_start);
+
   LOG_INIT(LOG_LEVEL_DEBUG);
 
   // CRITICAL: Restore the 5V DC-DC converter state:
@@ -58,6 +61,8 @@ HAL_StatusTypeDef HAL_InitTick(uint32_t TickPriority)
   return HAL_OK;
 }
 
+// HAL ticks depend on FreeRTOS ticks, so any HAL function using HAL_GetTick()
+// for timeouts or delays must not be called before the FreeRTOS scheduler starts:
 uint32_t HAL_GetTick(void)
 {
   return (uint32_t)(xTaskGetTickCount() * (1000 / configTICK_RATE_HZ));
@@ -84,7 +89,12 @@ void *_sbrk(int incr)
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
   (void) xTask;
-  (void) pcTaskName;
+
+  /* Before APP_ERROR, not after: the macro latches Log_EnterFatal(), so anything logged later is
+   * dropped. With configCHECK_FOR_STACK_OVERFLOW=2 the task name is the whole clue - the file and
+   * line the macro prints only ever point back at this hook. */
+  LOG_CRITICAL("STACK OVERFLOW: task '%s'", pcTaskName ? pcTaskName : "?");
+
   APP_ERROR(APP_ERR_NOMEM);
 }
 

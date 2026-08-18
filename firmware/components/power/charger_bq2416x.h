@@ -13,10 +13,6 @@
 
 #include "power/battery.h"
 
-// Mask errors:
-#define CHARGER_ERR_QUEUE_FULL   (1UL << 0)  // event dropped, the task did not drain in time
-#define CHARGER_ERR_NOT_READY    (1UL << 1)  // event posted before charger_Init() created the queue
-
 typedef enum
 {
 	CHG_STATUS_NO_VALID_SOURCE = 0,
@@ -106,8 +102,6 @@ void charger_SetBatProfile(const BatteryProfile_T *batProfile);
 
 // Battery temperature verdict, aggregated by battery.c from the profile and the live reading.
 void charger_SetThermalState(BatteryThermalState_T state);
-
-uint32_t charger_GetErrMask(bool _clear);
 
 // Which fields of the snapshot changed - the argument of charger_SnapshotChangedCallback().
 #define CHG_CHANGED_STATUS        0x01

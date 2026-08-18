@@ -10,6 +10,7 @@
 #include "led.h"
 #include "nv.h"
 #include "app-error/app_error.h"
+#include "app-error/diag.h"
 #include "app-error/app_assert.h"
 
 // ST HAL/CubeMX:
@@ -124,7 +125,6 @@ static LedCfg_T s_ReqCfg;
 static volatile uint8_t s_ReqStateSeq, s_ReqBlinkSeq, s_ReqCfgSeq;
 static volatile uint8_t s_AppliedStateSeq, s_AppliedBlinkSeq, s_AppliedCfgSeq;
 
-static uint32_t s_ErrMask;  // LED_ERR_* bits, set from the task and from the I2C1 interrupt
 
 // FreeRTOS task:
 static TaskHandle_t s_TaskHandle;
@@ -245,9 +245,7 @@ static void applyConfig(const LedCfg_T *_pCfg)
   if (!valid)
   {
     LOG_ERROR("[LED] Configuration NV read back failed");
-    taskENTER_CRITICAL();
-    s_ErrMask |= LED_ERR_NV_WRITE;
-    taskEXIT_CRITICAL();
+    diag_Set(DIAG_NV_WRITE_FAIL);
   }
 
   taskENTER_CRITICAL();
@@ -472,7 +470,9 @@ static bool postCmd(const LedCmd_T *_pCmd)
 {
   if (s_QueHandle == NULL)
   {
-    s_ErrMask |= LED_ERR_NOT_READY;   // posted before led_Init(), there is no queue yet
+    /* Posted before led_Init() created the queue. Deliberately not reported: led_Init() is
+     * commented out in app.c while the LED task is out of service, so this is the configured
+     * state of the build, not a failure - reporting it would pin a diagnostic bit high forever. */
     return false;
   }
 
@@ -491,7 +491,7 @@ static bool postCmd(const LedCmd_T *_pCmd)
        * that does the read-modify-write under taskENTER_CRITICAL, and Log_Printf() would put a
        * few hundred bytes of line buffer on the stack of whatever task was interrupted.
        */
-      s_ErrMask |= LED_ERR_QUEUE_FULL;
+      diag_Set(DIAG_QUE_FULL_LED);
     }
   }
   else
@@ -501,9 +501,7 @@ static bool postCmd(const LedCmd_T *_pCmd)
     if (sent != pdTRUE)
     {
       LOG_ERROR("[LED] Command queue full, cmd=%u dropped", _pCmd->type);
-      taskENTER_CRITICAL();
-      s_ErrMask |= LED_ERR_QUEUE_FULL;
-      taskEXIT_CRITICAL();
+      diag_Set(DIAG_QUE_FULL_LED);
     }
   }
 
@@ -708,7 +706,7 @@ void led_CmdGetConfig(uint8_t _led, uint8_t _pData[], uint16_t *_pLen)
 
   /*
    * While a write is in flight the requested values are reported rather than the NV verified
-   * ones. If the flash write does fail, LED_ERR_NV_WRITE is raised and the answer corrects
+   * ones. If the flash write does fail, DIAG_NV_WRITE_FAIL is raised and the answer corrects
    * itself as soon as the task has applied the command.
    */
   const LedCfg_T *p = (s_ReqCfgSeq != s_AppliedCfgSeq) ? &s_ReqCfg : &s_Cfg;
@@ -732,14 +730,4 @@ uint8_t led_GetParamG(LedFunction_T _func)
 uint8_t led_GetParamB(LedFunction_T _func)
 {
   return (s_Cfg.func == _func) ? s_Cfg.paramB : 0;
-}
-
-uint32_t led_GetErrMask(bool _clear)
-{
-  taskENTER_CRITICAL();
-  uint32_t mask = s_ErrMask;
-  if (_clear)
-    s_ErrMask &= ~mask;
-  taskEXIT_CRITICAL();
-  return mask;
 }
