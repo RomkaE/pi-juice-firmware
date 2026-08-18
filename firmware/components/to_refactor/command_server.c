@@ -21,6 +21,7 @@
 #include "led.h"
 #include "board.h"
 #include "main.h"
+#include "driver/i2c/i2c_slave.h"
 
 #define REGISTERS_NUM	((uint16_t)256)
 
@@ -936,50 +937,34 @@ void CmdServerReadWritePowerRegulatorConfiguration(uint8_t dir, uint8_t *pData, 
 
 void CmdServerReadWriteOwnAddress1(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		uint8_t adr = pData[1]*2;
-		if (pData[1] > 0 && pData[1] < 128 && hi2c1.Init.OwnAddress1 != adr ){
+		uint8_t adr = pData[1]*2; // NV stores the 8-bit (addr<<1) form
+		if (pData[1] > 0 && pData[1] < 128 && pData[1] != i2c_slave_GetOwnAddress1() ){
 			nv_write_U8(NV_ADDR_OWN_ADDRESS1, adr);
 			uint8_t stored = 0;
 			if ( nv_read_U8(NV_ADDR_OWN_ADDRESS1, &stored) == NV_OK && stored == adr ) {
 				// if successfully saved reinitialize I2C with new address
-				hi2c1.Init.OwnAddress1 = adr;
-				if (HAL_I2C_DeInit(&hi2c1) != HAL_OK)
-				{
-					//Error_Handler();
-				}
-				if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-				{
-					//Error_Handler();
-				}
+				i2c_slave_SetOwnAddress1(pData[1]);
 			}
 		}
 	} else {
-		pData[0] = hi2c1.Init.OwnAddress1 >> 1;
+		pData[0] = i2c_slave_GetOwnAddress1();
 		*dataLen = 1;
 	}
 }
 
 void CmdServerReadWriteOwnAddress2(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		uint8_t adr = pData[1]*2;
-		if (pData[1] > 0 && pData[1] < 128 && hi2c1.Init.OwnAddress2 != adr ){
+		uint8_t adr = pData[1]*2; // NV stores the 8-bit (addr<<1) form
+		if (pData[1] > 0 && pData[1] < 128 && pData[1] != i2c_slave_GetOwnAddress2() ){
 			nv_write_U8(NV_ADDR_OWN_ADDRESS2, adr);
 			uint8_t stored = 0;
 			if ( nv_read_U8(NV_ADDR_OWN_ADDRESS2, &stored) == NV_OK && stored == adr ) {
 				// if successfully saved reinitialize I2C with new address
-				hi2c1.Init.OwnAddress2 = adr;
-				if (HAL_I2C_DeInit(&hi2c1) != HAL_OK)
-				{
-					//Error_Handler();
-				}
-				if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-				{
-					//Error_Handler();
-				}
+				i2c_slave_SetOwnAddress2(pData[1]);
 			}
 		}
 	} else {
-		pData[0] = hi2c1.Init.OwnAddress2 >> 1;
+		pData[0] = i2c_slave_GetOwnAddress2();
 		*dataLen = 1;
 	}
 }

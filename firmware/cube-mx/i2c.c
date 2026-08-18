@@ -23,7 +23,7 @@
 /* USER CODE BEGIN 0 */
 
 #include "board.h"
-#include "nv.h"       // TODO - remove NV usage
+#include "driver/i2c/i2c_slave.h"
 
 /*
  * I2C2 TIMINGR, recomputed for the clock the board actually runs at.
@@ -84,31 +84,21 @@ void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 1 */
 
   /*
-   * Both own addresses come from the emulated EEPROM when the stored copy is
-   * valid (low byte and its complement in the high byte), otherwise from the
-   * defaults in i2c.h. The command server can rewrite them at runtime through
-   * registers 124/125.
+   * The own addresses belong to the i2c_slave driver (set at init, changeable
+   * on the fly). It stores them and re-runs this init, so we just read them
+   * back here. HAL wants the 8-bit (address << 1) form.
    */
-  uint8_t adr1 = OWN1_I2C_ADDRESS << 1;
-  uint8_t adr2 = OWN2_I2C_ADDRESS << 1;
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
   hi2c1.Init.Timing = 0x00201D2B;
-  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.OwnAddress1 = (uint32_t)i2c_slave_GetOwnAddress1() << 1;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_ENABLE;
-  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2 = (uint32_t)i2c_slave_GetOwnAddress2() << 1;
   hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
   hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-
-  /* NOTE: hand written, CubeMX cannot express address-from-NV. Re-apply after
-   * regenerating this file, otherwise both slave addresses come out as 0. */
-  (void)nv_read_U8(NV_ADDR_OWN_ADDRESS1, &adr1);   // keeps the default when nothing valid is stored
-  (void)nv_read_U8(NV_ADDR_OWN_ADDRESS2, &adr2);
-  hi2c1.Init.OwnAddress1 = adr1;
-  hi2c1.Init.OwnAddress2 = adr2;
 
   if (HAL_I2C_Init(&hi2c1) != HAL_OK)
   {

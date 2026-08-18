@@ -28,7 +28,7 @@
 #include "app-error/app_error.h"
 #include "app-error/diag.h"
 
-#include "driver/i2c/i2c_slave.h"
+#include "driver/i2c/i2c_slave_dispatch.h"
 #include "driver/i2c/i2c_master.h"
 
 // FreeRTOS:
@@ -520,7 +520,8 @@ static bool Init(void)
 
   // I2C slave and device init:
   {
-    i2c_slave_Init();
+    // registers slave callbacks + resolves own addresses from NV + brings up I2C1
+    i2c_slave_dispatch_Init();
     RtcInit(cold_start);
   }
 
@@ -911,7 +912,6 @@ static void Task(void *parameters)
   bsp_WdtStart();
 
   LOG_INFO("APP task started");
-  LOG_INFO("AppEvent_t: %lu ", sizeof(AppEvent_t));
   Init();
 
   // Restore correct FSM state:

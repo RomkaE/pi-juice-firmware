@@ -3,18 +3,6 @@
  *
  *  Created on: Jul 28, 2026
  *      Author: Roman Egoshin
- *
- *  I2C master driver, hardwired to I2C2 (BQ2416x charger @0xD6, LC709203F fuel
- *  gauge @0x16). Interrupt-driven (no DMA - the bus is slow and traffic sparse,
- *  DMA buys nothing here). The public wrappers stay synchronous for callers:
- *  they kick off a HAL *_IT transfer and block on a completion semaphore with a
- *  timeout. The HAL master/mem callbacks (and the error callback) run in the
- *  I2C2 ISR and just give that semaphore; the wrapper then reads hi2c2.ErrorCode
- *  to tell success from a NACK/bus error and applies the retry/recovery policy.
- *
- *  One transfer is in flight at a time (the bus mutex serialises callers), so a
- *  single completion semaphore and hi2c2's own state are all the shared state
- *  the ISR path needs.
  */
 
 #include "i2c_master.h"
