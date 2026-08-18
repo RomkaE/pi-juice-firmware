@@ -137,19 +137,41 @@ static StaticQueue_t s_EvtQue;
 static AppEvent_t s_EvtQueBuf[TASK_APP_QUEUE_LEN];
 
 /*
- * Request mirror for the fuel gauge configuration register, same idiom as led.c/charger.c: a host
- * write is applied asynchronously, so until it has been, reads answer with what was asked for
- * rather than with what is still in effect.
+ * Request mirror for a host configuration register, same idiom as led.c/charger.c: a host write is
+ * applied asynchronously, so until it has been, reads answer with what was asked for rather than
+ * with what is still in effect.
  */
-static uint8_t s_FgReqConfig;
-static uint8_t s_FgReqConfigSeq;
-static uint8_t s_FgAppliedConfigSeq;
+typedef struct
+{
+  uint8_t requested;      // last value written by the host
+  uint8_t effective;      // value in effect, read back after the apply
+  uint8_t req_seq;        // bumped on every host write
+  uint8_t applied_seq;    // catches up when the apply lands
+} CfgMirror_t;
 
-/* Same mirror for the charger's two configuration registers. */
-static uint8_t s_ChgReqInputsConfig, s_ChgInputsReadout;
-static uint8_t s_ChgReqInputsSeq, s_ChgAppliedInputsSeq;
-static uint8_t s_ChgReqChargingConfig, s_ChgChargingReadout;
-static uint8_t s_ChgReqChargingSeq, s_ChgAppliedChargingSeq;
+/* The charger's two configuration registers. */
+static CfgMirror_t s_ChgInputsCfg;
+static CfgMirror_t s_ChgChargingCfg;
+
+/* Called where the host byte enters, returns the sequence number to carry in the event. */
+static uint8_t cfgRequest(CfgMirror_t *_p_mirror, uint8_t _value)
+{
+  _p_mirror->requested = _value;
+  _p_mirror->req_seq++;
+  return _p_mirror->req_seq;
+}
+
+static void cfgApplied(CfgMirror_t *_p_mirror, uint8_t _effective, uint8_t _seq)
+{
+  _p_mirror->effective = _effective;
+  _p_mirror->applied_seq = _seq;
+}
+
+static uint8_t cfgRead(const CfgMirror_t *_p_mirror)
+{
+  return (_p_mirror->req_seq != _p_mirror->applied_seq) ? _p_mirror->requested
+                                                      : _p_mirror->effective;
+}
 
 // TODO - move to bsp:
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -290,7 +312,7 @@ static void FanOutBatteryProfile(void)
  * decides: whatever ends up in NV is what the fuel gauge is told to run with, so a store that
  * silently went wrong cannot leave the two disagreeing.
  */
-static void ApplyFuelGaugeConfig(uint8_t config, uint8_t seq)
+static void ApplyFuelGaugeConfig(uint8_t config)
 {
   if (nv_write_U8(NV_ADDR_FUEL_GAUGE_CONFIG_MASK, config) != NV_OK)
     LOG_ERROR("[APP] NV write of the fuel gauge config failed");
@@ -302,7 +324,6 @@ static void ApplyFuelGaugeConfig(uint8_t config, uint8_t seq)
   }
 
   fuel_gauge_SetConfig(stored);
-  s_FgAppliedConfigSeq = seq;
 }
 
 /*
@@ -326,16 +347,14 @@ static uint8_t PersistChargerConfig(uint8_t _nvAddr, uint8_t _config)
 
 static void ApplyChargerInputsConfig(uint8_t config, uint8_t seq)
 {
-  s_ChgInputsReadout = PersistChargerConfig(NV_ADDR_CHARGER_INPUTS_CONFIG, config);
+  cfgApplied(&s_ChgInputsCfg, PersistChargerConfig(NV_ADDR_CHARGER_INPUTS_CONFIG, config), seq);
   charger_SetInputsConfig(config);
-  s_ChgAppliedInputsSeq = seq;
 }
 
 static void ApplyChargerChargingConfig(uint8_t config, uint8_t seq)
 {
-  s_ChgChargingReadout = PersistChargerConfig(NV_ADDR_CHARGING_CONFIG, config);
+  cfgApplied(&s_ChgChargingCfg, PersistChargerConfig(NV_ADDR_CHARGING_CONFIG, config), seq);
   charger_SetChargingConfig(config);
-  s_ChgAppliedChargingSeq = seq;
 }
 
 /*
@@ -526,8 +545,8 @@ static bool Init(void)
     // Whatever NV holds may predate the precedence becoming board policy.
     chgInputs = charger_SanitizeInputsConfig(chgInputs);
 
-    s_ChgInputsReadout = chgInputs;
-    s_ChgChargingReadout = chgCharging;
+    s_ChgInputsCfg.effective = chgInputs;
+    s_ChgChargingCfg.effective = chgCharging;
     charger_Init(valid ? &batt_profile : NULL, chgInputs, chgCharging);
   }
 
@@ -595,7 +614,7 @@ static void ProcessEvent(const AppEvent_t *_evt)
       break;
 
     case APP_EVT_CMD_FUEL_GAUGE_SET_CONFIG:
-      ApplyFuelGaugeConfig(_evt->fuelGaugeConfig.config, _evt->fuelGaugeConfig.seq);
+      ApplyFuelGaugeConfig(_evt->fuelGaugeConfig.config);
       break;
 
     case APP_EVT_CHARGER_SET_INPUTS_CONFIG:
@@ -993,13 +1012,8 @@ void app_OnCmdSetFuelGaugeConfig(uint8_t *_data, uint16_t _len)
   if (!fuel_gauge_IsConfigValid(_data[0]))
     return;
 
-  uint8_t seq = (uint8_t)(s_FgReqConfigSeq + 1);
   AppEvent_t evt = { .type = APP_EVT_CMD_FUEL_GAUGE_SET_CONFIG };
   evt.fuelGaugeConfig.config = _data[0];
-  evt.fuelGaugeConfig.seq = seq;
-
-  s_FgReqConfig = _data[0];
-  s_FgReqConfigSeq = seq;
   app_PostEvent(&evt);
 }
 
@@ -1114,40 +1128,31 @@ void app_OnCmdSetChargerInputsConfig(uint8_t _config)
    * the same value. The host's verifying write of a refused bit will fail, and that is the point. */
   _config = charger_SanitizeInputsConfig(_config);
 
-  uint8_t seq = (uint8_t)(s_ChgReqInputsSeq + 1);
   AppEvent_t evt = { .type = APP_EVT_CHARGER_SET_INPUTS_CONFIG };
   evt.chargerConfig.config = _config;
-  evt.chargerConfig.seq = seq;
-
-  s_ChgReqInputsConfig = _config;
-  s_ChgReqInputsSeq = seq;
+  evt.chargerConfig.seq = cfgRequest(&s_ChgInputsCfg, _config);
   app_PostEvent(&evt);
 }
 
 uint8_t app_OnCmdGetChargerInputsConfig(void)
 {
   LOG_DEBUG("[APP] Rcvd CMD GetChargerInputsConfig");
-  return (s_ChgReqInputsSeq != s_ChgAppliedInputsSeq) ? s_ChgReqInputsConfig : s_ChgInputsReadout;
+  return cfgRead(&s_ChgInputsCfg);
 }
 
 void app_OnCmdSetChargingConfig(uint8_t _config)
 {
   LOG_WARNING("[APP] Rcvd CMD CmdSetChargingConfig: config=%u",
         (unsigned)_config);
-  uint8_t seq = (uint8_t)(s_ChgReqChargingSeq + 1);
   AppEvent_t evt = { .type = APP_EVT_CHARGER_SET_CHARGING_CONFIG };
   evt.chargerConfig.config = _config;
-  evt.chargerConfig.seq = seq;
-
-  s_ChgReqChargingConfig = _config;
-  s_ChgReqChargingSeq = seq;
+  evt.chargerConfig.seq = cfgRequest(&s_ChgChargingCfg, _config);
   app_PostEvent(&evt);
 }
 
 uint8_t app_OnCmdGetChargingConfig(void)
 {
   LOG_DEBUG("[APP] Rcvd CMD GetChargingConfig");
-  return (s_ChgReqChargingSeq != s_ChgAppliedChargingSeq)
-      ? s_ChgReqChargingConfig : s_ChgChargingReadout;
+  return cfgRead(&s_ChgChargingCfg);
 }
 

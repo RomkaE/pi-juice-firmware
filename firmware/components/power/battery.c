@@ -747,7 +747,6 @@ void battery_CmdWriteCustomProfile(uint8_t *data, uint16_t len)
   evt.batteryCustomProfile.profile.ntcResistance = (((uint16_t)data[13])<<8) | data[12];
 
   app_PostEvent(&evt);
-  // TODO - check
   {
     s_BatProfileStatus = BATTERY_PROFILE_WRITE_BUSY_STATUS;
     s_ProfileReqSeq = seq;

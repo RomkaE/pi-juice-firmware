@@ -12,7 +12,8 @@
 
 bool utils_PostEvent(QueueHandle_t _queue, const void *_ev)
 {
-  ASSERT(_queue != NULL);
+  if (_queue == NULL)
+    return false;
 
   BaseType_t sent;
   BaseType_t woken = pdFALSE;

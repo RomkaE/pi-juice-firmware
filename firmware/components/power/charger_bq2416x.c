@@ -182,6 +182,9 @@ static QueueHandle_t s_QueHandle;
 static StaticQueue_t s_Que;
 static ChargerEvent_t s_QueBuf[TASK_CHG_QUEUE_LEN];
 
+static volatile bool s_IrqPending;
+static volatile uint16_t s_IrqCoalesced;
+
 static char* ChargerStatus2Str(ChargerStatus_t _status)
 {
   switch (_status)
@@ -835,6 +838,17 @@ static void Task(void *_parameters)
     if (xQueueReceive(s_QueHandle, &ev, s_StateTimeout) != pdTRUE)
       ev.type = CHG_EV_TICK;
 
+    if (ev.type == CHG_EV_IRQ)
+    {
+      taskENTER_CRITICAL();
+      uint16_t coalesced = s_IrqCoalesced;
+      s_IrqCoalesced = 0;
+      s_IrqPending = false;
+      taskEXIT_CRITICAL();
+
+      LOG_DEBUG("[CHG] CHG_INT, %u coalesced", (unsigned)coalesced);
+    }
+
     fsm_Dispatch(&ev);
   }
 }
@@ -897,8 +911,21 @@ uint8_t charger_SanitizeInputsConfig(uint8_t _config)
 
 void charger_NotifyFromISR(void)
 {
+  if (s_QueHandle == NULL)
+    return;
+
+  if (s_IrqPending)
+  {
+    if (s_IrqCoalesced != UINT16_MAX)
+      s_IrqCoalesced++;
+    return;   // one is already queued and it says everything a second one would
+  }
+
+  s_IrqPending = true;
+
   ChargerEvent_t ev = { .type = CHG_EV_IRQ };
-  PostEvent(&ev);
+  if (!PostEvent(&ev))
+    s_IrqPending = false;   // nothing queued after all, let the next edge try
 }
 
 ChargerStatus_t charger_GetStatus(void)

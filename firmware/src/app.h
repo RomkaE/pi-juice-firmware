@@ -84,13 +84,12 @@ typedef struct
 typedef struct
 {
   uint8_t config;  // register 0x93 layout, see fuel_gauge_lc709203f.h
-  uint8_t seq;     // see the "write pending" mirror in app.c
 } AppEventFuelGaugeConfig_t;
 
 typedef struct
 {
   uint8_t config;  // bit 7 means "persist", see app.c
-  uint8_t seq;
+  uint8_t seq;     // see CfgMirror_t in app.c
 } AppEventChargerConfig_t;
 
 /* Payload of the six APP_EVT_CHARGER_* value events - the new value, nothing else. */
