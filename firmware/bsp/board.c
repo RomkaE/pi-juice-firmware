@@ -17,8 +17,15 @@
 #include "cube-mx/dma.h"
 #include "cube-mx/iwdg.h"
 
+// FreeRTOS:
+#include "FreeRTOS.h"
+#include "task.h"
+
 // LOG:
 #include "log/log.h"
+
+// System memory STM32F030xC:
+#define SYSMEM_BOOT_BASE          0x1FFFD800
 
 static bool s_StatePwr5V __attribute__((section("no_init")));
 
@@ -89,7 +96,6 @@ void bsp_Pwr5V_Restore(void)
     bsp_Pwr5V_SetState(s_StatePwr5V);
   else
   {
-    // TODO - get default state
     bool def_state = false;
     bsp_Pwr5V_SetState(def_state);
   }
@@ -106,4 +112,29 @@ __NO_RETURN void bsp_ResetCPU(void)
 
   NVIC_SystemReset();
   while(1);
+}
+
+__NO_RETURN void bsp_StartBootloader(void)
+{
+  vTaskSuspendAll();
+
+  // Disable and clear interrupts:
+  __disable_irq();
+  for (int i = 0; i <= 29; i++)
+  {
+    HAL_NVIC_DisableIRQ(i);
+    HAL_NVIC_ClearPendingIRQ(i);
+  }
+
+  HAL_DeInit();
+
+  __HAL_SYSCFG_REMAPMEMORY_SYSTEMFLASH();
+
+  uint32_t stack = *(uint32_t*)SYSMEM_BOOT_BASE;
+  uint32_t entry = *(uint32_t*)(SYSMEM_BOOT_BASE + 4);
+
+  __set_MSP(stack);
+
+  void (*bootloader)(void) = (void*)entry;
+  bootloader();
 }

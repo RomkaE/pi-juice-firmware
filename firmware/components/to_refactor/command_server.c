@@ -22,11 +22,9 @@
 #include "board.h"
 #include "main.h"
 #include "driver/i2c/i2c_slave.h"
+#include "version.h"
 
 #define REGISTERS_NUM	((uint16_t)256)
-
-// TODO - move
-#define SYS_MEM_ADDRESS		0x1FFFD800 // for STM32F030x8 0x1FFFEC00
 
 static int8_t reg[REGISTERS_NUM]; // registers used for i2c master access
 //static int8_t regWriteFn[REGISTERS_NUM];
@@ -36,13 +34,8 @@ extern I2C_HandleTypeDef hi2c1;//extern SMBUS_HandleTypeDef hsmbus;
 extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim15;
 
-extern uint16_t wakeupOnCharge;
-
-const uint8_t firmwareVer = 0x17;
-const uint8_t firmwareVariant = 0x00;
-
-typedef  void (*pFunction)(void);
-pFunction Jump_To_Bootloader;
+static const uint8_t firmwareVer = (FW_VER_MAJOR << 4) | (FW_VER_MINOR & 0x0F);
+static const uint8_t firmwareVariant = 0x00;
 
 void CmdServerDefaultReadWrite(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
 void CmdServerReadStatus(uint8_t dir, uint8_t *pData, uint16_t *dataLen);
@@ -1010,54 +1003,7 @@ void CmdServerRunBootloader(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
   // Execute bootloader by jumping to system memory
 
 	if ( pData[1] != 0x01 || dir == MASTER_CMD_DIR_READ ) return;
-
-//	executionState = EXECUTION_STATE_UPDATE;
-
-	// TODO
-	/*
-	HAL_ADC_MspDeInit(&hadc);
-	HAL_I2C_DeInit(&hi2c1);//HAL_SMBUS_MspDeInit(&hsmbus);
-	HAL_I2C_MspDeInit(&hi2c2);
-	HAL_RTC_MspDeInit(&hrtc);
-	HAL_TIM_PWM_MspDeInit(&htim3);
-	HAL_TIM_PWM_MspDeInit(&htim15);
-	HAL_TIM_Base_MspDeInit(&htim17);
-  // Disable all peripheral clocks
-  __HAL_RCC_GPIOC_CLK_DISABLE();
-  __HAL_RCC_GPIOF_CLK_DISABLE();
-  __HAL_RCC_GPIOA_CLK_DISABLE();
-  __HAL_RCC_GPIOB_CLK_DISABLE();
-  __HAL_RCC_ADC1_CLK_DISABLE();
-  __HAL_RCC_DMA1_CLK_DISABLE();
-  __HAL_RCC_I2C1_CLK_DISABLE();
-  __HAL_RCC_I2C2_CLK_DISABLE();
-  __HAL_RCC_TIM1_CLK_DISABLE();
-  __HAL_RCC_TIM3_CLK_DISABLE();
-  __HAL_RCC_TIM14_CLK_DISABLE();
-  __HAL_RCC_TIM15_CLK_DISABLE();
-  __HAL_RCC_TIM17_CLK_DISABLE();
-  __HAL_RCC_PWR_CLK_DISABLE();
-  __HAL_RCC_SYSCFG_CLK_DISABLE();
-  */
-
-  // Disable used PLL
-
-  // Disable and clear interrupts
-  // disable global interrupt
-  __disable_irq();
-  int i;
-  for (i = 0; i <= 29; i++) {
-	  HAL_NVIC_DisableIRQ(i);
-	  HAL_NVIC_ClearPendingIRQ(i);
-  }
-
-  __HAL_SYSCFG_REMAPMEMORY_SYSTEMFLASH();
-
-  // jump to bootloader address
-  uint32_t JumpAddress = *(__IO uint32_t*) (SYS_MEM_ADDRESS + 4);
-  Jump_To_Bootloader = (pFunction) JumpAddress;
-   __set_MSP(*(__IO uint32_t*)SYS_MEM_ADDRESS);
-  Jump_To_Bootloader();
+	bsp_StartBootloader();
 }
 
 void CmdServerReadWriteDefaultConfiguration(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {

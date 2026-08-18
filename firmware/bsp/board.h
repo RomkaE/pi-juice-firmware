@@ -40,4 +40,6 @@ void bsp_Pwr5V_Restore(void);
 
 void bsp_ResetCPU(void);
 
+void bsp_StartBootloader(void);
+
 #endif /* BOARD_H_ */
