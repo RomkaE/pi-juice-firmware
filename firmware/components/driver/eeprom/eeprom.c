@@ -173,7 +173,7 @@ uint16_t EE_Init(void)
   uint16_t VarIdx = 0;
   uint16_t EepromStatus = 0, ReadStatus = 0;
   int16_t x = -1;
-  uint16_t  HAL_StatusTypeDef;
+  HAL_StatusTypeDef HALStatus;
 
   /* Get Page0 status */
   PageStatus0 = (*(__IO uint16_t*)PAGE0_BASE_ADDRESS);
@@ -187,38 +187,38 @@ uint16_t EE_Init(void)
       if (PageStatus1 == VALID_PAGE) /* Page0 erased, Page1 valid */
       {
         /* Erase Page0 */
-        HAL_StatusTypeDef = FLASH_ErasePage(PAGE0_BASE_ADDRESS);
+        HALStatus = FLASH_ErasePage(PAGE0_BASE_ADDRESS);
         /* If erase operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
       }
       else if (PageStatus1 == RECEIVE_DATA) /* Page0 erased, Page1 receive */
       {
         /* Erase Page0 */
-        HAL_StatusTypeDef = FLASH_ErasePage(PAGE0_BASE_ADDRESS);
+        HALStatus = FLASH_ErasePage(PAGE0_BASE_ADDRESS);
         /* If erase operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
         /* Mark Page1 as valid */
-        HAL_StatusTypeDef = FLASH_ProgramHalfWord(PAGE1_BASE_ADDRESS, VALID_PAGE);
+        HALStatus = FLASH_ProgramHalfWord(PAGE1_BASE_ADDRESS, VALID_PAGE);
         /* If program operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
       }
       else /* First EEPROM access (Page0&1 are erased) or invalid state -> format EEPROM */
       {
         /* Erase both Page0 and Page1 and set Page0 as valid page */
-        HAL_StatusTypeDef = EE_Format();
+        HALStatus = EE_Format();
         /* If erase/program operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
       }
       break;
@@ -251,45 +251,45 @@ uint16_t EE_Init(void)
           }
         }
         /* Mark Page0 as valid */
-        HAL_StatusTypeDef = FLASH_ProgramHalfWord(PAGE0_BASE_ADDRESS, VALID_PAGE);
+        HALStatus = FLASH_ProgramHalfWord(PAGE0_BASE_ADDRESS, VALID_PAGE);
         /* If program operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
         /* Erase Page1 */
-        HAL_StatusTypeDef = FLASH_ErasePage(PAGE1_BASE_ADDRESS);
+        HALStatus = FLASH_ErasePage(PAGE1_BASE_ADDRESS);
         /* If erase operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
       }
       else if (PageStatus1 == ERASED) /* Page0 receive, Page1 erased */
       {
         /* Erase Page1 */
-        HAL_StatusTypeDef = FLASH_ErasePage(PAGE1_BASE_ADDRESS);
+        HALStatus = FLASH_ErasePage(PAGE1_BASE_ADDRESS);
         /* If erase operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
         /* Mark Page0 as valid */
-        HAL_StatusTypeDef = FLASH_ProgramHalfWord(PAGE0_BASE_ADDRESS, VALID_PAGE);
+        HALStatus = FLASH_ProgramHalfWord(PAGE0_BASE_ADDRESS, VALID_PAGE);
         /* If program operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
       }
       else /* Invalid state -> format eeprom */
       {
         /* Erase both Page0 and Page1 and set Page0 as valid page */
-        HAL_StatusTypeDef = EE_Format();
+        HALStatus = EE_Format();
         /* If erase/program operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
       }
       break;
@@ -298,21 +298,21 @@ uint16_t EE_Init(void)
       if (PageStatus1 == VALID_PAGE) /* Invalid state -> format eeprom */
       {
         /* Erase both Page0 and Page1 and set Page0 as valid page */
-        HAL_StatusTypeDef = EE_Format();
+        HALStatus = EE_Format();
         /* If erase/program operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
       }
       else if (PageStatus1 == ERASED) /* Page0 valid, Page1 erased */
       {
         /* Erase Page1 */
-        HAL_StatusTypeDef = FLASH_ErasePage(PAGE1_BASE_ADDRESS);
+        HALStatus = FLASH_ErasePage(PAGE1_BASE_ADDRESS);
         /* If erase operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
       }
       else /* Page0 valid, Page1 receive */
@@ -342,29 +342,29 @@ uint16_t EE_Init(void)
           }
         }
         /* Mark Page1 as valid */
-        HAL_StatusTypeDef = FLASH_ProgramHalfWord(PAGE1_BASE_ADDRESS, VALID_PAGE);
+        HALStatus = FLASH_ProgramHalfWord(PAGE1_BASE_ADDRESS, VALID_PAGE);
         /* If program operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
         /* Erase Page0 */
-        HAL_StatusTypeDef = FLASH_ErasePage(PAGE0_BASE_ADDRESS);
+        HALStatus = FLASH_ErasePage(PAGE0_BASE_ADDRESS);
         /* If erase operation was failed, a Flash error code is returned */
-        if (HAL_StatusTypeDef != HAL_OK)
+        if (HALStatus != HAL_OK)
         {
-          return HAL_StatusTypeDef;
+          return HALStatus;
         }
       }
       break;
 
     default:  /* Any other state -> format eeprom */
       /* Erase both Page0 and Page1 and set Page0 as valid page */
-      HAL_StatusTypeDef = EE_Format();
+      HALStatus = EE_Format();
       /* If erase/program operation was failed, a Flash error code is returned */
-      if (HAL_StatusTypeDef != HAL_OK)
+      if (HALStatus != HAL_OK)
       {
-        return HAL_StatusTypeDef;
+        return HALStatus;
       }
       break;
   }
@@ -467,31 +467,31 @@ uint16_t EE_WriteVariable(uint16_t VirtAddress, uint16_t Data)
   */
 static HAL_StatusTypeDef EE_Format(void)
 {
-	HAL_StatusTypeDef HAL_StatusTypeDef = HAL_OK;
+	HAL_StatusTypeDef HALStatus = HAL_OK;
 
   /* Erase Page0 */
-  HAL_StatusTypeDef = FLASH_ErasePage(PAGE0_BASE_ADDRESS);
+  HALStatus = FLASH_ErasePage(PAGE0_BASE_ADDRESS);
 
   /* If erase operation was failed, a Flash error code is returned */
-  if (HAL_StatusTypeDef != HAL_OK)
+  if (HALStatus != HAL_OK)
   {
-    return HAL_StatusTypeDef;
+    return HALStatus;
   }
 
   /* Set Page0 as valid page: Write VALID_PAGE at Page0 base address */
-  HAL_StatusTypeDef = FLASH_ProgramHalfWord(PAGE0_BASE_ADDRESS, VALID_PAGE);
+  HALStatus = FLASH_ProgramHalfWord(PAGE0_BASE_ADDRESS, VALID_PAGE);
 
   /* If program operation was failed, a Flash error code is returned */
-  if (HAL_StatusTypeDef != HAL_OK)
+  if (HALStatus != HAL_OK)
   {
-    return HAL_StatusTypeDef;
+    return HALStatus;
   }
 
   /* Erase Page1 */
-  HAL_StatusTypeDef = FLASH_ErasePage(PAGE1_BASE_ADDRESS);
+  HALStatus = FLASH_ErasePage(PAGE1_BASE_ADDRESS);
 
   /* Return Page1 erase operation status */
-  return HAL_StatusTypeDef;
+  return HALStatus;
 }
 
 /**
@@ -577,7 +577,7 @@ static uint16_t EE_FindValidPage(uint8_t Operation)
   */
 static uint16_t EE_VerifyPageFullWriteVariable(uint16_t VirtAddress, uint16_t Data)
 {
-	HAL_StatusTypeDef HAL_StatusTypeDef = HAL_OK/*HAL_OK*/;
+	HAL_StatusTypeDef HALStatus = HAL_OK/*HAL_OK*/;
   uint16_t ValidPage = PAGE0;
   uint32_t Address = 0x08010000, PageEndAddress = 0x080107FF;
 
@@ -603,16 +603,16 @@ static uint16_t EE_VerifyPageFullWriteVariable(uint16_t VirtAddress, uint16_t Da
     if ((*(__IO uint32_t*)Address) == 0xFFFFFFFF)
     {
       /* Set variable data */
-      HAL_StatusTypeDef = FLASH_ProgramHalfWord(Address, Data);
+      HALStatus = FLASH_ProgramHalfWord(Address, Data);
       /* If program operation was failed, a Flash error code is returned */
-      if (HAL_StatusTypeDef != HAL_OK/*HAL_OK*/)
+      if (HALStatus != HAL_OK/*HAL_OK*/)
       {
-        return HAL_StatusTypeDef;
+        return HALStatus;
       }
       /* Set variable virtual address */
-      HAL_StatusTypeDef = FLASH_ProgramHalfWord(Address + 2, VirtAddress);
+      HALStatus = FLASH_ProgramHalfWord(Address + 2, VirtAddress);
       /* Return program operation status */
-      return HAL_StatusTypeDef;
+      return HALStatus;
     }
     else
     {
@@ -638,7 +638,7 @@ static uint16_t EE_VerifyPageFullWriteVariable(uint16_t VirtAddress, uint16_t Da
   */
 static uint16_t EE_PageTransfer(uint16_t VirtAddress, uint16_t Data)
 {
-	HAL_StatusTypeDef HAL_StatusTypeDef = HAL_OK;
+	HAL_StatusTypeDef HAL_Status = HAL_OK;
   uint32_t NewPageAddress = 0x080103FF, OldPageAddress = 0x08010000;
   uint16_t ValidPage = PAGE0, VarIdx = 0;
   uint16_t EepromStatus = 0, ReadStatus = 0;
@@ -668,11 +668,11 @@ static uint16_t EE_PageTransfer(uint16_t VirtAddress, uint16_t Data)
   }
 
   /* Set the new Page status to RECEIVE_DATA status */
-  HAL_StatusTypeDef = FLASH_ProgramHalfWord(NewPageAddress, RECEIVE_DATA);
+  HAL_Status = FLASH_ProgramHalfWord(NewPageAddress, RECEIVE_DATA);
   /* If program operation was failed, a Flash error code is returned */
-  if (HAL_StatusTypeDef != HAL_OK)
+  if (HAL_Status != HAL_OK)
   {
-    return HAL_StatusTypeDef;
+    return HAL_Status;
   }
 
   /* Write the variable passed as parameter in the new active page */
@@ -705,23 +705,23 @@ static uint16_t EE_PageTransfer(uint16_t VirtAddress, uint16_t Data)
   }
 
   /* Erase the old Page: Set old Page status to ERASED status */
-  HAL_StatusTypeDef = FLASH_ErasePage(OldPageAddress);
+  HAL_Status = FLASH_ErasePage(OldPageAddress);
   /* If erase operation was failed, a Flash error code is returned */
-  if (HAL_StatusTypeDef != HAL_OK)
+  if (HAL_Status != HAL_OK)
   {
-    return HAL_StatusTypeDef;
+    return HAL_Status;
   }
 
   /* Set new Page status to VALID_PAGE status */
-  HAL_StatusTypeDef = FLASH_ProgramHalfWord(NewPageAddress, VALID_PAGE);
+  HAL_Status = FLASH_ProgramHalfWord(NewPageAddress, VALID_PAGE);
   /* If program operation was failed, a Flash error code is returned */
-  if (HAL_StatusTypeDef != HAL_OK)
+  if (HAL_Status != HAL_OK)
   {
-    return HAL_StatusTypeDef;
+    return HAL_Status;
   }
 
   /* Return last operation flash status */
-  return HAL_StatusTypeDef;
+  return HAL_Status;
 }
 
 /**

@@ -91,7 +91,8 @@ typedef struct
   } data;
 } EventWrapper_t;
 
-static uint16_t s_BufADC[ADC_BUFFER_LENGTH];  // raw data from ADC
+// Raw data from ADC:
+static uint16_t s_BufADC[ADC_BUFFER_LENGTH]  __attribute__((aligned(4)));
 
 static uint16_t s_AVDD;
 
@@ -161,7 +162,7 @@ void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc_)
 static void adc_Start(void)
 {
   // Start conversion in DMA mode:
-  if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)s_BufADC, ADC_BUFFER_LENGTH) != HAL_OK)
+  if (HAL_ADC_Start_DMA(&hadc, (uint32_t*)(void*)s_BufADC, ADC_BUFFER_LENGTH) != HAL_OK)
     APP_ERROR(APP_HAL_ERROR);
 
   if (HAL_TIM_Base_Start(&htim15) != HAL_OK)

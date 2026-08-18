@@ -390,7 +390,7 @@ static const MasterCommand_T masterCommands[REGISTERS_NUM] =
 
 #define REGISTER_MAX		(sizeof(masterCommands) / sizeof (MasterCommand_T))
 
-uint8_t CalcFcs(uint8_t *msg, int size)
+static uint8_t CalcFcs(uint8_t *msg, int size)
 {
 	uint8_t result = 0xFF;
 

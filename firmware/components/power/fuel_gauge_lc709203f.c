@@ -312,7 +312,6 @@ static bool starting_flow(void)
   {
     // APA:
     bool apa_written = false;
-    uint16_t value;
     value = apa_value(s_BattProfile.capacity);
     res = updateWord("APA", LC_REG_APA, value, &apa_written);
     s_ReinitRsoc |= apa_written;

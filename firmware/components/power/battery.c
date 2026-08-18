@@ -753,6 +753,11 @@ void battery_CmdWriteCustomProfile(uint8_t *data, uint16_t len)
   }
 }
 
+static inline uint16_t rd_u16le(const uint8_t *p)
+{
+    return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
+}
+
 void battery_CmdWriteCustomExtendedProfile(uint8_t *data, uint16_t len)
 {
   LOG_WARNING("[BATT] Rcvd CMD WriteCustomExtendedProfile: len=%u", (unsigned)len);
@@ -760,12 +765,12 @@ void battery_CmdWriteCustomExtendedProfile(uint8_t *data, uint16_t len)
 
   AppEvent_t evt = { .type = APP_EVT_CMD_BATT_WRITE_CUSTOM_EXTENDED_PROFILE };
   evt.batteryCustomExtProfile.profile.chemistry = data[0];
-  evt.batteryCustomExtProfile.profile.ocv10 = *(uint16_t*)&data[1];
-  evt.batteryCustomExtProfile.profile.ocv50 = *(uint16_t*)&data[3];
-  evt.batteryCustomExtProfile.profile.ocv90 = *(uint16_t*)&data[5];
-  evt.batteryCustomExtProfile.profile.r10 = *(uint16_t*)&data[7];
-  evt.batteryCustomExtProfile.profile.r50 = *(uint16_t*)&data[9];
-  evt.batteryCustomExtProfile.profile.r90 = *(uint16_t*)&data[11];
+  evt.batteryCustomExtProfile.profile.ocv10 = rd_u16le(&data[1]);
+  evt.batteryCustomExtProfile.profile.ocv50 = rd_u16le(&data[3]);
+  evt.batteryCustomExtProfile.profile.ocv90 = rd_u16le(&data[5]);
+  evt.batteryCustomExtProfile.profile.r10   = rd_u16le(&data[7]);
+  evt.batteryCustomExtProfile.profile.r50   = rd_u16le(&data[9]);
+  evt.batteryCustomExtProfile.profile.r90   = rd_u16le(&data[11]);
 
   app_PostEvent(&evt);
 }

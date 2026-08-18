@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 
-void IoControlInit();
+void IoControlInit(void);
 
 void IoSetConfiguarion(uint8_t pin, uint8_t data[], uint8_t len);
 void IoGetConfiguarion(uint8_t pin, uint8_t data[], uint16_t *len);

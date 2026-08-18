@@ -7,7 +7,7 @@
 // linux driver for rtc and alarm config.txt: dtoverlay=i2c-rtc,ds1339,wakeup-source
 #include "power/power_manager.h"
 #include "src/app.h"
-#include <to_refactor/rtc_ds1339_emu.h>
+#include "rtc_ds1339_emu.h"
 #include "stm32f0xx_hal.h"
 #include "main.h"
 
@@ -59,6 +59,7 @@ void RtcInit(bool _reset)
   */
 void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *phrtc)
 {
+  (void)phrtc;
 	// if alarm 1 interrupt enabled activate int signal
 	//if ( (rtc_buffer[0x0E]&0x04) && (rtc_buffer[0x0E]&0x01) )
 		//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);
@@ -193,7 +194,7 @@ void RtcDs1339ProcessRequest(uint8_t dir, uint8_t command, uint8_t *pData, uint1
 				//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET);
 			rtc_buffer[command] = rtc_buffer[command] & (pData[0] | 0xFC); // clear A1F, A2F
 		}
-	} else 	if (command >=0 && command < RTC_REGISTERS_NUM ){
+	} else 	if (command < RTC_REGISTERS_NUM ){
 		if (dir == I2C_DIRECTION_TRANSMIT) {
 			rtc_buffer[command] = pData[0];
 		} else {
@@ -206,7 +207,7 @@ void RtcDs1339ProcessRequest(uint8_t dir, uint8_t command, uint8_t *pData, uint1
 	rtc_buffer_ptr = command;
 }
 
-uint8_t RtcGetPointer() {
+uint8_t RtcGetPointer(void) {
 	return rtc_buffer_ptr;
 }
 

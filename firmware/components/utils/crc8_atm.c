@@ -9,7 +9,7 @@
 
 #define POLYNOMIAL    (0x1070U << 3)
 
-unsigned char Crc8( unsigned char inCrc, unsigned char inData )
+static unsigned char Crc8( unsigned char inCrc, unsigned char inData )
 {
     int i;
     unsigned short  data;

@@ -137,4 +137,5 @@ __NO_RETURN void bsp_StartBootloader(void)
 
   void (*bootloader)(void) = (void*)entry;
   bootloader();
+  while(1);
 }

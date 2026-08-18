@@ -5,6 +5,7 @@
  *      Author: milan
  */
 
+#include "io_control.h"
 #include "iosystem/analog.h"
 #include "stm32f0xx_hal.h"
 #include "nv.h"
@@ -16,7 +17,6 @@ TIM_HandleTypeDef htim14;
 TIM_HandleTypeDef *htim;
 static GPIO_InitTypeDef gpioInitStruct;
 static GPIO_TypeDef *ioPort;   // port of the IO selected by the last pin dispatch
-TIM_OC_InitTypeDef sConfigOC;
 
 uint8_t ioConfig[2] __attribute__((section("no_init")));
 uint16_t ioParam1[2] __attribute__((section("no_init")));
@@ -32,9 +32,9 @@ static volatile uint8_t ioShutdown;
 void MX_TIM1_Init(void)
 {
 
-  TIM_ClockConfigTypeDef sClockSourceConfig;
-  TIM_MasterConfigTypeDef sMasterConfig;
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig;
+  TIM_ClockConfigTypeDef sClockSourceConfig = { 0 };
+  TIM_MasterConfigTypeDef sMasterConfig = { 0 };
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = { 0 };
 
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 7;
@@ -65,6 +65,7 @@ void MX_TIM1_Init(void)
     Error_Handler();
   }
 
+  TIM_OC_InitTypeDef sConfigOC = { 0 };
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 100;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
@@ -105,9 +106,6 @@ void MX_TIM1_Init(void)
 /* TIM14 init function */
 void MX_TIM14_Init(void)
 {
-
-  TIM_OC_InitTypeDef sConfigOC;
-
   htim14.Instance = TIM14;
   htim14.Init.Prescaler = 7;
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
@@ -123,6 +121,7 @@ void MX_TIM14_Init(void)
     Error_Handler();
   }
 
+  TIM_OC_InitTypeDef sConfigOC = { 0 };
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 50;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
@@ -260,7 +259,7 @@ void IoNvReadConfig(uint8_t pin) {
 	(void)nv_read_U16(NV_ADDR_IO_CONFIG1_PARAM2+(pin-1)*3, &ioParam2[pin-1]);
 }
 
-void IoControlInit() {
+void IoControlInit(void) {
   MX_TIM1_Init();
   MX_TIM14_Init();
   IoNvReadConfig(1);

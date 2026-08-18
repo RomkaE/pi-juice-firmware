@@ -224,7 +224,7 @@ static int bus_transaction(MasterOp_t _op, uint8_t _dev_addr, uint8_t _mem_addr,
 
   bus_lock();
   {
-    for (int i = 0; i < I2C_MASTER_ATTEMPTS; i++)
+    for (unsigned i = 0; i < I2C_MASTER_ATTEMPTS; i++)
     {
       hal_res = once_xfer(_op, _dev_addr, _mem_addr, _p_data, _len);
       if (hal_res == HAL_OK)
