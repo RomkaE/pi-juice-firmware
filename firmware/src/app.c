@@ -506,15 +506,6 @@ static bool Init(void)
 //  led_Init();   // off: the LED D1 pins sit in analog, see GPIO_PARK_B_PINS
   button_Init();
 
-  // EEPROM IC management:
-  {
-    HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, GPIO_PIN_SET); // ee write protect
-    uint8_t ee_addr = 0;   // nothing stored -> 0, which selects the default ee address
-    (void)nv_read_U8(NV_ADDR_ID_EEPROM_ADR, &ee_addr);
-    HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN,
-                      (ee_addr & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-  }
-
   // I2C master init:
   i2c_master_Init();
 

@@ -102,11 +102,13 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(BTN_SW2_PORT, &GPIO_InitStruct);
 
   //Configure ID EEPROM control outputs
+  /*
   GPIO_InitStruct.Pin = EE_ADDR_SEL_PIN|EE_WP_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(EE_ADDR_SEL_PORT, &GPIO_InitStruct);
+  */
 
   /*Configure open drain, fuel gauge int for HW<2.3, 5V regulator power good for HW>=2.3*/
   GPIO_InitStruct.Pin = FG_INT_PIN;

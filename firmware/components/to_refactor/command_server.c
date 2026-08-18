@@ -963,16 +963,22 @@ void CmdServerReadWriteOwnAddress2(uint8_t dir, uint8_t *pData, uint16_t *dataLe
 }
 
 void CmdServerReadWriteEEPROM_WriteProtect(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
+  /*
 	if (dir == MASTER_CMD_DIR_WRITE) {
 		HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, (pData[1]&0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 	} else {
 		pData[0] = HAL_GPIO_ReadPin(EE_WP_PORT, EE_WP_PIN) == GPIO_PIN_SET ? 1 : 0;
 		*dataLen = 1;
 	}
+	*/
 }
 
 void CmdServerReadWriteEEPROM_WriteAddress(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
+	  pData[0];
+	  *dataLen = 1;
+	}
+	  /*
 		uint8_t adrState = HAL_GPIO_ReadPin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN) == GPIO_PIN_SET ? 0x52 : 0x50;
 		if ( (pData[1] == 0x50 || pData[1] == 0x52) && adrState != pData[1] ){
 			nv_write_U8(NV_ADDR_ID_EEPROM_ADR, pData[1]);
@@ -985,6 +991,7 @@ void CmdServerReadWriteEEPROM_WriteAddress(uint8_t dir, uint8_t *pData, uint16_t
 		pData[0] = HAL_GPIO_ReadPin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN) == GPIO_PIN_SET ? 0x52 : 0x50;
 		*dataLen = 1;
 	}
+	*/
 }
 
 void CmdServerReadWriteTestAndCalibration(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {

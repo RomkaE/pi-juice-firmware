@@ -87,6 +87,8 @@
 
 /*============================ ID EEPROM =====================================*/
 
+// PiJuice Zero has no EEPROM
+/*
 // Write protect, active high:
 #define EE_WP_PORT            GPIOB     // PB8
 #define EE_WP_PIN             GPIO_PIN_8
@@ -94,6 +96,7 @@
 // Slave address select: RESET = 0x50, SET = 0x52:
 #define EE_ADDR_SEL_PORT      GPIOB     // PB3
 #define EE_ADDR_SEL_PIN       GPIO_PIN_3
+*/
 
 /*============================ ANALOG INPUTS =================================*/
 
@@ -156,9 +159,9 @@
  * floating. It stays a push-pull output - see MX_GPIO_Init().
  */
 #define GPIO_PARK_A_PORT      GPIOA
-#define GPIO_PARK_A_PINS      (GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 \
-                             | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_7 | GPIO_PIN_8 \
-                             | GPIO_PIN_9)
+#define GPIO_PARK_A_PINS      (GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | \
+                               GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_7 | GPIO_PIN_8 | \
+                               GPIO_PIN_9)
 
 /*
  * PB0/PB4/PB5  - LED D1, led_Init() is off.
@@ -166,7 +169,8 @@
  * PB13         - host RUN, not wired on this board.
  */
 #define GPIO_PARK_B_PORT      GPIOB
-#define GPIO_PARK_B_PINS      (GPIO_PIN_0 | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_9 \
-                             | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15)
+#define GPIO_PARK_B_PINS      (GPIO_PIN_0 | GPIO_PIN_0 | GPIO_PIN_4 | GPIO_PIN_5 | \
+                               GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_13 | GPIO_PIN_14 | \
+                               GPIO_PIN_15)
 
 #endif /* BOARD_VER0_H_ */
