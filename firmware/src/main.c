@@ -30,6 +30,7 @@
 
 int main(void)
 {
+  bsp_EnsureCleanBoot();
   bsp_Init();
   bool cold_start = !retained_mem_Check();
   diag_Init(cold_start);

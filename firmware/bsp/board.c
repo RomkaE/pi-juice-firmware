@@ -139,3 +139,12 @@ __NO_RETURN void bsp_StartBootloader(void)
   bootloader();
   while(1);
 }
+
+// Bootloader "Go" jumps to the app without reset, leaving system memory mapped at 0x0.
+// On Cortex-M0, non-zero MEM_MODE means this path was used; reset for a clean flash boot.
+void bsp_EnsureCleanBoot(void)
+{
+  __HAL_RCC_SYSCFG_CLK_ENABLE();
+  if ((SYSCFG->CFGR1 & SYSCFG_CFGR1_MEM_MODE) != 0u)
+    bsp_ResetCPU();
+}

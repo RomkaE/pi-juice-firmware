@@ -42,4 +42,6 @@ void bsp_ResetCPU(void);
 
 void bsp_StartBootloader(void);
 
+void bsp_EnsureCleanBoot(void);
+
 #endif /* BOARD_H_ */
