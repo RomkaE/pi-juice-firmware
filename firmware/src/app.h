@@ -38,7 +38,7 @@ typedef enum
   APP_EVT_CMD_BATT_WRITE_CUSTOM_PROFILE,           // host register 0x86 - battery_CmdWriteCustomProfile()
   APP_EVT_CMD_BATT_WRITE_CUSTOM_EXTENDED_PROFILE,  // host register 0x87 - battery_CmdWriteCustomExtendedProfile()
 
-//  APP_EVT_CHARGER_INPUT_PRESENCE,                 // charger.c detected an edge on "is an input source present"
+  APP_EVT_CHRGR_INPUT_PRESENCE,                   // charger.c detected an edge on "is an input source present"
   APP_EVT_CHRGR_BATT_PRESENCE,                    // charger.c detected an edge on the bq2416x BATSTAT
   APP_EVT_CMD_FUEL_GAUGE_SET_CONFIG,              // host register 0x93 - app_FuelGaugeCmdSetConfig()
   APP_EVT_CHARGER_SET_INPUTS_CONFIG,              // app_ChargerCmdWriteInputsConfig()

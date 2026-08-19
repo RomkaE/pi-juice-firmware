@@ -216,6 +216,13 @@ void charger_SnapshotChanged_Callback(const ChargerSnapshot_t *_p_snapshot, uint
     app_PostEvent(&event);
   }
 
+  if (_changed & CHG_CHANGED_INPUT_PRESENT)
+  {
+    AppEvent_t event = { .type = APP_EVT_CHRGR_INPUT_PRESENCE,
+                         .chargerInput.present = _p_snapshot->input_present };
+    app_PostEvent(&event);
+  }
+
   if (_changed & CHG_CHANGED_STATUS)
   {
     AppEvent_t event = { .type = APP_EVT_CHRGR_STATUS,
@@ -667,11 +674,14 @@ static AppState_t state_Off(const AppEvent_t *_evt)
       }
     break;
 
-    case APP_EVT_CHRGR_STATUS:
+    case APP_EVT_CHRGR_INPUT_PRESENCE:
       // The source is gone, so the next one that appears may raise the host:
-      if (_evt->chargerStatus.status == CHG_STATUS_NO_VALID_SOURCE)
+      if (!_evt->chargerInput.present)
         SetWakeupOnChargeArmed(true);
-      else if (IsWakeupOnChargeAllowed(_evt->chargerStatus.status, fuel_gauge_GetRsoc()))
+    break;
+
+    case APP_EVT_CHRGR_STATUS:
+      if (IsWakeupOnChargeAllowed(_evt->chargerStatus.status, fuel_gauge_GetRsoc()))
       {
         LOG_INFO("[APP] POWER UP triggered by charge");
         next = SM_APP_POWER_UP;
@@ -753,9 +763,9 @@ static AppState_t state_On(const AppEvent_t *_evt)
       IoControlResume();     // the external circuit may be driven again
     break;
 
-    case APP_EVT_CHRGR_STATUS:
+    case APP_EVT_CHRGR_INPUT_PRESENCE:
       // While the host is up, arm follows the source:
-      SetWakeupOnChargeArmed(_evt->chargerStatus.status == CHG_STATUS_NO_VALID_SOURCE);
+      SetWakeupOnChargeArmed(!_evt->chargerInput.present);
     break;
 
     case APP_EVT_TIMER_FAULT_FORGIVE:

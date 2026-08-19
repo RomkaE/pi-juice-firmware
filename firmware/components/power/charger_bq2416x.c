@@ -13,6 +13,7 @@
 #include "charger_bq2416x.h"
 #include "bq24160_regs_map.h"
 #include "driver/i2c/i2c_master.h"
+#include "iosystem/analog.h"
 #include "utils/utils.h"
 #include "app-error/app_assert.h"
 #include "app-error/app_error.h"
@@ -65,6 +66,14 @@
 
 #define CHG_INIT_ATTEMPTS       5      // bring-up tries before the device is declared absent
 #define CHG_ERR_LIMIT           5      // consecutive failed rounds that drop ACTIVE to LOST
+
+// High impedance mode disconnects the input and hands SYS to the pack through the external
+// discharge FET. Below this the pack cannot carry it: the MCU sits behind a diode drop and a
+// linear regulator and stops at 2.4 V, and the device leaves its own battery FET closed below
+// VBATUVLO (2.5 V) regardless. Nothing is lost by refusing down here - BOVP needs VBAT above
+// 1.025 x VBATREG, and the lowest VBATREG the device ever holds is its own default of 3.6 V.
+#define CHG_HIZ_MIN_VBAT_MV     3000
+#define CHG_HIZ_SETTLE_MS       10     // no minimum is specified; well over tDGL(BOVP) of 1 ms
 
 
 _Static_assert(pdMS_TO_TICKS(CHG_ACTIVE_PERIOD_MS) >= 1,
@@ -165,9 +174,9 @@ typedef struct
   uint8_t no_battery_turnon;  // host 0x5E bit 2 - drives no register, only the getter
   uint8_t in_current_limit;   // host 0x5E bit 3: 0 = 1.5 A, 1 = 2.5 A
   uint8_t in_dpm;             // host 0x5E bits 6:4, 4.20 V + 80 mV per step
-  uint8_t charging_enabled;   // host 0x51 bit 0
+  bool charging_enabled;      // host 0x51 bit 0
   BatteryThermalState_T thermal_state;
-  uint8_t profile_valid;
+  bool profile_valid;
   BqBattProfile_t profile;
 } ChargerConfig_t;
 
@@ -184,6 +193,13 @@ static ChargerEvent_t s_QueBuf[TASK_CHG_QUEUE_LEN];
 
 static volatile bool s_IrqPending;
 static volatile uint16_t s_IrqCoalesced;
+
+static uint16_t Vbreg2Mv(uint8_t _code)
+{
+  return (uint16_t)(3500u + _code * 20u);
+}
+
+#if LOG_ENABLED
 
 static char* ChargerStatus2Str(ChargerStatus_t _status)
 {
@@ -229,6 +245,45 @@ static char* ChargerInStatus2Str(ChargerInputStatus_t _in_status)
     default:            return "wrong arg";
   }
 }
+
+// BATSTAT, as read. charger_IsBatteryPresent() collapses OVP into "present", so this is the only
+// place the distinction shows up.
+static char* ChargerBatStat2Str(uint8_t _bat_stat)
+{
+  switch (_bat_stat)
+  {
+    case BQ_BATSTAT_PRESENT:      return "PRESENT";
+    case BQ_BATSTAT_OVP:          return "OVP";
+    case BQ_BATSTAT_NOT_PRESENT:  return "ABSENT";
+    case BQ_BATSTAT_NA:           return "NA";
+    default:                      return "wrong arg";
+  }
+}
+
+static void LogDeviceState(uint8_t _level, const char *_tag)
+{
+  BQ24160Reg_SupplyStatus_t  r1 = s_DeviceRegs.reg.supply_status;
+  BQ24160Reg_Control_t       r2 = s_DeviceRegs.reg.control;
+  BQ24160Reg_BatVoltage_t    r3 = s_DeviceRegs.reg.bat_voltage;
+  BQ24160Reg_SafetyNtc_t     r7 = s_DeviceRegs.reg.safety_ntc;
+
+  LOG(_level, "[CHG] %s regs: %02X %02X %02X %02X %02X %02X %02X %02X", _tag,
+      s_DeviceRegs.raw[0], s_DeviceRegs.raw[1], s_DeviceRegs.raw[2], s_DeviceRegs.raw[3],
+      s_DeviceRegs.raw[4], s_DeviceRegs.raw[5], s_DeviceRegs.raw[6], s_DeviceRegs.raw[7]);
+
+  // Status and fault are left out on purpose: PublishChanges() prints both by name on the same
+  // round, and a line here would not fit LOG_BUFF_LINE_SIZE next to them.
+  LOG(_level, "[CHG] %s: batstat=%s, vbatreg=%umV, ce=%u, hz=%u, te=%u", _tag,
+      ChargerBatStat2Str((uint8_t)r1.rd.batt_stat),
+      (unsigned)Vbreg2Mv((uint8_t)r3.rd_wr.vbreg),
+      (unsigned)r2.rd_wr.ce, (unsigned)r2.rd_wr.hz_mode, (unsigned)r2.rd_wr.te);
+
+  LOG(_level, "[CHG] %s: iusb=%u, iinlim=%u, tmr=%u, ts_en=%u, ts_fault=%u", _tag,
+      (unsigned)r2.rd_wr.iusb_limit, (unsigned)r3.rd_wr.iinlimit,
+      (unsigned)r7.rd_wr.tmr, (unsigned)r7.rd_wr.ts_en, (unsigned)r7.rd.ts_fault);
+}
+
+#endif /* LOG_ENABLED */
 
 // Foreign profile -> the three codes, range-checked here and nowhere else.
 // Currents saturate; battery.c's resistor profile really does reach 28 against a limit of 26.
@@ -288,7 +343,12 @@ static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
     if (_p_snapshot->fault == CHG_FAULT_NORMAL || _p_snapshot->fault == CHG_FAULT_UNKNOWN)
       diag_Clear(DIAG_CHG_DEV_FAULT);   // UNKNOWN is "no reading", DIAG_CHG_UNREACHABLE covers it
     else
+    {
       diag_Set(DIAG_CHG_DEV_FAULT);
+      #if LOG_ENABLED
+        LogDeviceState(LOG_LEVEL_WARNING, "FAULT");   // the whole state at the moment it appeared
+      #endif /* LOG_ENABLED */
+    }
     changed |= CHG_CHANGED_FAULT;
   }
 
@@ -304,6 +364,13 @@ static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
     LOG_WARNING("[CHG] Batt present: %u->%u", (unsigned)s_Snapshot.batt_present,
                                            (unsigned)_p_snapshot->batt_present);
     changed |= CHG_CHANGED_BATT_PRESENT;
+  }
+
+  if (s_Snapshot.input_present != _p_snapshot->input_present)
+  {
+    LOG_INFO("[CHG] Input present: %u->%u", (unsigned)s_Snapshot.input_present,
+                                            (unsigned)_p_snapshot->input_present);
+    changed |= CHG_CHANGED_INPUT_PRESENT;
   }
 
   if (s_Snapshot.dpm_stat != _p_snapshot->dpm_stat)
@@ -322,7 +389,9 @@ static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
 }
 
 // Nothing is known about the device. Same publisher as a normal round, so losing it announces
-// itself on every value rather than only on the two presence flags.
+// itself on every value rather than only on the two presence flags. Everything the initialiser
+// leaves out reads as zero, which is what "we cannot see it any more" should look like: both
+// presence flags go false and the consumers are told, rather than left holding a stale truth.
 static void PublishUnknown(void)
 {
   ChargerSnapshot_t snapshot = { .status = CHG_STATUS_NA,
@@ -362,6 +431,12 @@ static ChargerSnapshot_t DeviceRegsDecode(void)
   decoded.fault = reg_status.rd.fault;
   decoded.in_stat = reg_supply.rd.in_status;
   decoded.batt_present = (reg_supply.rd.batt_stat != BQ_BATSTAT_NOT_PRESENT);
+
+  // From STAT, not from INSTAT: INSTAT tells how good the IN pin looks (OVP, weak, UVLO), while
+  // STAT is the device's own verdict on whether a source was accepted and selected.
+  decoded.input_present = (reg_status.rd.status > CHG_STATUS_NO_VALID_SOURCE)
+                       && (reg_status.rd.status < CHG_STATUS_NA);
+
   decoded.dpm_stat =  s_DeviceRegs.reg.vin_dpm.rd.dpm_status;
 
   return decoded;
@@ -402,7 +477,8 @@ static void TargetRegsBuild(const ChargerConfig_t *_p_cfg)
   s_TargetRegs.reg.control.rd_wr.en_stat = 1;
   s_TargetRegs.reg.control.rd_wr.te = 1;
   s_TargetRegs.reg.control.rd_wr.ce = allow ? 0 : 1;  // CE is inverted: 1 disables charging
-  s_TargetRegs.reg.control.rd_wr.hz_mode = 0;         // never - it drops VSys and kills the MCU
+  // Zero in the image: high impedance is a step inside RegsMapSync():
+  s_TargetRegs.reg.control.rd_wr.hz_mode = 0;
 
   // Register 3 - dpdm_en stays clear: normal state, no forced D+/D- detection.
   s_TargetRegs.reg.bat_voltage.raw = 0;
@@ -494,13 +570,18 @@ static bool RegRead(uint8_t _reg)
   return true;
 }
 
-// Writes and verifies over the writable bits only.
-static bool RegWrite(uint8_t _reg)
+// Writes and verifies over the writable bits only. The bits outside the mask go out as zeroes
+// rather than carried over from the device: register 2 bit 7 is RESET and reads back as 1 always,
+// so a read-modify-write would wipe the device on every sync.
+static bool RegWriteAndVerify(uint8_t _reg, uint8_t _value)
 {
-  LOG_DEBUG("[CHG] REG[%u] write 0x%02X -> 0x%02X (mask 0x%02X)", (unsigned)_reg,
-      s_DeviceRegs.raw[_reg], s_TargetRegs.raw[_reg], s_WritableMask[_reg]);
+  uint8_t mask = s_WritableMask[_reg];
+  uint8_t value = _value & mask;
 
-  if (i2c_master_WriteMem(BQ_I2C_ADDR, _reg, &s_TargetRegs.raw[_reg], 1) != I2C_OK)
+  LOG_DEBUG("[CHG] REG[%u] write 0x%02X -> 0x%02X (mask 0x%02X)", (unsigned)_reg,
+      s_DeviceRegs.raw[_reg], value, mask);
+
+  if (i2c_master_WriteMem(BQ_I2C_ADDR, _reg, &value, 1) != I2C_OK)
   {
     LOG_ERROR("[CHG] REG[%u] write failed", (unsigned)_reg);
     return false;
@@ -509,11 +590,10 @@ static bool RegWrite(uint8_t _reg)
   if (!RegRead(_reg))
     return false;
 
-  uint8_t mask = s_WritableMask[_reg];
-  if ((s_DeviceRegs.raw[_reg] & mask) != (s_TargetRegs.raw[_reg] & mask))
+  if ((s_DeviceRegs.raw[_reg] & mask) != value)
   {
     LOG_ERROR("[CHG] REG[%u] verify failed: wrote 0x%02X, read 0x%02X (mask 0x%02X)", (unsigned)_reg,
-        s_TargetRegs.raw[_reg], s_DeviceRegs.raw[_reg], mask);
+        value, s_DeviceRegs.raw[_reg], mask);
     return false;
   }
 
@@ -557,31 +637,149 @@ static void ResetWatchdog(void)
   }
 }
 
-// Push every register the device is not already holding:
-static bool RegsMapSync(void)
+// A BOVP worth clearing is one whose cause is already gone. The threshold is 1.025 to 1.075 x
+// VBATREG, so a pack under the low end of that band cannot still be holding it up: the latch is
+// left over from a lower VBATREG, which in practice means the 3.6 V of DEFAULT mode. Above it the
+// overvoltage may well be real - the JEITA back-off alone drops VBATREG to 4.06 V and puts the
+// threshold at 4.16 V - and a bracket would then re-latch on the way out and go round again every
+// round, dropping the input each time.
+//
+// Erring towards "live" is the safe way round: an unrecognised stale latch costs what it cost
+// before the bracket existed at all, a bracket loop costs the input once a second.
+static bool BovpIsStale(uint16_t _vbat_mv)
 {
-  bool res = true;
+  if (s_DeviceRegs.reg.supply_status.rd.batt_stat != BQ_BATSTAT_OVP)
+    return false;
+
+  uint16_t threshold_mv = (uint16_t)((uint32_t)Vbreg2Mv((uint8_t)s_DeviceRegs.reg.bat_voltage.rd_wr.vbreg) * 1025u / 1000u);
+  return _vbat_mv < threshold_mv;
+}
+
+// The whole decision about the bracket: three reasons to want it, one condition that allows it,
+// and the message that says which way it went.
+//
+// Wanted when VBATREG is about to change - from normal mode a lower value latches a BOVP on the
+// spot, a higher one after any OVP leaves SYS regulating 15% high (datasheet 9.3.2 and the note
+// under register 3), and it changes on the battery profile and on every thermal transition across
+// tWarm, not only at bring-up. Wanted when a pack has just appeared: the same note demands the
+// toggle at that moment, whether or not the image changed with it. Wanted while a stale BOVP is
+// standing, see BovpIsStale(). Without a profile there is nothing to write, so that is no reason.
+//
+// Allowed only while the pack can carry SYS alone: the bracket disconnects the input, and the MCU
+// hangs off SYS behind a diode and a linear regulator - see CHG_HIZ_MIN_VBAT_MV. Whether an input
+// is connected does not enter into it, the bracket cuts it off either way.
+static bool ShouldEnterHiZ(bool _batt_appeared, uint16_t _vbat_mv)
+{
+  bool vbreg_changes = s_Cfg.profile_valid &&
+      (s_TargetRegs.reg.bat_voltage.rd_wr.vbreg != s_DeviceRegs.reg.bat_voltage.rd_wr.vbreg);
+
+  bool required = vbreg_changes ||
+                  _batt_appeared ||
+                  BovpIsStale(_vbat_mv);
+
+  bool safe = (s_DeviceRegs.reg.supply_status.rd.batt_stat != BQ_BATSTAT_NOT_PRESENT) &&
+              (_vbat_mv >= CHG_HIZ_MIN_VBAT_MV);
+
+  #if LOG_ENABLED
+  static bool refused;
+
+  const char *batstat = ChargerBatStat2Str((uint8_t)s_DeviceRegs.reg.supply_status.rd.batt_stat);
+  if (required && !safe && !refused)
+    LOG_WARNING("[CHG] HI-Z refused: batstat=%s vbat=%u mV, vbatreg kept", batstat, (unsigned)_vbat_mv);
+  else if (required && safe)
+    LOG_INFO("[CHG] HI-Z: vbreg %u->%u batstat=%s vbat=%u mV",
+        (unsigned)s_DeviceRegs.reg.bat_voltage.rd_wr.vbreg,
+        (unsigned)s_TargetRegs.reg.bat_voltage.rd_wr.vbreg,
+        batstat, (unsigned)_vbat_mv);
+
+  refused = required && !safe;
+  #endif /* LOG_ENABLED */
+
+  return required && safe;
+}
+
+// Push every register the device is not already holding.
+//
+// Two rules shape the order. Register 2 goes last, always: it carries CE and HZ_MODE, the
+// permission to act on everything else. That also makes it the write that leaves high impedance
+// mode, on the image that is by then complete - and the device restarts from there with soft-start.
+//
+// The VBATREG field of register 3 is the mirror rule: it is written only from inside the bracket,
+// never outside it. When the bracket cannot be taken the field keeps whatever the device holds
+// rather than being written bare - SYS regulates to VSYS(REG) from that value, and a flat pack
+// still charges under it until it rises far enough for the bracket to become possible.
+static bool RegsMapSync(bool _batt_appeared)
+{
+  bool ret = true;
+
+  // Hi-Z mode management:
+  uint16_t vbat = analog_GetVBatt();
+  bool hiz = ShouldEnterHiZ(_batt_appeared, vbat);
+  if (hiz)
+  {
+    BQ24160Reg_Control_t r2 = s_TargetRegs.reg.control;
+    r2.rd_wr.hz_mode = 1;
+    if (!RegWriteAndVerify(BQ_REG_CONTROL, r2.raw))
+    {
+      // Not a dead end: the write may still have landed, and the next round reads hz=1, mismatches
+      // the image and clears it. If the device has stopped answering altogether, its own 30 s
+      // watchdog drops it into DEFAULT mode, which clears HZ_MODE with everything else.
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(CHG_HIZ_SETTLE_MS));
+  }
+
+  // Process registers:
   for (uint8_t reg = 0; reg < BQ_REG_COUNT; reg++)
   {
     uint8_t mask = s_WritableMask[reg];
-    if ((s_TargetRegs.raw[reg] & mask) == (s_DeviceRegs.raw[reg] & mask))
+    uint8_t target = s_TargetRegs.raw[reg];
+    uint8_t device = s_DeviceRegs.raw[reg];
+
+    // Skip BQ_REG_CONTROL:
+    if (reg == BQ_REG_CONTROL)
       continue;
 
-    bool res_wr = RegWrite(reg);
-    if (!res_wr)
+    // Keep target VBATREG field in BQ_REG_BAT_VOLTAGE outside Hi-Z mode:
+    if (!hiz && reg == BQ_REG_BAT_VOLTAGE)
     {
-      res = false;
+      BQ24160Reg_BatVoltage_t r3 = s_TargetRegs.reg.bat_voltage;
+      r3.rd_wr.vbreg = s_DeviceRegs.reg.bat_voltage.rd_wr.vbreg;
+      target = r3.raw;
+    }
+
+    // Skip unchanged registers:
+    if ((target & mask) == (device & mask))
+      continue;
+
+    // Write:
+    if (!RegWriteAndVerify(reg, target))
+    {
+      ret = false;
       break;
     }
   }
 
-  return res;
+  // Final stage - BQ_REG_CONTROL:
+  bool res = true;
+  bool write = hiz;   // Leaving Hi-Z requires rewriting CONTROL; target image has Hi-Z disabled.
+
+  uint8_t mask = s_WritableMask[BQ_REG_CONTROL];
+  uint8_t target = s_TargetRegs.raw[BQ_REG_CONTROL];
+  uint8_t device = s_DeviceRegs.raw[BQ_REG_CONTROL];
+
+  write |= (target & mask) != (device & mask);
+
+  if (write)
+    res = RegWriteAndVerify(BQ_REG_CONTROL, target);
+
+  return ret && res;
 }
 
 // One standalone operation, then a round in four steps. A snapshot that could not be taken ends
 // it: nothing is published, so the values keep standing until either the next round succeeds or
 // CHG_ST_LOST blanks them.
-static bool DeviceRound(void)
+static bool DeviceRound(uint8_t _dump_level)
 {
   // 0. Reset ICs watchdog timer:
   ResetWatchdog();
@@ -590,18 +788,23 @@ static bool DeviceRound(void)
   if (!RegsMapRead())
     return false;
 
-  LOG_VERBOSE("[CHG] regs: %02X %02X %02X %02X %02X %02X %02X %02X",
-      s_DeviceRegs.raw[0], s_DeviceRegs.raw[1], s_DeviceRegs.raw[2], s_DeviceRegs.raw[3],
-      s_DeviceRegs.raw[4], s_DeviceRegs.raw[5], s_DeviceRegs.raw[6], s_DeviceRegs.raw[7]);
+  // Diagnostics: the state as found, before step 4 writes anything over it.
+  #if LOG_ENABLED
+    LogDeviceState(_dump_level, "STATE");
+  #endif /* LOG_ENABLED */
 
   // 2. Snapshot -> values, no side effects:
   ChargerSnapshot_t snapshot = DeviceRegsDecode();
+
+  // Taken before the publish, which is what moves s_Snapshot on. A pack appearing is one of the
+  // moments the device has to be taken through high impedance, see ShouldEnterHiZ().
+  bool batt_appeared = !s_Snapshot.batt_present && snapshot.batt_present;
 
   // 3. Compare and publish:
   PublishChanges(&snapshot);
 
   // 4. Write back what differs
-  return RegsMapSync();
+  return RegsMapSync(batt_appeared);
 }
 
 // Takes one command's value into the configuration and rebuilds the target image from it. That
@@ -620,7 +823,9 @@ static void CmdProcess(const ChargerEvent_t *_ev)
             (unsigned)s_Cfg.profile.chrg_current, (unsigned)s_Cfg.profile.term_current);
       }
       else
+      {
         LOG_WARNING("[CHG] no usable profile, charging stays disabled");
+      }
     break;
 
     case CHG_CMD_SET_INPUTS_CONFIG:
@@ -633,8 +838,9 @@ static void CmdProcess(const ChargerEvent_t *_ev)
 
     case CHG_CMD_SET_THERMAL_STATE:
       if (s_Cfg.thermal_state != _ev->data.cmd.arg.u8)
-        LOG_INFO("[CHG] thermal state %u -> %u", (unsigned)s_Cfg.thermal_state,
-            _ev->data.cmd.arg.u8);
+      {
+        LOG_INFO("[CHG] thermal state %u -> %u", (unsigned)s_Cfg.thermal_state, _ev->data.cmd.arg.u8);
+      }
       s_Cfg.thermal_state = _ev->data.cmd.arg.u8;
     break;
 
@@ -669,7 +875,7 @@ static ChargerState_t state_Init(const ChargerEvent_t *_ev)
       // A round is all bring-up ever was: read, publish, write the target image back. The device
       // identity is checked inside RegRead() against s_InvariantMask[BQ_REG_VENDOR], so a round
       // that completes is itself the proof that a bq24160 is answering.
-      if (DeviceRound())
+      if (DeviceRound(LOG_LEVEL_INFO))
       {
         LOG_INFO("[CHG] up: rev=%u", (unsigned)s_DeviceRegs.reg.vendor.rd.revision);
         return CHG_ST_ACTIVE;
@@ -726,7 +932,7 @@ static ChargerState_t state_Active(const ChargerEvent_t *_ev)
   }
 
   // Everything else ends the same way: push whatever changed into the device now.
-  if (DeviceRound())
+  if (DeviceRound(LOG_LEVEL_VERBOSE))
   {
     err_count = 0;
     return CHG_ST_ACTIVE;
@@ -940,7 +1146,7 @@ bool charger_IsBatteryPresent(void)
 
 bool charger_IsInputPresent(void)
 {
-  return (s_Snapshot.status > CHG_STATUS_NO_VALID_SOURCE) && (s_Snapshot.status < CHG_STATUS_NA);
+  return s_Snapshot.input_present;
 }
 
 bool charger_GetDpmStatus(void)
