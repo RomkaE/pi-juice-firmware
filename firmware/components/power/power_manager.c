@@ -32,7 +32,7 @@
  */
 #define PWR_PROTECTION_SAMPLES    3
 #define PWR_5V_FAULT_MV           4500
-#define PWR_AVDD_FAULT_MV         3150
+#define PWR_AVDD_FAULT_MV         2500
 
 #define PWR_VBAT_CUTOFF_DEFAULT_MV  2800
 

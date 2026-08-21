@@ -2,7 +2,7 @@
 #ifndef CONFIG_LOG_CONFIG_H_
 #define CONFIG_LOG_CONFIG_H_
 
-#define LOG_ENABLED             1
+#define LOG_ENABLED             0
 
 #if LOG_ENABLED
 

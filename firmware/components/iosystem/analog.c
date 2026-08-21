@@ -6,6 +6,7 @@
  */
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include "analog.h"
 #include "nv.h"
@@ -176,9 +177,19 @@ static void updateAVDD(uint32_t _raw_vrefint)
   {
     rcnt_raw_vrefint = _raw_vrefint;
     s_AVDD = ((uint32_t)VREFINT_CAL_VREF * (uint32_t)*VREFINT_CAL_ADDR) / _raw_vrefint;
-    LOG_VERBOSE("Update AVDD: vref_cal = %u, raw_vref=%u, avdd=%u", *VREFINT_CAL_ADDR, _raw_vrefint, s_AVDD);
-    if (s_AVDD < 3250)
-      LOG_WARNING("Low AVDD value: %umV", s_AVDD);
+    LOG_VERBOSE("Update AVDD: vref_cal=%u, raw_vref=%u, avdd=%u", *VREFINT_CAL_ADDR, _raw_vrefint, s_AVDD);
+    #if LOG_ENABLED
+    {
+      static uint16_t prev_avdd, cnt;
+      if (prev_avdd != s_AVDD && s_AVDD < 3250 &&
+          (abs(prev_avdd - s_AVDD) > 10 || ++cnt > 10))
+      {
+        LOG_WARNING("Low AVDD value: %umV", s_AVDD);
+        prev_avdd = s_AVDD;
+        cnt = 0;
+      }
+    }
+    #endif /* LOG_ENABLED */
   }
 }
 

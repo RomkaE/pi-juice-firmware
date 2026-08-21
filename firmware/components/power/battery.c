@@ -684,7 +684,7 @@ bool battery_UpdateThermalState(void)
     return false;
 
   s_ThermalState = state;
-  LOG_INFO("[BAT] Thermal state %u", (unsigned)state);
+  LOG_INFO("[BAT] Thermal state: %u", (unsigned)state);
   return true;
 }
 

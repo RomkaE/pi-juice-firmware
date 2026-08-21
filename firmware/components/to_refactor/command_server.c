@@ -495,13 +495,14 @@ void CmdServerReadWriteEventFaultStatus(uint8_t dir, uint8_t *pData, uint16_t *d
 
 void CmdServerReadRsoc(uint8_t dir, uint8_t *pData, uint16_t *dataLen){
 	if (dir == MASTER_CMD_DIR_READ) {
-		/* RSOC is in 0.1% units; 819/8192 converts to whole percent. An unknown reading must
-		 * not fall through to the "clamp to 100" branch and report a full battery. */
+		/* RSOC is in 0.1% units, rounded to the nearest whole percent - the tenths reach the host
+		 * only through register 66, and the logs keep them either way. An unknown reading must not
+		 * fall through and report a full battery. */
 		uint16_t rsoc = fuel_gauge_GetRsoc();
 		if (rsoc == FUEL_GAUGE_RSOC_UNKNOWN)
 			pData[0] = 0;
 		else
-			pData[0] = rsoc<1000 ? ((uint32_t)rsoc * 819) >> 13 : 100;
+			pData[0] = (rsoc >= 1000) ? 100 : (uint8_t)((rsoc + 5u) / 10u);
 		*dataLen = 1;
 	}
 }
@@ -963,35 +964,25 @@ void CmdServerReadWriteOwnAddress2(uint8_t dir, uint8_t *pData, uint16_t *dataLe
 }
 
 void CmdServerReadWriteEEPROM_WriteProtect(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
-  /*
-	if (dir == MASTER_CMD_DIR_WRITE) {
-		HAL_GPIO_WritePin(EE_WP_PORT, EE_WP_PIN, (pData[1]&0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-	} else {
-		pData[0] = HAL_GPIO_ReadPin(EE_WP_PORT, EE_WP_PIN) == GPIO_PIN_SET ? 1 : 0;
+	// The WP pin was removed; write protection is not controllable. Report "off"
+	// so the host gets a valid answer (0/1) instead of a stale buffer byte, and
+	// swallow writes as a no-op.
+	if (dir == MASTER_CMD_DIR_READ) {
+		pData[0] = 0;
 		*dataLen = 1;
 	}
-	*/
 }
 
+// This board (PiJuice Zero) has no ID EEPROM. The host tooling still demands an
+// address in {0x50, 0x52} on this register or it errors out, so report a fixed
+// placeholder and ignore writes.
+#define ID_EEPROM_FIXED_ADDR  0x50
+
 void CmdServerReadWriteEEPROM_WriteAddress(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
-	if (dir == MASTER_CMD_DIR_WRITE) {
-	  pData[0];
-	  *dataLen = 1;
-	}
-	  /*
-		uint8_t adrState = HAL_GPIO_ReadPin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN) == GPIO_PIN_SET ? 0x52 : 0x50;
-		if ( (pData[1] == 0x50 || pData[1] == 0x52) && adrState != pData[1] ){
-			nv_write_U8(NV_ADDR_ID_EEPROM_ADR, pData[1]);
-			uint8_t stored = 0;
-			if ( nv_read_U8(NV_ADDR_ID_EEPROM_ADR, &stored) == NV_OK && stored == pData[1] ) {
-				HAL_GPIO_WritePin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN, (pData[1]&0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-			}
-		}
-	} else {
-		pData[0] = HAL_GPIO_ReadPin(EE_ADDR_SEL_PORT, EE_ADDR_SEL_PIN) == GPIO_PIN_SET ? 0x52 : 0x50;
+	if (dir == MASTER_CMD_DIR_READ) {
+		pData[0] = ID_EEPROM_FIXED_ADDR;
 		*dataLen = 1;
 	}
-	*/
 }
 
 void CmdServerReadWriteTestAndCalibration(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {

@@ -4,7 +4,7 @@
 
 #include "config.h"
 
-#define RTMON_ENABLED                       ( 1 )
+#define RTMON_ENABLED                       ( 0 )
 
 #define RTMON_RTT_BUFF_IDX                  ( 0 )   // RTT up-channel (shared with log)
 #define RTMON_RTT_TERMINAL                  ( 1 )   // RTT virtual terminal -> separate Viewer tab

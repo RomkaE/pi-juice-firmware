@@ -465,8 +465,8 @@ static bool Init(void)
   // Initialize retained variables on cold start:
   if (cold_start)
   {
-    s_WakeupOnChargeArmed = true;   // Force initial state log
-    SetWakeupOnChargeArmed(false);
+    s_WakeupOnChargeArmed = false;    // Force initial state log
+    SetWakeupOnChargeArmed(true);
   }
 
   LogResetReason();

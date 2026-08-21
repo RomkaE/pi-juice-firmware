@@ -165,6 +165,11 @@ static ChargerSnapshot_t s_Snapshot = {
     .status = CHG_STATUS_NA,
     .fault = CHG_FAULT_UNKNOWN };
 
+// Whether s_Snapshot holds a reading at all. It starts out - and goes back to, through
+// PublishUnknown() - "nothing is known", where batt_present reads 0 like an absent pack. Edges
+// must not be taken against that, see DeviceRound().
+static bool s_SnapshotKnown;
+
 // Everything that decides what the device should hold. Written by cmdProcess() and read by
 // buildTargetImage(), and by nothing else. The raw configuration bytes are not kept - APP holds
 // those for the host read-back - and the profile is converted and copied in, never a live pointer
@@ -396,6 +401,7 @@ static void PublishUnknown(void)
 {
   ChargerSnapshot_t snapshot = { .status = CHG_STATUS_NA,
                                  .fault = CHG_FAULT_UNKNOWN };
+  s_SnapshotKnown = false;
   PublishChanges(&snapshot);
 }
 
@@ -474,7 +480,7 @@ static void TargetRegsBuild(const ChargerConfig_t *_p_cfg)
 
   s_TargetRegs.reg.control.raw = 0;
   s_TargetRegs.reg.control.rd_wr.iusb_limit = BQ_IUSB_LIMIT_IMAGE;
-  s_TargetRegs.reg.control.rd_wr.en_stat = 1;
+  s_TargetRegs.reg.control.rd_wr.en_stat = 0;
   s_TargetRegs.reg.control.rd_wr.te = 1;
   s_TargetRegs.reg.control.rd_wr.ce = allow ? 0 : 1;  // CE is inverted: 1 disables charging
   // Zero in the image: high impedance is a step inside RegsMapSync():
@@ -798,7 +804,13 @@ static bool DeviceRound(uint8_t _dump_level)
 
   // Taken before the publish, which is what moves s_Snapshot on. A pack appearing is one of the
   // moments the device has to be taken through high impedance, see ShouldEnterHiZ().
-  bool batt_appeared = !s_Snapshot.batt_present && snapshot.batt_present;
+  //
+  // The first reading seeds the comparison instead of being one: without s_SnapshotKnown every
+  // reboot with a pack in place reads as an insertion and takes the bracket for nothing. A reboot
+  // that does need it is caught by the other two predicates anyway - the device sat out the
+  // watchdog and holds the DEFAULT-mode VBATREG, or it has a stale BOVP latched.
+  bool batt_appeared = s_SnapshotKnown && !s_Snapshot.batt_present && snapshot.batt_present;
+  s_SnapshotKnown = true;
 
   // 3. Compare and publish:
   PublishChanges(&snapshot);
