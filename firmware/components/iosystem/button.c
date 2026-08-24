@@ -225,11 +225,27 @@ static void ProcessButton( uint8_t b, GPIO_PinState pinState ) {
 		  button_ButtonFunc_Callback(func);
 		  button_ClearEvent(b);
 		}
+		else if ( func >= BUTTON_EVENT_FUNC_SYS_EVENT )
+		{
+			/*
+			 * A host function: SYS_FUNC_* encode as 0x11..0x14 and USER_FUNC* as 0x20..0x2F (see
+			 * SetButtonConfiguration in pijuice.py). The firmware must NOT act on these and must
+			 * NOT clear them - it publishes the event in register 0x45 and the host clears it by
+			 * writing back, see CmdServerReadButtonStatus(). Clearing here destroyed the event long
+			 * before the host's next poll, which is what stopped host-side power off from working.
+			 */
+			LOG_DEBUG("[BTN] Button event left for host: btn=%u, event=%u, func=0x%02X",
+			    (unsigned)b, (unsigned)buttons[b].event, (unsigned)func);
+		}
 		else
 		{
-		  LOG_WARNING("[BTN] Unhandled button event: btn=%u, event=%u, func=%u",
-		      (unsigned)b, (unsigned)buttons[b].event, (unsigned)func);
-		  button_ClearEvent(b);
+			/*
+			 * Nothing configured for this event, so no one will ever consume it. Clearing keeps
+			 * register 0x45 and the isButton bit of 0x40 from reporting it forever.
+			 */
+			LOG_WARNING("[BTN] Unconfigured button event: btn=%u, event=%u",
+			    (unsigned)b, (unsigned)buttons[b].event);
+			button_ClearEvent(b);
 		}
 	}
 
