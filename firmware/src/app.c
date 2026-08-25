@@ -389,14 +389,33 @@ static void SetWakeupOnChargeArmed(bool _state)
 static bool IsWakeupOnChargeAllowed(ChargerStatus_t _chrgr_status, uint16_t _rsoc)
 {
   if (!s_WakeupOnChargeArmed)
+  {
+    LOG_WARNING("[APP] Wake-up rejected: NOT ARMED");
     return false;
+  }
 
   if (_chrgr_status != CHG_STATUS_CHARGING_FROM_IN && _chrgr_status != CHG_STATUS_CHARGE_DONE)
+  {
+    LOG_WARNING("[APP] Wake-up rejected: chrgr status=%u", (unsigned)_chrgr_status);
     return false;
+  }
 
-  // FUEL_GAUGE_RSOC_UNKNOWN and "never" are the same value, so it has to be ruled out first.
-  return _rsoc != FUEL_GAUGE_RSOC_UNKNOWN
-      && _rsoc >= WakeupChargeConfig2Percent(s_WakeupOnChargeConfig);
+  if (_rsoc == FUEL_GAUGE_RSOC_UNKNOWN)
+  {
+    LOG_WARNING("[APP] Wake-up rejected: RSOC_UNKNOWN");
+    return false;
+  }
+
+  uint16_t rsoc_min = WakeupChargeConfig2Percent(s_WakeupOnChargeConfig);
+  if (_rsoc < rsoc_min)
+  {
+    LOG_WARNING("[APP] Wake-up rejected: rsoc=%u.%u%%, rsoc_min=%u.%u%%",
+        (unsigned)(_rsoc / 10), (unsigned)(_rsoc % 10),
+        (unsigned)(rsoc_min / 10), (unsigned)(rsoc_min % 10));
+    return false;
+  }
+
+  return true;
 }
 
 /* Arms the one shot for what the host asked for. APP task only - it talks to the timer service. */
@@ -675,9 +694,8 @@ static AppState_t state_Off(const AppEvent_t *_evt)
     break;
 
     case APP_EVT_CHRGR_INPUT_PRESENCE:
-      // The source is gone, so the next one that appears may raise the host:
-      if (!_evt->chargerInput.present)
-        SetWakeupOnChargeArmed(true);
+      // Any external power source state change allows wake-up on charge:
+      SetWakeupOnChargeArmed(true);
     break;
 
     case APP_EVT_CHRGR_STATUS:
@@ -778,7 +796,6 @@ static AppState_t state_On(const AppEvent_t *_evt)
     case APP_EVT_POWER_PROTECTION:
       next = OnPowerProtection(_evt->powerTrip.faults);
     break;
-
 
     case APP_EVT_BUTTON:
       if (_evt->button.func == BUTTON_EVENT_FUNC_POWER_OFF)
