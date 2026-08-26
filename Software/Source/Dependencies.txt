@@ -1,8 +1,0 @@
-# Running
-python3-smbus # raspbian installed
-python3-urwid
-
-
-# Building
-sudo pip3 install stdeb3
-sudo apt-get install debhelper

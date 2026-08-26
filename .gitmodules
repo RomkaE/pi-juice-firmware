@@ -1,0 +1,21 @@
+[submodule "firmware/third-party/third-party/FreeRTOS-Kernel"]
+	path = firmware/third-party/third-party/FreeRTOS-Kernel
+	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git
+[submodule "firmware/third-party/FreeRTOS-Kernel"]
+	path = firmware/third-party/FreeRTOS-Kernel
+	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git
+[submodule "firmware/third-party/rt-monitor"]
+	path = firmware/third-party/rt-monitor
+	url = git@github.com:RomkaE/rt-monitor.git
+[submodule "firmware/third-party/SEGGER/RTT"]
+	path = firmware/third-party/SEGGER/RTT
+	url = https://github.com/SEGGERMicro/RTT.git
+[submodule "firmware/third-party/ST/cmsis-core"]
+	path = firmware/third-party/ST/cmsis-core
+	url = https://github.com/STMicroelectronics/cmsis-core.git
+[submodule "firmware/third-party/ST/cmsis-device-f0"]
+	path = firmware/third-party/ST/cmsis-device-f0
+	url = https://github.com/STMicroelectronics/cmsis-device-f0.git
+[submodule "firmware/third-party/ST/stm32f0xx-hal-driver"]
+	path = firmware/third-party/ST/stm32f0xx-hal-driver
+	url = https://github.com/STMicroelectronics/stm32f0xx-hal-driver.git
