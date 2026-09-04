@@ -735,6 +735,10 @@ static AppState_t state_PowerUp(const AppEvent_t *_evt)
       // Wake-up handled, clear the arm:
       SetWakeupOnChargeArmed(false);
 
+      // Initialize I/O before enabling the 5V supply to ensure a soft start-up:
+      IoControlResume();
+      vTaskDelay(pdMS_TO_TICKS(20));
+
       // The boost output means nothing until it has settled, so do not judge it yet:
       pwr_mngr_Arm5vCheck(false);
       pwr_mngr_HostOn();
@@ -778,7 +782,9 @@ static AppState_t state_On(const AppEvent_t *_evt)
         if (xTimerStart(s_TimerFaultForgiveHandle, 0) != pdPASS)
           APP_ERROR(APP_ERR_RTOS_TIMER);
       }
-      IoControlResume();     // the external circuit may be driven again
+      /* Warm start may enter ON directly, skipping POWER_UP resume.
+       * The call is idempotent, so it is safe on the normal path too. */
+      IoControlResume();
     break;
 
     case APP_EVT_CHRGR_INPUT_PRESENCE:
