@@ -291,6 +291,8 @@ void IoControlShutdown(void)
 
 void IoControlResume(void)
 {
+	if (!ioShutdown) return;   // already up; re-running IoConfigure() would glitch the pins
+
 	ioShutdown = 0;   // first: IoConfigure() bails out on this very flag
 
 	IoConfigure(1);
