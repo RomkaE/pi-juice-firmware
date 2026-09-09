@@ -8,11 +8,16 @@
 #include <stdint.h>
 #include "i2c_slave.h"
 #include "app-error/diag.h"
+#include "board.h"         
 
 // ST HAL/CubeMX:
 #include "stm32f0xx_hal.h"
 #include "cube-mx/main.h"
 #include "cube-mx/i2c.h"
+
+// FreeRTOS:
+#include "FreeRTOS.h"
+#include "timers.h"
 
 #define I2C_SLAVE_BUF_SIZE      256u
 
@@ -29,10 +34,30 @@ static uint8_t s_AddrMatch = 0;
 static uint8_t s_Dir = 0;
 static uint8_t s_OverByte = 0;
 
+/* --- bus-wedge watchdog ----------------------------------------------------
+ * NoStretch is off, so a slave that ever stops feeding the bus holds SCL low
+ * and wedges it for everyone until a power cycle. A software timer watches for
+ * a transaction that never ends (real ones are well under 1 ms) or an error
+ * that asked for a reset, and re-inits the peripheral with a recovery clock-out
+ * - the same idea as the I2C2 master's bus_recovery(). */
+#define I2C_SLAVE_XFER_MAX_MS     50u  // longer than any real transaction -> wedged
+#define I2C_SLAVE_WATCH_MS        20u  // supervisor tick
+#define I2C_RECOVERY_DELAY_LOOPS  40u  // ~few us half-period for the recovery clock
+
+static volatile uint8_t  s_XferActive = 0;
+static volatile uint32_t s_XferDeadline = 0;
+static volatile uint8_t  s_RecoverReq = 0;
+
+static StaticTimer_t s_WatchTimerBuf;
+static TimerHandle_t s_WatchTimer = NULL;
+
 // ISR hooks (called from i2c_common dispatch, I2C1 ISR context)
 
 void i2c_slave_OnAddr(I2C_HandleTypeDef *hi2c, uint8_t _dir, uint16_t _addr)
 {
+  s_XferActive = 1;                                          // watchdog: transaction opened
+  s_XferDeadline = HAL_GetTick() + I2C_SLAVE_XFER_MAX_MS;
+
   s_AddrMatch = (uint8_t) _addr;
   s_Dir = _dir;
 
@@ -91,6 +116,7 @@ void i2c_slave_OnListenCplt(I2C_HandleTypeDef *hi2c)
     s_cb->on_write(s_AddrMatch, s_RxBuf, s_RxIdx);
   }
   s_RxIdx = 0;
+  s_XferActive = 0;                     // watchdog: transaction closed cleanly
   HAL_I2C_EnableListen_IT(hi2c);
 }
 
@@ -101,7 +127,10 @@ void i2c_slave_OnError(I2C_HandleTypeDef *hi2c)
   /* AF alone is the master's terminating NACK on a read - routine, not a fault.
    * Anything else (BERR/ARLO/OVR) is worth reporting. */
   if (hi2c->ErrorCode & ~(uint32_t)HAL_I2C_ERROR_AF)
+  {
     diag_Set(DIAG_I2C1_SLAVE_ERR);
+    s_RecoverReq = 1;   // BERR/ARLO/OVR can leave the bus wedged - let the watchdog re-init
+  }
 
   __HAL_I2C_CLEAR_FLAG(hi2c, I2C_FLAG_AF);
 }
@@ -117,12 +146,100 @@ static void slave_start(void)
   HAL_I2C_EnableListen_IT(&hi2c1);
 }
 
+static void recovery_delay(void)
+{
+  volatile uint32_t n = I2C_RECOVERY_DELAY_LOOPS;
+  while (n--)
+  {
+    __NOP();
+  }
+}
+
+/* Un-wedge and re-arm the slave. Runs in the watchdog timer task, not an ISR. */
+static void slave_bus_recovery(void)
+{
+  GPIO_InitTypeDef gpio = { 0 };
+
+  diag_Set(DIAG_I2C1_SLAVE_ERR);
+
+  /* Drop the peripheral (releases SCL/SDA, clears BERR/ARLO/AF latches) and keep
+   * the ISR out while we bit-bang; MspInit re-enables the NVIC line on re-init. */
+  HAL_NVIC_DisableIRQ(I2C1_IRQn);
+  HAL_I2C_DeInit(&hi2c1);
+
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  gpio.Mode = GPIO_MODE_OUTPUT_OD;
+  gpio.Pull = GPIO_PULLUP;
+  gpio.Speed = GPIO_SPEED_FREQ_LOW;
+  gpio.Pin = I2C1_SCL_PIN;
+  HAL_GPIO_Init(I2C1_SCL_PORT, &gpio);
+  gpio.Pin = I2C1_SDA_PIN;
+  HAL_GPIO_Init(I2C1_SDA_PORT, &gpio);
+
+  /* Release both lines (open-drain '1' = high-Z). */
+  HAL_GPIO_WritePin(I2C1_SCL_PORT, I2C1_SCL_PIN, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(I2C1_SDA_PORT, I2C1_SDA_PIN, GPIO_PIN_SET);
+  recovery_delay();
+
+  /* Up to 9 SCL pulses so a master stuck mid-byte can finish and free SDA. */
+  for (uint8_t i = 0; i < 9; i++)
+  {
+    if (HAL_GPIO_ReadPin(I2C1_SDA_PORT, I2C1_SDA_PIN) == GPIO_PIN_SET)
+    {
+      break;
+    }
+    HAL_GPIO_WritePin(I2C1_SCL_PORT, I2C1_SCL_PIN, GPIO_PIN_RESET);
+    recovery_delay();
+    HAL_GPIO_WritePin(I2C1_SCL_PORT, I2C1_SCL_PIN, GPIO_PIN_SET);
+    recovery_delay();
+  }
+
+  /* STOP: SDA low->high while SCL is high, for a clean bus release. */
+  HAL_GPIO_WritePin(I2C1_SCL_PORT, I2C1_SCL_PIN, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(I2C1_SDA_PORT, I2C1_SDA_PIN, GPIO_PIN_RESET);
+  recovery_delay();
+  HAL_GPIO_WritePin(I2C1_SCL_PORT, I2C1_SCL_PIN, GPIO_PIN_SET);
+  recovery_delay();
+  HAL_GPIO_WritePin(I2C1_SDA_PORT, I2C1_SDA_PIN, GPIO_PIN_SET);
+  recovery_delay();
+
+  s_RxIdx = 0;
+  s_XferActive = 0;
+  s_RecoverReq = 0;
+
+  slave_start(); // MX_I2C1_Init re-runs MspInit (AF pins, NVIC) and re-arms listen
+}
+
+static void watch_cb(TimerHandle_t _t)
+{
+  (void) _t;
+  uint8_t wedged = s_RecoverReq;
+  if (s_XferActive && (int32_t) (HAL_GetTick() - s_XferDeadline) >= 0)
+  {
+    wedged = 1;
+  }
+  if (wedged)
+  {
+    slave_bus_recovery();
+  }
+}
+
 void i2c_slave_Init(uint8_t _addr1, uint8_t _addr2)
 {
   s_OwnAddr1 = _addr1;
   s_OwnAddr2 = _addr2;
   s_RxIdx = 0;
   slave_start();
+
+  if (s_WatchTimer == NULL)
+  {
+    s_WatchTimer = xTimerCreateStatic("i2cslv", pdMS_TO_TICKS(I2C_SLAVE_WATCH_MS),
+        pdTRUE, NULL, watch_cb, &s_WatchTimerBuf);
+  }
+  if (s_WatchTimer != NULL)
+  {
+    xTimerStart(s_WatchTimer, 0);
+  }
 }
 
 void i2c_slave_ReInit(void)
