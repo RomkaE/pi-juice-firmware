@@ -5,19 +5,18 @@
  *      Author: milan
  */
 
+#include <stdint.h>
 #include "iosystem/analog.h"
 #include "iosystem/button.h"
 #include "power/battery.h"
 #include "power/fuel_gauge_lc709203f.h"
 #include "power/power_manager.h"
 #include "power/charger_bq2416x.h"
-#include <to_refactor/rtc_ds1339_emu.h>
-#include <to_refactor/io_control.h>
-#include <to_refactor/command_server.h>
+#include "to_refactor/rtc_ds1339_emu.h"
+#include "to_refactor/io_control.h"
+#include "to_refactor/command_server.h"
 #include "src/app.h"
 #include "app-error/diag.h"
-#include "stddef.h"
-#include "nv.h"
 #include "led.h"
 #include "board.h"
 #include "main.h"
@@ -931,15 +930,9 @@ void CmdServerReadWritePowerRegulatorConfiguration(uint8_t dir, uint8_t *pData, 
 
 void CmdServerReadWriteOwnAddress1(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		uint8_t adr = pData[1]*2; // NV stores the 8-bit (addr<<1) form
-		if (pData[1] > 0 && pData[1] < 128 && pData[1] != i2c_slave_GetOwnAddress1() ){
-			nv_write_U8(NV_ADDR_OWN_ADDRESS1, adr);
-			uint8_t stored = 0;
-			if ( nv_read_U8(NV_ADDR_OWN_ADDRESS1, &stored) == NV_OK && stored == adr ) {
-				// if successfully saved reinitialize I2C with new address
-				i2c_slave_SetOwnAddress1(pData[1]);
-			}
-		}
+		// Persist + peripheral re-init run in the APP task, not this I2C1 ISR.
+		if (pData[1] > 0 && pData[1] < 128 && pData[1] != i2c_slave_GetOwnAddress1() )
+			app_OnCmdSetOwnAddress(1, pData[1]);
 	} else {
 		pData[0] = i2c_slave_GetOwnAddress1();
 		*dataLen = 1;
@@ -948,15 +941,9 @@ void CmdServerReadWriteOwnAddress1(uint8_t dir, uint8_t *pData, uint16_t *dataLe
 
 void CmdServerReadWriteOwnAddress2(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		uint8_t adr = pData[1]*2; // NV stores the 8-bit (addr<<1) form
-		if (pData[1] > 0 && pData[1] < 128 && pData[1] != i2c_slave_GetOwnAddress2() ){
-			nv_write_U8(NV_ADDR_OWN_ADDRESS2, adr);
-			uint8_t stored = 0;
-			if ( nv_read_U8(NV_ADDR_OWN_ADDRESS2, &stored) == NV_OK && stored == adr ) {
-				// if successfully saved reinitialize I2C with new address
-				i2c_slave_SetOwnAddress2(pData[1]);
-			}
-		}
+		// Persist + peripheral re-init run in the APP task, not this I2C1 ISR.
+		if (pData[1] > 0 && pData[1] < 128 && pData[1] != i2c_slave_GetOwnAddress2() )
+			app_OnCmdSetOwnAddress(2, pData[1]);
 	} else {
 		pData[0] = i2c_slave_GetOwnAddress2();
 		*dataLen = 1;

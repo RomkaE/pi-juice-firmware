@@ -28,6 +28,7 @@ typedef enum
   APP_EVT_FG_RSOC,
 
   APP_EVT_CMD_SCHEDULE_POWER_OFF,                 // host register 0x62 - app_OnCmdSchedulePowerOff()
+  APP_EVT_CMD_SET_OWN_ADDRESS,                    // host register 0x7C/0x7D - app_OnCmdSetOwnAddress()
 
   APP_EVT_TIMER_POWER_UP,
   APP_EVT_TIMER_POWER_OFF,
@@ -110,6 +111,14 @@ typedef struct
   uint8_t delay_sec;
 } AppEventPowerOff_t;
 
+/* Host register 0x7C/0x7D: which slave own-address slot (1 or 2) and the new 7-bit address.
+ * Persist + peripheral re-init are done in the APP task, off the I2C1 ISR. */
+typedef struct
+{
+  uint8_t slot;    // 1 or 2
+  uint8_t addr7;   // 7-bit I2C address
+} AppEventOwnAddress_t;
+
 /* APP_EVT_FG_TEMP carries nothing: the thermal verdict also depends on the profile thresholds, so
  * it is re-evaluated from the current reading rather than from a value frozen into the event. */
 typedef struct
@@ -141,6 +150,7 @@ typedef struct
     AppEventChargerValue_t chargerValue;
     AppEventPowerTrip_t powerTrip;
     AppEventPowerOff_t powerOff;
+    AppEventOwnAddress_t ownAddress;
   };
 } AppEvent_t;
 
@@ -155,6 +165,7 @@ void app_OnCmdSetFuelGaugeConfig(uint8_t *_data, uint16_t _len);
 void app_OnCmdGetFuelGaugeConfig(uint8_t _data[], uint16_t *_p_len);
 void app_OnCmdSchedulePowerOff(uint8_t _delay_code);
 uint8_t app_OnCmdGetPowerOffCounter(void);
+void app_OnCmdSetOwnAddress(uint8_t _slot, uint8_t _addr7);
 void app_OnCmdSetHostWDTConfig(uint8_t _data[], uint16_t _len);
 void app_OnCmdGetHostWDTConfig(uint8_t _data[], uint16_t *_p_len);
 void app_OnCmdSetWakeupOnCharge(uint8_t _data[], uint16_t _len);

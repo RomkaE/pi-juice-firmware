@@ -29,6 +29,7 @@
 #include "app-error/diag.h"
 
 #include "driver/i2c/i2c_slave_dispatch.h"
+#include "driver/i2c/i2c_slave.h"
 #include "driver/i2c/i2c_master.h"
 
 // FreeRTOS:
@@ -364,6 +365,25 @@ static void ApplyChargerChargingConfig(uint8_t config, uint8_t seq)
   charger_SetChargingConfig(config);
 }
 
+/* Persist the new own address (NV stores the 8-bit addr<<1 form) and, only once the store reads
+ * back, re-init the slave to it. Runs in the APP task: the flash write and HAL_I2C_DeInit must not
+ * happen in the I2C1 ISR that delivered the host write. */
+static void ApplyOwnAddress(uint8_t slot, uint8_t addr7)
+{
+  uint16_t nv_id = (slot == 2) ? NV_ADDR_OWN_ADDRESS2 : NV_ADDR_OWN_ADDRESS1;
+  uint8_t adr8 = (uint8_t)(addr7 << 1);
+  uint8_t stored = 0;
+
+  if (nv_write_U8(nv_id, adr8) != NV_OK
+   || nv_read_U8(nv_id, &stored) != NV_OK || stored != adr8)
+    return;
+
+  if (slot == 2)
+    i2c_slave_SetOwnAddress2(addr7);
+  else
+    i2c_slave_SetOwnAddress1(addr7);
+}
+
 /*
  * The configured threshold in x10 percent, back from the register byte. 0x7F in it means "never".
  * Bit 7 says the value lives in NV: the host sets it to ask for a store and reads it back as
@@ -641,6 +661,10 @@ static void ProcessEvent(const AppEvent_t *_evt)
 
     case APP_EVT_CHARGER_SET_CHARGING_CONFIG:
       ApplyChargerChargingConfig(_evt->chargerConfig.config, _evt->chargerConfig.seq);
+      break;
+
+    case APP_EVT_CMD_SET_OWN_ADDRESS:
+      ApplyOwnAddress(_evt->ownAddress.slot, _evt->ownAddress.addr7);
       break;
 
     default:
@@ -1073,6 +1097,16 @@ uint8_t app_OnCmdGetPowerOffCounter(void)
    * passed, or the APP task has not armed it yet - both answer "any moment now". */
   TickType_t left = xTimerGetExpiryTime(s_TimerPowerOffHandle) - xTaskGetTickCount();
   return (left <= pdMS_TO_TICKS(250000)) ? (uint8_t)(left / configTICK_RATE_HZ) : 0;
+}
+
+void app_OnCmdSetOwnAddress(uint8_t _slot, uint8_t _addr7)
+{
+  LOG_WARNING("[APP] Rcvd CMD SetOwnAddress: slot=%u, addr=0x%02X",
+      (unsigned)_slot, (unsigned)_addr7);
+  AppEvent_t evt = { .type = APP_EVT_CMD_SET_OWN_ADDRESS };
+  evt.ownAddress.slot = _slot;
+  evt.ownAddress.addr7 = _addr7;
+  app_PostEvent(&evt);
 }
 
 void app_OnCmdSetHostWDTConfig(uint8_t _data[], uint16_t _len)
