@@ -48,6 +48,10 @@ static volatile uint8_t  s_XferActive = 0;
 static volatile uint32_t s_XferDeadline = 0;
 static volatile uint8_t  s_RecoverReq = 0;
 
+/* Bumped on every host address match, both banks. Readers compare it against their
+ * own snapshot, so neither side needs a lock - see i2c_slave_GetHostActivitySeq(). */
+static volatile uint8_t  s_HostActivitySeq = 0;
+
 static StaticTimer_t s_WatchTimerBuf;
 static TimerHandle_t s_WatchTimer = NULL;
 
@@ -55,6 +59,7 @@ static TimerHandle_t s_WatchTimer = NULL;
 
 void i2c_slave_OnAddr(I2C_HandleTypeDef *hi2c, uint8_t _dir, uint16_t _addr)
 {
+  s_HostActivitySeq++;                                       // the host is alive
   s_XferActive = 1;                                          // watchdog: transaction opened
   s_XferDeadline = HAL_GetTick() + I2C_SLAVE_XFER_MAX_MS;
 
@@ -268,4 +273,9 @@ uint8_t i2c_slave_GetOwnAddress1(void)
 uint8_t i2c_slave_GetOwnAddress2(void)
 {
   return s_OwnAddr2;
+}
+
+uint8_t i2c_slave_GetHostActivitySeq(void)
+{
+  return s_HostActivitySeq;
 }

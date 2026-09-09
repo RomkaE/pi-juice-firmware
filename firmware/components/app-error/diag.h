@@ -60,7 +60,8 @@ typedef enum {
 
   DIAG_RESET_FATAL         = 28,  // an ASSERT or APP_ERROR took the board down on purpose
   DIAG_RESET_IWDG          = 29,  // the watchdog bit: something hung without reaching a handler
-  DIAG_RESET_LPWR          = 30,  // illegal low-power entry; sleep modes are off, so a bug
+  /* host watchdog - took over the slot the low-power reset cause used to hold */
+  DIAG_HOST_WDT_EXPIRED    = 30,  // the host went quiet: the 5V bus was power cycled
   DIAG_RESET_HARDFAULT     = 31,  // the core took a fault; no detail, see below
 
   DIAG_ID_COUNT            = 32

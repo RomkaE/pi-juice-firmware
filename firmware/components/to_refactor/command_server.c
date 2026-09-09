@@ -11,6 +11,7 @@
 #include "power/battery.h"
 #include "power/fuel_gauge_lc709203f.h"
 #include "power/power_manager.h"
+#include "power/host_wdt.h"
 #include "power/charger_bq2416x.h"
 #include "to_refactor/rtc_ds1339_emu.h"
 #include "to_refactor/io_control.h"
@@ -914,9 +915,9 @@ void CmdServerReadWriteRunPinConfiguration(uint8_t dir, uint8_t *pData, uint16_t
 
 void CmdServerReadWriteWDGConfiguration(uint8_t dir, uint8_t *pData, uint16_t *dataLen) {
 	if (dir == MASTER_CMD_DIR_WRITE) {
-		app_OnCmdSetHostWDTConfig(pData+1, *dataLen - 1);
+		host_wdt_CmdSetConfig(pData+1, *dataLen - 1);
 	} else {
-		app_OnCmdGetHostWDTConfig(pData, dataLen);
+		host_wdt_CmdGetConfig(pData, dataLen);
 	}
 }
 

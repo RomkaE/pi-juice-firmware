@@ -29,11 +29,13 @@ typedef enum
 
   APP_EVT_CMD_SCHEDULE_POWER_OFF,                 // host register 0x62 - app_OnCmdSchedulePowerOff()
   APP_EVT_CMD_SET_OWN_ADDRESS,                    // host register 0x7C/0x7D - app_OnCmdSetOwnAddress()
+  APP_EVT_CMD_SET_HOST_WDT_CONFIG,                // host register 0x61 - host_wdt_CmdSetConfig()
 
   APP_EVT_TIMER_POWER_UP,
   APP_EVT_TIMER_POWER_OFF,
   APP_EVT_TIMER_FAULT_RETRY,                      // the backoff elapsed, try the 5V bus again
   APP_EVT_TIMER_FAULT_FORGIVE,                    // the host has been up long enough, see state_On()
+  APP_EVT_TIMER_HOST_WDT_RECOVER,                 // the 5V bus has been down long enough, raise it
 
   APP_EVT_CMD_BATT_SET_PROFILE,                    // host register 0x82 - battery_CmdSetProfile()
   APP_EVT_CMD_BATT_WRITE_CUSTOM_PROFILE,           // host register 0x86 - battery_CmdWriteCustomProfile()
@@ -45,6 +47,7 @@ typedef enum
   APP_EVT_CHARGER_SET_INPUTS_CONFIG,              // app_ChargerCmdWriteInputsConfig()
   APP_EVT_CHARGER_SET_CHARGING_CONFIG,            // app_ChargerCmdWriteChargingConfig()
   APP_EVT_POWER_PROTECTION,                       // undervoltage or 5V fault, from the ANALOG task
+  APP_EVT_HOST_WDT_EXPIRED,                       // the host went quiet, from host_wdt.c
 } AppEventType_t;
 
 typedef struct
@@ -119,6 +122,15 @@ typedef struct
   uint8_t addr7;   // 7-bit I2C address
 } AppEventOwnAddress_t;
 
+/* Host register 0x61, already decoded by host_wdt.c: the timeout in minutes and bit 15,
+ * "store to NV". The NV write runs in the APP task, off the I2C1 ISR. */
+typedef struct
+{
+  uint16_t minutes;
+  bool store;
+  uint8_t seq;     // see WdtMirror_t in host_wdt.c
+} AppEventHostWdt_t;
+
 /* APP_EVT_FG_TEMP carries nothing: the thermal verdict also depends on the profile thresholds, so
  * it is re-evaluated from the current reading rather than from a value frozen into the event. */
 typedef struct
@@ -151,6 +163,7 @@ typedef struct
     AppEventPowerTrip_t powerTrip;
     AppEventPowerOff_t powerOff;
     AppEventOwnAddress_t ownAddress;
+    AppEventHostWdt_t hostWdt;
   };
 } AppEvent_t;
 
@@ -166,8 +179,6 @@ void app_OnCmdGetFuelGaugeConfig(uint8_t _data[], uint16_t *_p_len);
 void app_OnCmdSchedulePowerOff(uint8_t _delay_code);
 uint8_t app_OnCmdGetPowerOffCounter(void);
 void app_OnCmdSetOwnAddress(uint8_t _slot, uint8_t _addr7);
-void app_OnCmdSetHostWDTConfig(uint8_t _data[], uint16_t _len);
-void app_OnCmdGetHostWDTConfig(uint8_t _data[], uint16_t *_p_len);
 void app_OnCmdSetWakeupOnCharge(uint8_t _data[], uint16_t _len);
 void app_OnCmdGetWakeupOnCharge(uint8_t _data[], uint16_t *_p_len);
 void app_OnCmdSetChargerInputsConfig(uint8_t _in_config);
