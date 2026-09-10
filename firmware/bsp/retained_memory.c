@@ -3,18 +3,12 @@
  *
  * Why this exists.
  *
- * The linker script places the no_init section straight after .bss, with no fixed address
- * (see STM32F030CCTX_FLASH.ld). Its base is therefore the end of .bss, so *any* change in
- * the size of .bss moves every retained variable. RAM survives a reset and a reflash, so
- * after such a move the firmware reads the previous image's leftovers at the new addresses
- * and takes them for its own state.
- *
- * That is not a theoretical concern: shrinking the ADC ring buffer by 7424 bytes moved the
- * whole section down by the same amount. main_init() trusts retained data whenever
- * executionState happens to hold one of its magic values, and then ChargerInit() skips
- * reading its configuration from NV and FuelGaugeInit() skips rebuilding the SoC tables -
- * so a stale word could leave the charger disabled and the gauge reporting nonsense while
- * the purely ADC-derived readings still looked perfectly healthy.
+ * RAM survives a reset and a reflash. The linker script pins no_init to a fixed region at
+ * the top of RAM (RAM_NOINIT, see STM32F030CCTX_FLASH.ld), so its base no longer depends on
+ * .data/.bss and the system bootloader does not touch it. The layout *inside* the section
+ * can still change between images (a variable added, resized or reordered), and then the
+ * firmware would read the previous image's leftovers and take them for its own state -
+ * e.g. a stale word could leave the charger disabled or the gauge reporting nonsense.
  *
  * What is checked, and what deliberately is not.
  *
@@ -28,10 +22,8 @@
  * other. The token lives inside the section, so if the section moves the token moves with
  * it, lands on foreign data and fails to match - which is exactly the detection wanted.
  *
- * This detects the corruption rather than preventing it. Prevention would mean pinning the
- * section to a fixed address in the linker script; detection is enough for correctness,
- * because an invalid verdict simply forces the cold-boot path and everything is re-read
- * from NV. The cost is losing retained state across a firmware update that changes .bss.
+ * An invalid verdict simply forces the cold-boot path and everything is re-read from NV.
+ * The cost is losing retained state across a firmware update that changes the section.
  */
 
 #include <stdint.h>
