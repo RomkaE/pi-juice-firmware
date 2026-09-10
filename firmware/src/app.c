@@ -435,26 +435,26 @@ static bool IsWakeupOnChargeAllowed(ChargerStatus_t _chrgr_status, uint16_t _rso
 {
   if (!s_WakeupOnChargeArmed)
   {
-    LOG_WARNING("[APP] Wake-up rejected: NOT ARMED");
+    LOG_DEBUG("[APP] Wake-up rejected: NOT ARMED");
     return false;
   }
 
   if (_chrgr_status != CHG_STATUS_CHARGING_FROM_IN && _chrgr_status != CHG_STATUS_CHARGE_DONE)
   {
-    LOG_WARNING("[APP] Wake-up rejected: chrgr status=%u", (unsigned)_chrgr_status);
+    LOG_DEBUG("[APP] Wake-up rejected: chrgr status=%u", (unsigned)_chrgr_status);
     return false;
   }
 
   if (_rsoc == FUEL_GAUGE_RSOC_UNKNOWN)
   {
-    LOG_WARNING("[APP] Wake-up rejected: RSOC_UNKNOWN");
+    LOG_DEBUG("[APP] Wake-up rejected: RSOC_UNKNOWN");
     return false;
   }
 
   uint16_t rsoc_min = WakeupChargeConfig2Percent(s_WakeupOnChargeConfig);
   if (_rsoc < rsoc_min)
   {
-    LOG_WARNING("[APP] Wake-up rejected: rsoc=%u.%u%%, rsoc_min=%u.%u%%",
+    LOG_DEBUG("[APP] Wake-up rejected: rsoc=%u.%u%%, rsoc_min=%u.%u%%",
         (unsigned)(_rsoc / 10), (unsigned)(_rsoc % 10),
         (unsigned)(rsoc_min / 10), (unsigned)(rsoc_min % 10));
     return false;

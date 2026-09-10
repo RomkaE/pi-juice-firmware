@@ -205,10 +205,9 @@ void pwr_mngr_SetBatProfile(const BatteryProfile_T *_p_profile)
 // Derived, not stored: the charger already publishes everything this needs, ISR safe.
 PowerSourceStatus_t pwr_mngr_GetInStatus(void)
 {
-  ChargerInputStatus_t status = charger_GetInStatus();
-  if (status == CHG_IN_UVLO)
+  if (!charger_IsInputPresent())
     return PWR_SOURCE_NOT_PRESENT;
-  if (status == CHG_IN_OVP || status == CHG_IN_WEAK)
+  if (charger_GetInStatus() != CHG_IN_NORMAL)
     return PWR_SOURCE_BAD;
   if (charger_GetDpmStatus())
     return PWR_SOURCE_WEAK;
