@@ -147,6 +147,9 @@ static StaticTimer_t s_TimerHostWdtOff;
 static uint8_t s_WakeupOnChargeConfig;      // register 0x63 byte
 static bool s_WakeupOnChargeArmed __attribute__((section("no_init")));
 
+// Status before the event being dispatched; NA until the first reading after a reset or a lost device.
+static ChargerStatus_t s_ChargerStatus = CHG_STATUS_NA;
+
 static bool s_HostWdtCycle;      // the bus was cut by the watchdog and has to come back
 static uint8_t s_HostWdtTrips;   // cycles in a row that the host did not come back from
 
@@ -232,13 +235,6 @@ void charger_SnapshotChanged_Callback(const ChargerSnapshot_t *_p_snapshot, uint
   {
     AppEvent_t event = { .type = APP_EVT_CHRGR_BATT_PRESENCE,
                          .batteryPresence.present = _p_snapshot->batt_present };
-    app_PostEvent(&event);
-  }
-
-  if (_changed & CHG_CHANGED_INPUT_PRESENT)
-  {
-    AppEvent_t event = { .type = APP_EVT_CHRGR_INPUT_PRESENCE,
-                         .chargerInput.present = _p_snapshot->input_present };
     app_PostEvent(&event);
   }
 
@@ -429,6 +425,12 @@ static void SetWakeupOnChargeArmed(bool _state)
   s_WakeupOnChargeArmed = _state;
 }
 
+// Whether a new charger status flips external power present against the status before it.
+static bool IsVinEdge(ChargerStatus_t _status)
+{
+  return charger_IsVinPresentStatus(s_ChargerStatus) != charger_IsVinPresentStatus(_status);
+}
+
 /* Check only. State machine controls arming and wake-up action.
  * Arming prevents continuous wake-up while charging remains active. */
 static bool IsWakeupOnChargeAllowed(ChargerStatus_t _chrgr_status, uint16_t _rsoc)
@@ -439,7 +441,9 @@ static bool IsWakeupOnChargeAllowed(ChargerStatus_t _chrgr_status, uint16_t _rso
     return false;
   }
 
-  if (_chrgr_status != CHG_STATUS_CHARGING_FROM_IN && _chrgr_status != CHG_STATUS_CHARGE_DONE)
+  if (_chrgr_status != CHG_STATUS_CHARGING_FROM_IN &&
+      _chrgr_status != CHG_STATUS_CHARGE_DONE &&
+      _chrgr_status != CHG_STATUS_IN_READY)
   {
     LOG_DEBUG("[APP] Wake-up rejected: chrgr status=%u", (unsigned)_chrgr_status);
     return false;
@@ -601,7 +605,7 @@ static bool Init(void)
   return cold_start;
 }
 
-static void ProcessEvent(const AppEvent_t *_evt)
+static void ProcessEventBeforeFsm(const AppEvent_t *_evt)
 {
   switch (_evt->type)
   {
@@ -689,6 +693,20 @@ static void ProcessEvent(const AppEvent_t *_evt)
   }
 }
 
+// Facts the states must see only as history: updated after fsm_Dispatch() has handled the event.
+static void ProcessEventAfterFsm(const AppEvent_t *_evt)
+{
+  switch (_evt->type)
+  {
+    case APP_EVT_CHRGR_STATUS:
+      s_ChargerStatus = _evt->chargerStatus.status;
+    break;
+
+    default:
+    break;
+  }
+}
+
 /*
  * Where a protection lands. A flat pack is not an overload and retrying it is pointless, so the
  * cutoff wins even when the sagging 5V bus put its own bit up as well.
@@ -744,12 +762,13 @@ static AppState_t state_Off(const AppEvent_t *_evt)
       }
     break;
 
-    case APP_EVT_CHRGR_INPUT_PRESENCE:
-      // Any external power source state change allows wake-up on charge:
-      SetWakeupOnChargeArmed(true);
-    break;
-
     case APP_EVT_CHRGR_STATUS:
+      /* Any external power change arms wake-up on charge. Not to or from NA: a reading after a reset
+       * or a lost device finds the source, it was not plugged in - the retained arm stands. */
+      if (s_ChargerStatus != CHG_STATUS_NA && _evt->chargerStatus.status != CHG_STATUS_NA &&
+          IsVinEdge(_evt->chargerStatus.status))
+        SetWakeupOnChargeArmed(true);
+
       if (IsWakeupOnChargeAllowed(_evt->chargerStatus.status, fuel_gauge_GetRsoc()))
       {
         LOG_INFO("[APP] POWER UP triggered by charge");
@@ -881,9 +900,10 @@ static AppState_t state_On(const AppEvent_t *_evt)
       next = SM_APP_OFF;
     break;
 
-    case APP_EVT_CHRGR_INPUT_PRESENCE:
+    case APP_EVT_CHRGR_STATUS:
       // While the host is up, arm follows the source:
-      SetWakeupOnChargeArmed(!_evt->chargerInput.present);
+      if (IsVinEdge(_evt->chargerStatus.status))
+        SetWakeupOnChargeArmed(!charger_IsVinPresentStatus(_evt->chargerStatus.status));
     break;
 
     case APP_EVT_TIMER_FAULT_FORGIVE:
@@ -1046,8 +1066,9 @@ static void Task(void *parameters)
     if (xQueueReceive(s_EvtQueHandle, &evt, portMAX_DELAY) != pdPASS)
       continue;
 
-    ProcessEvent(&evt);
+    ProcessEventBeforeFsm(&evt);
     fsm_Dispatch(&evt);
+    ProcessEventAfterFsm(&evt);
   }
 }
 

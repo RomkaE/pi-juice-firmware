@@ -41,7 +41,6 @@ typedef enum
   APP_EVT_CMD_BATT_WRITE_CUSTOM_PROFILE,           // host register 0x86 - battery_CmdWriteCustomProfile()
   APP_EVT_CMD_BATT_WRITE_CUSTOM_EXTENDED_PROFILE,  // host register 0x87 - battery_CmdWriteCustomExtendedProfile()
 
-  APP_EVT_CHRGR_INPUT_PRESENCE,                   // charger.c detected an edge on "is an input source present"
   APP_EVT_CHRGR_BATT_PRESENCE,                    // charger.c detected an edge on the bq2416x BATSTAT
   APP_EVT_CMD_FUEL_GAUGE_SET_CONFIG,              // host register 0x93 - app_FuelGaugeCmdSetConfig()
   APP_EVT_CHARGER_SET_INPUTS_CONFIG,              // app_ChargerCmdWriteInputsConfig()
@@ -73,11 +72,6 @@ typedef struct
 {
   BatteryProfile_T profile; // only the extended (chemistry/ocv/r) fields are meaningful
 } AppEventBatteryCustomExtProfile_t;
-
-typedef struct
-{
-  bool present;
-} AppEventChargerInput_t;
 
 /* Raw BATSTAT edge from the charger - battery.c turns it into "is a pack present". */
 typedef struct
@@ -155,7 +149,6 @@ typedef struct
     AppEventBatteryCustomProfile_t batteryCustomProfile;
     AppEventBatteryCustomExtProfile_t batteryCustomExtProfile;
     AppEventChargerStatus_t chargerStatus;
-    AppEventChargerInput_t chargerInput;
     AppEventBatteryPresence_t batteryPresence;
     AppEventFuelGaugeConfig_t fuelGaugeConfig;
     AppEventChargerConfig_t chargerConfig;

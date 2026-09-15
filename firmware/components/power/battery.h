@@ -87,7 +87,7 @@ typedef enum BatteryStatus_T {
  * entry points below are still interrupt-safe (they only parse the request and hand it to the
  * APP task), but battery_Init() and the battery_Apply*() functions do real NV access and must
  * only ever run in a task context - battery_Init() from APP's own startup, battery_Apply*() only
- * from app_ProcessEvent().
+ * from ProcessEventBeforeFsm() in app.c.
  *
  * Loads the current profile from NV, synchronously. Must be called after nv_Init(), and before
  * fuel_gauge_Init()/charger_Init() - both read the initial profile via battery_GetProfile() on
@@ -147,7 +147,7 @@ void battery_ReadProfileStatus(uint8_t *data, uint16_t *len);
 
 /*
  * Applies a profile command queued via the three battery_Cmd*() functions above - called only
- * from app_ProcessEvent() in APP task context, never directly. This is where the NV write and
+ * from ProcessEventBeforeFsm() in app.c, APP task context, never directly. This is where the NV write and
  * the currently-selected-profile publish actually happen.
  */
 void battery_ApplySetProfile(uint8_t id, uint8_t seq);
