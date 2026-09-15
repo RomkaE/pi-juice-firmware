@@ -165,6 +165,13 @@ static void slave_bus_recovery(void)
 {
   GPIO_InitTypeDef gpio = { 0 };
 
+  /* Snapshot what the bus looked like while the peripheral still owned the pins:
+   * SDA low with no transaction of ours is somebody else holding the line. */
+  uint8_t scl_was = (uint8_t)HAL_GPIO_ReadPin(I2C1_SCL_PORT, I2C1_SCL_PIN);
+  uint8_t sda_was = (uint8_t)HAL_GPIO_ReadPin(I2C1_SDA_PORT, I2C1_SDA_PIN);
+  uint8_t req_was = s_RecoverReq;
+  uint8_t act_was = s_XferActive;
+
   diag_Set(DIAG_I2C1_SLAVE_ERR);
 
   /* Drop the peripheral (releases SCL/SDA, clears BERR/ARLO/AF latches) and keep
@@ -207,6 +214,10 @@ static void slave_bus_recovery(void)
   recovery_delay();
   HAL_GPIO_WritePin(I2C1_SDA_PORT, I2C1_SDA_PIN, GPIO_PIN_SET);
   recovery_delay();
+
+  LOG_WARNING("[I2C1] Bus recovery: was SCL=%u SDA=%u, err=%u xfer=%u, SDA now %u",
+      (unsigned)scl_was, (unsigned)sda_was, (unsigned)req_was, (unsigned)act_was,
+      (unsigned)HAL_GPIO_ReadPin(I2C1_SDA_PORT, I2C1_SDA_PIN));
 
   s_RxIdx = 0;
   s_XferActive = 0;
