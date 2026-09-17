@@ -330,6 +330,44 @@ static uint8_t RegulationVoltage(const ChargerConfig_t *_p_cfg)
   return (uint8_t)code;
 }
 
+static bool IsVusbPresentStatus(ChargerStatus_t _status)
+{
+  return (_status == CHG_STATUS_USB_READY ||
+          _status == CHG_STATUS_CHARGING_FROM_USB);
+}
+
+static void StatusRefuseUsbInput(ChargerSnapshot_t *_p_snapshot)
+{
+  bool refuse = IsVusbPresentStatus(_p_snapshot->status);
+
+  // Both edges, once each: the round repeats every second and an episode can stand for several.
+  // How long it stood is the useful half - it says whether the lockout came back on the next
+  // round, as it should, or the device sat in DEFAULT mode.
+  #if LOG_ENABLED
+  static TickType_t since;
+  static bool refused;
+
+  if (refuse && !refused)
+  {
+    since = xTaskGetTickCount();
+    LOG_ERROR("[CHG] %s refused: USB-IN is locked out, OTG_LOCK lost",
+        ChargerStatus2Str(_p_snapshot->status));
+  }
+  else if (!refuse && refused)
+  {
+    LOG_WARNING("[CHG] USB-IN status gone after %u ms, device now %s",
+        (unsigned)((xTaskGetTickCount() - since) * portTICK_PERIOD_MS),
+        ChargerStatus2Str(_p_snapshot->status));
+  }
+
+  refused = refuse;
+  #endif /* LOG_ENABLED */
+
+  // Set status:
+  if (refuse)
+    _p_snapshot->status = CHG_STATUS_NO_VALID_SOURCE;
+}
+
 static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
 {
   uint8_t changed = 0;
@@ -369,13 +407,6 @@ static void PublishChanges(const ChargerSnapshot_t *_p_snapshot)
     LOG_WARNING("[CHG] Batt present: %u->%u", (unsigned)s_Snapshot.batt_present,
                                            (unsigned)_p_snapshot->batt_present);
     changed |= CHG_CHANGED_BATT_PRESENT;
-  }
-
-  if (s_Snapshot.input_present != _p_snapshot->input_present)
-  {
-    LOG_INFO("[CHG] Input present: %u->%u", (unsigned)s_Snapshot.input_present,
-                                            (unsigned)_p_snapshot->input_present);
-    changed |= CHG_CHANGED_INPUT_PRESENT;
   }
 
   if (s_Snapshot.dpm_stat != _p_snapshot->dpm_stat)
@@ -437,11 +468,6 @@ static ChargerSnapshot_t DeviceRegsDecode(void)
   decoded.fault = reg_status.rd.fault;
   decoded.in_stat = reg_supply.rd.in_status;
   decoded.batt_present = (reg_supply.rd.batt_stat != BQ_BATSTAT_NOT_PRESENT);
-
-  // From STAT, not from INSTAT: INSTAT tells how good the IN pin looks (OVP, weak, UVLO), while
-  // STAT is the device's own verdict on whether a source was accepted and selected.
-  decoded.input_present = (reg_status.rd.status > CHG_STATUS_NO_VALID_SOURCE)
-                       && (reg_status.rd.status < CHG_STATUS_NA);
 
   decoded.dpm_stat =  s_DeviceRegs.reg.vin_dpm.rd.dpm_status;
 
@@ -802,6 +828,9 @@ static bool DeviceRound(uint8_t _dump_level)
   // 2. Snapshot -> values, no side effects:
   ChargerSnapshot_t snapshot = DeviceRegsDecode();
 
+  // 2a. Drop the USB-IN statuses this board locks out:
+  StatusRefuseUsbInput(&snapshot);
+
   // Taken before the publish, which is what moves s_Snapshot on. A pack appearing is one of the
   // moments the device has to be taken through high impedance, see ShouldEnterHiZ().
   //
@@ -1156,9 +1185,10 @@ bool charger_IsBatteryPresent(void)
   return s_Snapshot.batt_present != 0;
 }
 
+// From STAT, not INSTAT: STAT is the device's verdict on a source, INSTAT only grades the pin.
 bool charger_IsInputPresent(void)
 {
-  return s_Snapshot.input_present;
+  return charger_IsVinPresentStatus(s_Snapshot.status);
 }
 
 bool charger_GetDpmStatus(void)
@@ -1179,6 +1209,13 @@ ChargerFaultStatus_t charger_GetFaultStatus(void)
 bool charger_IsNoBatteryTurnOnEnabled(void)
 {
   return s_Cfg.no_battery_turnon != 0;
+}
+
+bool charger_IsVinPresentStatus(ChargerStatus_t _status)
+{
+  return (_status == CHG_STATUS_IN_READY ||
+          _status == CHG_STATUS_CHARGING_FROM_IN ||
+          _status == CHG_STATUS_CHARGE_DONE );
 }
 
 void charger_SetInputsConfig(uint8_t _config)

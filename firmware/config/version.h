@@ -2,6 +2,6 @@
 #define CONFIG_VERSION_H_
 
 #define FW_VER_MAJOR      2
-#define FW_VER_MINOR      1
+#define FW_VER_MINOR      0
 
 #endif /* CONFIG_VERSION_H_ */

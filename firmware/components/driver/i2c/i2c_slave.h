@@ -34,4 +34,8 @@ void i2c_slave_SetOwnAddress2(uint8_t _addr2);
 uint8_t i2c_slave_GetOwnAddress1(void);
 uint8_t i2c_slave_GetOwnAddress2(void);
 
+/* Counts addressed host transactions, wrapping. Compare it against a snapshot to
+ * see whether the host has spoken since; the I2C1 ISR is the only writer. */
+uint8_t i2c_slave_GetHostActivitySeq(void);
+
 #endif /* COMPONENTS_DRIVER_I2C_I2C_SLAVE_H_ */

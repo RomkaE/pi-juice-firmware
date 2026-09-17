@@ -13,6 +13,7 @@
 #include "iosystem/button.h"
 #include "power/fuel_gauge_lc709203f.h"
 #include "power/power_manager.h"
+#include "power/host_wdt.h"
 #include "power/charger_bq2416x.h"
 
 #include <to_refactor/command_server.h>
@@ -29,6 +30,7 @@
 #include "app-error/diag.h"
 
 #include "driver/i2c/i2c_slave_dispatch.h"
+#include "driver/i2c/i2c_slave.h"
 #include "driver/i2c/i2c_master.h"
 
 // FreeRTOS:
@@ -121,6 +123,23 @@ static StaticTimer_t s_TimerFaultForgive;
 static TimerHandle_t s_TimerWdtHandle;
 static StaticTimer_t s_TimerWdt;
 
+/*
+ * The off time of a host watchdog power cycle: host_wdt.c reports that the host has gone quiet,
+ * the FSM cuts the 5V bus and this one shot is what brings it back.
+ */
+#define APP_HOST_WDT_OFF_MS  2000
+
+/*
+ * How many power cycles in a row may end with the host never saying a word. A host that ran and
+ * then went quiet has hung, and a cycle is worth trying; one that never reaches us did not come
+ * up at all, and repeating that only wears the pack down. Cleared by the power button, the same
+ * way the 5V latch is.
+ */
+#define APP_HOST_WDT_MAX_TRIPS  3
+
+static TimerHandle_t s_TimerHostWdtOffHandle;
+static StaticTimer_t s_TimerHostWdtOff;
+
 
 #define APP_WAKEUP_ON_CHARGE_OFF  0xFFFF
 #define APP_WAKEUP_ON_CHARGE_MIN  5     // RSOC 5%, armed when a protection cuts the 5V bus
@@ -128,8 +147,11 @@ static StaticTimer_t s_TimerWdt;
 static uint8_t s_WakeupOnChargeConfig;      // register 0x63 byte
 static bool s_WakeupOnChargeArmed __attribute__((section("no_init")));
 
-static uint16_t s_WdtHostConfig;        // persisted minutes
-static uint32_t s_WdtHostPeriodMs;
+// Status before the event being dispatched; NA until the first reading after a reset or a lost device.
+static ChargerStatus_t s_ChargerStatus = CHG_STATUS_NA;
+
+static bool s_HostWdtCycle;      // the bus was cut by the watchdog and has to come back
+static uint8_t s_HostWdtTrips;   // cycles in a row that the host did not come back from
 
 // System wide event queue - see the contract in app.h:
 static QueueHandle_t s_EvtQueHandle;
@@ -216,13 +238,6 @@ void charger_SnapshotChanged_Callback(const ChargerSnapshot_t *_p_snapshot, uint
     app_PostEvent(&event);
   }
 
-  if (_changed & CHG_CHANGED_INPUT_PRESENT)
-  {
-    AppEvent_t event = { .type = APP_EVT_CHRGR_INPUT_PRESENCE,
-                         .chargerInput.present = _p_snapshot->input_present };
-    app_PostEvent(&event);
-  }
-
   if (_changed & CHG_CHANGED_STATUS)
   {
     AppEvent_t event = { .type = APP_EVT_CHRGR_STATUS,
@@ -270,6 +285,13 @@ static void OnTimerFaultForgive(TimerHandle_t _timer)
 {
   (void)_timer;
   AppEvent_t event = { .type = APP_EVT_TIMER_FAULT_FORGIVE };
+  app_PostEvent(&event);
+}
+
+static void OnTimerHostWdtRecover(TimerHandle_t _timer)
+{
+  (void)_timer;
+  AppEvent_t event = { .type = APP_EVT_TIMER_HOST_WDT_RECOVER };
   app_PostEvent(&event);
 }
 
@@ -364,6 +386,25 @@ static void ApplyChargerChargingConfig(uint8_t config, uint8_t seq)
   charger_SetChargingConfig(config);
 }
 
+/* Persist the new own address (NV stores the 8-bit addr<<1 form) and, only once the store reads
+ * back, re-init the slave to it. Runs in the APP task: the flash write and HAL_I2C_DeInit must not
+ * happen in the I2C1 ISR that delivered the host write. */
+static void ApplyOwnAddress(uint8_t slot, uint8_t addr7)
+{
+  uint16_t nv_id = (slot == 2) ? NV_ADDR_OWN_ADDRESS2 : NV_ADDR_OWN_ADDRESS1;
+  uint8_t adr8 = (uint8_t)(addr7 << 1);
+  uint8_t stored = 0;
+
+  if (nv_write_U8(nv_id, adr8) != NV_OK
+   || nv_read_U8(nv_id, &stored) != NV_OK || stored != adr8)
+    return;
+
+  if (slot == 2)
+    i2c_slave_SetOwnAddress2(addr7);
+  else
+    i2c_slave_SetOwnAddress1(addr7);
+}
+
 /*
  * The configured threshold in x10 percent, back from the register byte. 0x7F in it means "never".
  * Bit 7 says the value lives in NV: the host sets it to ask for a store and reads it back as
@@ -384,32 +425,40 @@ static void SetWakeupOnChargeArmed(bool _state)
   s_WakeupOnChargeArmed = _state;
 }
 
+// Whether a new charger status flips external power present against the status before it.
+static bool IsVinEdge(ChargerStatus_t _status)
+{
+  return charger_IsVinPresentStatus(s_ChargerStatus) != charger_IsVinPresentStatus(_status);
+}
+
 /* Check only. State machine controls arming and wake-up action.
  * Arming prevents continuous wake-up while charging remains active. */
 static bool IsWakeupOnChargeAllowed(ChargerStatus_t _chrgr_status, uint16_t _rsoc)
 {
   if (!s_WakeupOnChargeArmed)
   {
-    LOG_WARNING("[APP] Wake-up rejected: NOT ARMED");
+    LOG_DEBUG("[APP] Wake-up rejected: NOT ARMED");
     return false;
   }
 
-  if (_chrgr_status != CHG_STATUS_CHARGING_FROM_IN && _chrgr_status != CHG_STATUS_CHARGE_DONE)
+  if (_chrgr_status != CHG_STATUS_CHARGING_FROM_IN &&
+      _chrgr_status != CHG_STATUS_CHARGE_DONE &&
+      _chrgr_status != CHG_STATUS_IN_READY)
   {
-    LOG_WARNING("[APP] Wake-up rejected: chrgr status=%u", (unsigned)_chrgr_status);
+    LOG_DEBUG("[APP] Wake-up rejected: chrgr status=%u", (unsigned)_chrgr_status);
     return false;
   }
 
   if (_rsoc == FUEL_GAUGE_RSOC_UNKNOWN)
   {
-    LOG_WARNING("[APP] Wake-up rejected: RSOC_UNKNOWN");
+    LOG_DEBUG("[APP] Wake-up rejected: RSOC_UNKNOWN");
     return false;
   }
 
   uint16_t rsoc_min = WakeupChargeConfig2Percent(s_WakeupOnChargeConfig);
   if (_rsoc < rsoc_min)
   {
-    LOG_WARNING("[APP] Wake-up rejected: rsoc=%u.%u%%, rsoc_min=%u.%u%%",
+    LOG_DEBUG("[APP] Wake-up rejected: rsoc=%u.%u%%, rsoc_min=%u.%u%%",
         (unsigned)(_rsoc / 10), (unsigned)(_rsoc % 10),
         (unsigned)(rsoc_min / 10), (unsigned)(rsoc_min % 10));
     return false;
@@ -442,7 +491,7 @@ static void ArmPowerOffTimer(uint8_t _delay_sec)
  * Must run before the flags are cleared. Without it an IWDG reboot loop is invisible: the reset
  * leaves retained memory valid, so every restart looks like an ordinary warm start.
  *
- * The abnormal causes also go into the diag registry, which is retained, so the host sees them in
+ * The IWDG cause also goes into the diag registry, which is retained, so the host sees it in
  * 0xC3/0xC7 rather than only the RTT log. DIAG_RESET_FATAL is not set here - the fatal handler
  * stamps that itself, because a deliberate reset and the config-reset button share RCC_FLAG_SFTRST.
  */
@@ -454,10 +503,7 @@ static void LogResetReason(void)
     diag_Set(DIAG_RESET_IWDG);
   }
   if (__HAL_RCC_GET_FLAG(RCC_FLAG_LPWRRST))
-  {
     LOG_WARNING("[RST] low power");
-    diag_Set(DIAG_RESET_LPWR);
-  }
   if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST))
     LOG_INFO("[RST] software");
   if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST))
@@ -512,20 +558,8 @@ static bool Init(void)
     }
   }
 
-  // Get HostWDT config:
-  {
-    // Only a complete pair counts - half a period would arm the watchdog with a bogus timeout.
-    uint8_t valueL = 0, valueH = 0;
-    if (nv_read_U8(NV_ADDR_HOST_WDT_CONFIGL, &valueL) != NV_OK
-     || nv_read_U8(NV_ADDR_HOST_WDT_CONFIGH, &valueH) != NV_OK)
-    {
-      valueL = 0;   // nothing stored: watchdog disabled
-      valueH = 0;
-    }
-    s_WdtHostConfig = (uint16_t)valueH << 8 | valueL;
-  }
-
   // Initialize all configured peripherals:
+  host_wdt_Init();
   pwr_mngr_Init(cold_start);
   analog_Init();
   IoControlInit();
@@ -571,7 +605,7 @@ static bool Init(void)
   return cold_start;
 }
 
-static void ProcessEvent(const AppEvent_t *_evt)
+static void ProcessEventBeforeFsm(const AppEvent_t *_evt)
 {
   switch (_evt->type)
   {
@@ -581,6 +615,8 @@ static void ProcessEvent(const AppEvent_t *_evt)
     case APP_EVT_TIMER_POWER_UP:
     case APP_EVT_TIMER_FAULT_RETRY:
     case APP_EVT_TIMER_FAULT_FORGIVE:
+    case APP_EVT_HOST_WDT_EXPIRED:
+    case APP_EVT_TIMER_HOST_WDT_RECOVER:
     case APP_EVT_POWER_PROTECTION:
     case APP_EVT_CMD_SCHEDULE_POWER_OFF:
       break;
@@ -643,8 +679,30 @@ static void ProcessEvent(const AppEvent_t *_evt)
       ApplyChargerChargingConfig(_evt->chargerConfig.config, _evt->chargerConfig.seq);
       break;
 
+    case APP_EVT_CMD_SET_OWN_ADDRESS:
+      ApplyOwnAddress(_evt->ownAddress.slot, _evt->ownAddress.addr7);
+      break;
+
+    case APP_EVT_CMD_SET_HOST_WDT_CONFIG:
+      host_wdt_ApplyConfig(_evt->hostWdt.minutes, _evt->hostWdt.store, _evt->hostWdt.seq);
+      break;
+
     default:
       LOG_DEBUG("[APP] Unhandled event: type=%u", _evt->type);
+    break;
+  }
+}
+
+// Facts the states must see only as history: updated after fsm_Dispatch() has handled the event.
+static void ProcessEventAfterFsm(const AppEvent_t *_evt)
+{
+  switch (_evt->type)
+  {
+    case APP_EVT_CHRGR_STATUS:
+      s_ChargerStatus = _evt->chargerStatus.status;
+    break;
+
+    default:
     break;
   }
 }
@@ -683,22 +741,34 @@ static AppState_t state_Off(const AppEvent_t *_evt)
       s_PowerOffPending = false;
 
       xTimerStop(s_TimerFaultForgiveHandle, 0);   // it only measures time spent in ON
+      host_wdt_Stop();                            // it only counts while the host is powered
+
+      // A watchdog cut is half the job: the bus has to come back on its own.
+      if (s_HostWdtCycle && xTimerStart(s_TimerHostWdtOffHandle, 0) != pdPASS)
+        APP_ERROR(APP_ERR_RTOS_TIMER);
+    break;
+
+    case APP_EVT_TIMER_HOST_WDT_RECOVER:
+      LOG_WARNING("[APP] Host WDT: powering the host back up");
+      next = SM_APP_POWER_UP;
     break;
 
     case APP_EVT_BUTTON:
       if (_evt->button.func == BUTTON_EVENT_FUNC_POWER_ON)
       {
         LOG_INFO("[APP] POWER UP triggered by button");
+        s_HostWdtTrips = 0;   // a press clears the host watchdog latch outright
         next = SM_APP_POWER_UP;
       }
     break;
 
-    case APP_EVT_CHRGR_INPUT_PRESENCE:
-      // Any external power source state change allows wake-up on charge:
-      SetWakeupOnChargeArmed(true);
-    break;
-
     case APP_EVT_CHRGR_STATUS:
+      /* Any external power change arms wake-up on charge. Not to or from NA: a reading after a reset
+       * or a lost device finds the source, it was not plugged in - the retained arm stands. */
+      if (s_ChargerStatus != CHG_STATUS_NA && _evt->chargerStatus.status != CHG_STATUS_NA &&
+          IsVinEdge(_evt->chargerStatus.status))
+        SetWakeupOnChargeArmed(true);
+
       if (IsWakeupOnChargeAllowed(_evt->chargerStatus.status, fuel_gauge_GetRsoc()))
       {
         LOG_INFO("[APP] POWER UP triggered by charge");
@@ -734,6 +804,12 @@ static AppState_t state_PowerUp(const AppEvent_t *_evt)
 
       // Wake-up handled, clear the arm:
       SetWakeupOnChargeArmed(false);
+
+      /* Every way into ON starts a fresh grace window: button, wake on charge, a fault retry and
+       * the watchdog's own cycle all land here. */
+      s_HostWdtCycle = false;
+      xTimerStop(s_TimerHostWdtOffHandle, 0);
+      host_wdt_OnHostPowerUp();
 
       // Initialize I/O before enabling the 5V supply to ensure a soft start-up:
       IoControlResume();
@@ -785,11 +861,49 @@ static AppState_t state_On(const AppEvent_t *_evt)
       /* Warm start may enter ON directly, skipping POWER_UP resume.
        * The call is idempotent, so it is safe on the normal path too. */
       IoControlResume();
+
+      host_wdt_Start();
     break;
 
-    case APP_EVT_CHRGR_INPUT_PRESENCE:
+    case APP_EVT_CMD_SET_HOST_WDT_CONFIG:
+      host_wdt_Start();   // the new period is already in effect, see Task()
+    break;
+
+    case APP_EVT_HOST_WDT_EXPIRED:
+      /* The host announced its own shutdown in register 0x62, and going quiet is what shutting
+       * down looks like. Cutting the bus and raising it again is exactly the wrong answer, so
+       * give it another window instead - a cancelled power off leaves the watchdog armed. */
+      if (s_PowerOffPending)
+      {
+        host_wdt_Start();
+        break;
+      }
+
+      /* Only a host that never spoke counts against the latch. A good boot in between does not
+       * clear the tally on its own, which makes the latch a little eager - the safe direction. */
+      if (host_wdt_HostSpoke())
+        s_HostWdtTrips = 0;
+      else if (s_HostWdtTrips < APP_HOST_WDT_MAX_TRIPS)
+        s_HostWdtTrips++;
+
+      diag_Set(DIAG_HOST_WDT_EXPIRED);
+      pwr_mngr_SetStatusFlags(PWR_STATUS_HOST_WDT_EXPIRED);
+
+      s_HostWdtCycle = (s_HostWdtTrips < APP_HOST_WDT_MAX_TRIPS);
+      if (s_HostWdtCycle)
+        LOG_ERROR("[APP] Host WDT expired: cycling the 5V bus (miss %u)",
+            (unsigned)s_HostWdtTrips);
+      else
+        LOG_CRITICAL("[APP] HOST NEVER CAME UP IN %u TRIES: STAYING POWERED OFF",
+            (unsigned)APP_HOST_WDT_MAX_TRIPS);
+
+      next = SM_APP_OFF;
+    break;
+
+    case APP_EVT_CHRGR_STATUS:
       // While the host is up, arm follows the source:
-      SetWakeupOnChargeArmed(!_evt->chargerInput.present);
+      if (IsVinEdge(_evt->chargerStatus.status))
+        SetWakeupOnChargeArmed(!charger_IsVinPresentStatus(_evt->chargerStatus.status));
     break;
 
     case APP_EVT_TIMER_FAULT_FORGIVE:
@@ -844,6 +958,7 @@ static AppState_t state_Fault(const AppEvent_t *_evt)
       pwr_mngr_HostOff();
       IoControlShutdown();
       xTimerStop(s_TimerFaultForgiveHandle, 0);   // it only measures time spent in ON
+      host_wdt_Stop();                            // it only counts while the host is powered
 
       s_FaultAttempts++;
       LOG_ERROR("[APP] State FAULT: faul_mask=0x%02X, attempt=%u", (unsigned)s_FaultMask,
@@ -951,8 +1066,9 @@ static void Task(void *parameters)
     if (xQueueReceive(s_EvtQueHandle, &evt, portMAX_DELAY) != pdPASS)
       continue;
 
-    ProcessEvent(&evt);
+    ProcessEventBeforeFsm(&evt);
     fsm_Dispatch(&evt);
+    ProcessEventAfterFsm(&evt);
   }
 }
 
@@ -985,6 +1101,10 @@ void app_Init(void)
   s_TimerWdtHandle = xTimerCreateStatic("WDT", pdMS_TO_TICKS(APP_WDT_REFRESH_MS),
                            pdTRUE, NULL, OnTimerWdt, &s_TimerWdt);
   ASSERT(s_TimerWdtHandle != NULL);
+
+  s_TimerHostWdtOffHandle = xTimerCreateStatic("HWDT_OFF", pdMS_TO_TICKS(APP_HOST_WDT_OFF_MS),
+                           pdFALSE, NULL, OnTimerHostWdtRecover, &s_TimerHostWdtOff);
+  ASSERT(s_TimerHostWdtOffHandle != NULL);
 
   s_TaskHandleApp = xTaskCreateStatic(Task, "APP", sizeof(TaskStackApp)/sizeof(StackType_t),
                            NULL, TASK_APP_PRIO,
@@ -1075,54 +1195,14 @@ uint8_t app_OnCmdGetPowerOffCounter(void)
   return (left <= pdMS_TO_TICKS(250000)) ? (uint8_t)(left / configTICK_RATE_HZ) : 0;
 }
 
-void app_OnCmdSetHostWDTConfig(uint8_t _data[], uint16_t _len)
+void app_OnCmdSetOwnAddress(uint8_t _slot, uint8_t _addr7)
 {
-  LOG_WARNING("[APP] Rcvd CMD SetHostWDTConfig: data[0]=%u, data[1]=%u, len=%u",
-      (unsigned)_data[0], (unsigned)_data[1], (unsigned)_len);
-  // TODO
-  /*
-  if (_len < 2)
-    return;
-
-  uint16_t cfg = ((uint16_t)_data[1] << 8) | _data[0];
-  uint16_t d = cfg & 0x3FFF;
-  d <<= ((cfg & 0x4000) >> 13);   // 4 minute resolution over the 16384-65536 range
-
-  if (!(_data[1] & 0x80))
-  {
-    s_WdtHostPeriodMs = d * (uint32_t)60000;
-    s_WdtHostTimer = MS_TIME_COUNT(lastHostCommandTimer) + s_WdtHostPeriodMs;
-    return;
-  }
-
-  s_WdtHostConfig = d;
-  nv_write_U8(NV_ADDR_WATCHDOG_CONFIGL, s_WdtHostConfig);
-  nv_write_U8(NV_ADDR_WATCHDOG_CONFIGH, s_WdtHostConfig >> 8);
-
-  if (nv_read_U8(NV_ADDR_WATCHDOG_CONFIGL, (uint8_t*)&s_WdtHostConfig) != NV_OK
-   || nv_read_U8(NV_ADDR_WATCHDOG_CONFIGH, (uint8_t*)&s_WdtHostConfig + 1) != NV_OK)
-  {
-    s_WdtHostConfig = 0;
-  }
-
-  if (s_WdtHostConfig == 0)
-  {
-    s_WdtHostPeriodMs = 0;
-    s_WdtHostTimer = 0;
-  }*/
-}
-
-void app_OnCmdGetHostWDTConfig(uint8_t _data[], uint16_t *_p_len)
-{
-  LOG_DEBUG("[APP] Rcvd CMD GetHostWDTConfig");
-
-  uint16_t d = s_WdtHostConfig ? s_WdtHostConfig : (uint16_t)(s_WdtHostPeriodMs / 60000);
-  if (d >= 0x4000)
-    d = (d >> 2) | 0x4000;
-
-  _data[0] = d;
-  _data[1] = (d >> 8) | (s_WdtHostConfig ? 0x80 : 0x00);
-  *_p_len = 2;
+  LOG_WARNING("[APP] Rcvd CMD SetOwnAddress: slot=%u, addr=0x%02X",
+      (unsigned)_slot, (unsigned)_addr7);
+  AppEvent_t evt = { .type = APP_EVT_CMD_SET_OWN_ADDRESS };
+  evt.ownAddress.slot = _slot;
+  evt.ownAddress.addr7 = _addr7;
+  app_PostEvent(&evt);
 }
 
 void app_OnCmdSetWakeupOnCharge(uint8_t _data[], uint16_t _len)

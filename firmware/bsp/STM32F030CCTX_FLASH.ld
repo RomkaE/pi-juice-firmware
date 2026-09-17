@@ -61,7 +61,9 @@ _Min_Stack_Size = 0x400;	/* required amount of stack */
 /* Memories definition */
 MEMORY
 {
-  RAM	(xrw)	: ORIGIN = 0x20000000,	LENGTH = 32K
+  RAM	(xrw)	: ORIGIN = 0x20000000,	LENGTH = 32K - 256
+  /* Fixed home of no_init: above the stack and the system bootloader's RAM (first 6 KB, AN2606). */
+  RAM_NOINIT	(rw)	: ORIGIN = 0x20008000 - 256,	LENGTH = 256
   FLASH	(rx)	: ORIGIN = 0x08000000,	LENGTH = 252K	/* The last two flash pages are used for EEPROM emulation. See eeprom.h. */
 }
 
@@ -179,13 +181,11 @@ SECTIONS
   
   no_init (NOLOAD) :
   {
-    . = ALIGN(4);
     _snoinit = .;
-    KEEP(*(no_init))
     KEEP(*(no_init*))
     . = ALIGN(4);
     _enoinit = .;
-  } >RAM
+  } >RAM_NOINIT
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :

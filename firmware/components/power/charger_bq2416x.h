@@ -62,7 +62,6 @@ typedef struct
   ChargerFaultStatus_t fault;
   ChargerInputStatus_t in_stat;
   bool batt_present;
-  bool input_present;
   bool dpm_stat;
 //  uint8_t ts_fault;
 //  uint8_t usb_stat;
@@ -93,6 +92,9 @@ ChargerInputStatus_t charger_GetInStatus(void);
 ChargerFaultStatus_t charger_GetFaultStatus(void);
 bool charger_IsNoBatteryTurnOnEnabled(void);
 
+// Whether a status means an external source on IN - the one rule for "external power present".
+bool charger_IsVinPresentStatus(ChargerStatus_t _status);
+
 // Setters, all called from the APP task. Each hands a value to the task and returns - no NV
 // access, no blocking, no bus traffic in the caller's context. The register cache belongs to the
 // CHG task, which is why even the lockout and current-limit calls go through the queue.
@@ -109,7 +111,6 @@ void charger_SetThermalState(BatteryThermalState_T state);
 #define CHG_CHANGED_IN_STATUS     0x04
 #define CHG_CHANGED_BATT_PRESENT  0x08
 #define CHG_CHANGED_DPM_STATUS    0x10
-#define CHG_CHANGED_INPUT_PRESENT 0x20
 
 /* The mask is what the publisher already computes to log the transitions, so the consumer does not
  * have to keep a second mirror of the snapshot just to rediscover it. */
